@@ -19,3 +19,19 @@ func TestPutThenGet(t *testing.T) {
 		t.Fatalf("Get(%q) = %v, want 42", "hello", got)
 	}
 }
+
+func TestPutTwoKeysNoCommonPrefix(t *testing.T) {
+	tree := New()
+	tree.Put([]byte("apple"), 1)
+	tree.Put([]byte("banana"), 2)
+
+	if v, ok := tree.Get([]byte("apple")); !ok || v != 1 {
+		t.Fatalf("Get(apple) = (%v, %v), want (1, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("banana")); !ok || v != 2 {
+		t.Fatalf("Get(banana) = (%v, %v), want (2, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("cherry")); ok {
+		t.Fatalf("Get(cherry) = (%v, %v), want (nil, false)", v, ok)
+	}
+}
