@@ -166,6 +166,15 @@ func growToNode16(n *node4) *node16 {
 	return grown
 }
 
+// shrinkToNode4 returns a node4 holding the same sorted children as n.
+// Caller guarantees n.numChildren <= node4Capacity.
+func shrinkToNode4(n *node16) *node4 {
+	shrunk := &node4{numChildren: n.numChildren}
+	copy(shrunk.keys[:n.numChildren], n.keys[:n.numChildren])
+	copy(shrunk.children[:n.numChildren], n.children[:n.numChildren])
+	return shrunk
+}
+
 // node48 maps edge bytes to children via a 256-entry index where a
 // stored value of 0 means "absent" and any other value is a 1-based
 // slot into children.
@@ -228,6 +237,25 @@ func growToNode48(n *node16) *node48 {
 	return grown
 }
 
+// shrinkToNode16 returns a node16 holding the same children as n, with
+// keys populated in ascending edge-byte order so node16's sort
+// invariant is preserved. Caller guarantees n.numChildren <=
+// node16Capacity.
+func shrinkToNode16(n *node48) *node16 {
+	shrunk := &node16{numChildren: n.numChildren}
+	i := uint8(0)
+	for edge := 0; edge < 256; edge++ {
+		slot := n.childIndex[byte(edge)]
+		if slot == 0 {
+			continue
+		}
+		shrunk.keys[i] = byte(edge)
+		shrunk.children[i] = n.children[slot-1]
+		i++
+	}
+	return shrunk
+}
+
 // node256 indexes children directly by edge byte; a nil slot means
 // absent. numChildren tracks the count for fast emptiness checks.
 type node256 struct {
@@ -269,6 +297,29 @@ func growToNode256(n *node48) *node256 {
 		}
 	}
 	return grown
+}
+
+// shrinkToNode48 returns a node48 holding the same children as n, with
+// childIndex populated from the occupied slots in n. Caller guarantees
+// n.numChildren <= node48Capacity.
+func shrinkToNode48(n *node256) *node48 {
+	shrunk := &node48{numChildren: uint8(n.numChildren)}
+	slot := uint8(0)
+	for b := 0; b < 256; b++ {
+		if n.children[b] == nil {
+			continue
+		}
+		shrunk.children[slot] = n.children[b]
+		shrunk.childIndex[b] = slot + 1
+		slot++
+	}
+	return shrunk
+}
+
+// collapseToOnlyChild returns the single remaining child of n. Caller
+// guarantees n.numChildren == 1.
+func collapseToOnlyChild(n *node4) node {
+	return n.children[0]
 }
 
 // Tree is a sorted map backed by an Adaptive Radix Tree.
@@ -367,7 +418,9 @@ func (t *Tree) Get(key []byte) (value any, ok bool) {
 // Delete removes key from the tree, returning whether it was present.
 // This slice assumes keys differ at byte 0, so the root is either the
 // matching leaf or an inner node whose child at key[0] is the leaf.
-// Emptied inner roots collapse to nil; node-type demotion is deferred.
+// After a successful remove the root is demoted to a smaller node type
+// (or collapsed to its only child) whenever its child count crosses
+// the next-smaller capacity.
 func (t *Tree) Delete(key []byte) bool {
 	if t.root == nil {
 		return false
@@ -386,8 +439,35 @@ func (t *Tree) Delete(key []byte) bool {
 	inner.removeChild(key[0])
 	if inner.isEmpty() {
 		t.root = nil
+		return true
 	}
+	t.root = shrunkenOrSame(inner)
 	return true
+}
+
+// shrunkenOrSame returns the smaller-kinded replacement for n if its
+// child count has dropped to the next-smaller capacity (or to a single
+// child, in node4's case), otherwise n itself.
+func shrunkenOrSame(n innerNode) node {
+	switch m := n.(type) {
+	case *node256:
+		if m.numChildren == node48Capacity {
+			return shrinkToNode48(m)
+		}
+	case *node48:
+		if m.numChildren == node16Capacity {
+			return shrinkToNode16(m)
+		}
+	case *node16:
+		if m.numChildren == node4Capacity {
+			return shrinkToNode4(m)
+		}
+	case *node4:
+		if m.numChildren == 1 {
+			return collapseToOnlyChild(m)
+		}
+	}
+	return n
 }
 
 // isLeafWithKey reports whether child is a leaf whose full key equals

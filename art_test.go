@@ -151,3 +151,35 @@ func TestDeleteKey(t *testing.T) {
 		t.Fatalf("Get(apple) post-miss-delete = (%v, %v), want (1, true)", v, ok)
 	}
 }
+
+func TestDeleteShrinksThroughAllNodeTypes(t *testing.T) {
+	tree := New()
+
+	// Fill to node256 (49+ distinct first bytes).
+	const n = 49
+	for i := 0; i < n; i++ {
+		tree.Put([]byte{byte(i)}, i)
+	}
+	// Delete down to force node256 -> node48 -> node16 -> node4 -> leaf.
+	for i := n - 1; i >= 1; i-- {
+		if !tree.Delete([]byte{byte(i)}) {
+			t.Fatalf("Delete(%d) returned false", i)
+		}
+	}
+	// Only key 0 remains.
+	if v, ok := tree.Get([]byte{byte(0)}); !ok || v != 0 {
+		t.Fatalf("Get(0) = (%v, %v), want (0, true)", v, ok)
+	}
+	for i := 1; i < n; i++ {
+		if v, ok := tree.Get([]byte{byte(i)}); ok {
+			t.Fatalf("Get(%d) = (%v, %v), want miss", i, v, ok)
+		}
+	}
+	// Delete the last one; tree becomes empty.
+	if !tree.Delete([]byte{byte(0)}) {
+		t.Fatal("Delete(0) returned false")
+	}
+	if v, ok := tree.Get([]byte{byte(0)}); ok {
+		t.Fatalf("Get(0) on empty = (%v, %v), want miss", v, ok)
+	}
+}
