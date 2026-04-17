@@ -68,3 +68,26 @@ func TestPutMoreThanFourKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestPutMoreThanSixteenKeys(t *testing.T) {
+	tree := New()
+	// 17 distinct first bytes forces node16 -> node48 promotion.
+	const n = 17
+	for i := 0; i < n; i++ {
+		tree.Put([]byte{byte(i)}, i)
+	}
+	for i := 0; i < n; i++ {
+		if v, ok := tree.Get([]byte{byte(i)}); !ok || v != i {
+			t.Fatalf("Get(%d) = (%v, %v), want (%d, true)", i, v, ok, i)
+		}
+	}
+	// Overwrite at node48 level.
+	tree.Put([]byte{byte(5)}, 999)
+	if v, ok := tree.Get([]byte{byte(5)}); !ok || v != 999 {
+		t.Fatalf("after overwrite, Get(5) = (%v, %v), want (999, true)", v, ok)
+	}
+	// Miss still returns (nil, false).
+	if v, ok := tree.Get([]byte{byte(200)}); ok {
+		t.Fatalf("Get(200) = (%v, %v), want (nil, false)", v, ok)
+	}
+}
