@@ -85,8 +85,9 @@ func New() *Tree {
 	return &Tree{}
 }
 
-// Put associates value with key. This slice assumes keys have distinct
-// first bytes; overwrite and shared-prefix handling arrive later.
+// Put associates value with key. This slice handles overwrites of
+// existing keys up to one node4 level; shared-prefix handling arrives
+// later.
 func (t *Tree) Put(key []byte, value any) {
 	if t.root == nil {
 		t.root = newLeaf(key, value)
@@ -94,8 +95,16 @@ func (t *Tree) Put(key []byte, value any) {
 	}
 	switch r := t.root.(type) {
 	case *leaf:
+		if bytes.Equal(r.key, key) {
+			r.value = value
+			return
+		}
 		t.root = newNode4With(r, key, value)
 	case *node4:
+		if existing, ok := r.findChild(key[0]).(*leaf); ok && bytes.Equal(existing.key, key) {
+			existing.value = value
+			return
+		}
 		r.insertChild(key[0], newLeaf(key, value))
 	}
 }

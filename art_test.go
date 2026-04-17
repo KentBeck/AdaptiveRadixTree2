@@ -35,3 +35,23 @@ func TestPutTwoKeysNoCommonPrefix(t *testing.T) {
 		t.Fatalf("Get(cherry) = (%v, %v), want (nil, false)", v, ok)
 	}
 }
+
+func TestOverwriteExistingKey(t *testing.T) {
+	tree := New()
+
+	tree.Put([]byte("hello"), 1)
+	tree.Put([]byte("hello"), 2)
+	if v, ok := tree.Get([]byte("hello")); !ok || v != 2 {
+		t.Fatalf("after leaf-root overwrite, Get(hello) = (%v, %v), want (2, true)", v, ok)
+	}
+
+	tree.Put([]byte("world"), 10)
+	tree.Put([]byte("hello"), 3)
+	tree.Put([]byte("world"), 20)
+	if v, ok := tree.Get([]byte("hello")); !ok || v != 3 {
+		t.Fatalf("after node4-child overwrite, Get(hello) = (%v, %v), want (3, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("world")); !ok || v != 20 {
+		t.Fatalf("after node4-child overwrite, Get(world) = (%v, %v), want (20, true)", v, ok)
+	}
+}
