@@ -57,9 +57,7 @@ func (n *node4) findChild(b byte) node {
 	return nil
 }
 
-// insertChild inserts child under edge byte b. Caller guarantees b is
-// not already present and that the node is not yet full.
-func (n *node4) insertChild(b byte, child node) {
+func (n *node4) addChild(b byte, child node) {
 	i := uint8(0)
 	for i < n.numChildren && n.keys[i] < b {
 		i++
@@ -76,8 +74,8 @@ func (n *node4) insertChild(b byte, child node) {
 // byte 0.
 func newNode4With(existing *leaf, newKey []byte, newValue any) *node4 {
 	n := &node4{}
-	n.insertChild(existing.key[0], existing)
-	n.insertChild(newKey[0], newLeaf(newKey, newValue))
+	n.addChild(existing.key[0], existing)
+	n.addChild(newKey[0], newLeaf(newKey, newValue))
 	return n
 }
 
@@ -152,7 +150,7 @@ func (t *Tree) Put(key []byte, value any) {
 			return
 		}
 		if r.numChildren < node4Capacity {
-			r.insertChild(key[0], newLeaf(key, value))
+			r.addChild(key[0], newLeaf(key, value))
 			return
 		}
 		grown := growToNode16(r)
