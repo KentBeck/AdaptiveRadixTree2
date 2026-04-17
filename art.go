@@ -1,7 +1,7 @@
 // Package art is an Adaptive Radix Tree implementation.
 //
-// This slice supports two keys that differ at byte 0. Path compression,
-// lazy expansion, and the larger node variants (Node16/48/256) will
+// Keys are currently assumed to differ at byte 0. Path compression,
+// lazy expansion, and the larger node variants (Node48/256) will
 // arrive in later slices.
 package art
 
@@ -12,6 +12,12 @@ type nodeKind uint8
 const (
 	kindLeaf nodeKind = iota
 	kindNode4
+	kindNode16
+)
+
+const (
+	node4Capacity  = 4
+	node16Capacity = 16
 )
 
 type node interface {
@@ -75,6 +81,46 @@ func newNode4With(existing *leaf, newKey []byte, newValue any) *node4 {
 	return n
 }
 
+// node16 keeps keys[:numChildren] sorted ascending by edge byte.
+type node16 struct {
+	keys        [node16Capacity]byte
+	children    [node16Capacity]node
+	numChildren uint8
+}
+
+func (*node16) kind() nodeKind { return kindNode16 }
+
+func (n *node16) findChild(b byte) node {
+	for i := uint8(0); i < n.numChildren; i++ {
+		if n.keys[i] == b {
+			return n.children[i]
+		}
+	}
+	return nil
+}
+
+// insertChild inserts child under edge byte b. Caller guarantees b is
+// not already present and that the node is not yet full.
+func (n *node16) insertChild(b byte, child node) {
+	i := uint8(0)
+	for i < n.numChildren && n.keys[i] < b {
+		i++
+	}
+	copy(n.keys[i+1:n.numChildren+1], n.keys[i:n.numChildren])
+	copy(n.children[i+1:n.numChildren+1], n.children[i:n.numChildren])
+	n.keys[i] = b
+	n.children[i] = child
+	n.numChildren++
+}
+
+// growToNode16 returns a node16 holding the same sorted children as n.
+func growToNode16(n *node4) *node16 {
+	grown := &node16{numChildren: n.numChildren}
+	copy(grown.keys[:n.numChildren], n.keys[:n.numChildren])
+	copy(grown.children[:n.numChildren], n.children[:n.numChildren])
+	return grown
+}
+
 // Tree is a sorted map backed by an Adaptive Radix Tree.
 type Tree struct {
 	root node
@@ -105,6 +151,14 @@ func (t *Tree) Put(key []byte, value any) {
 			existing.value = value
 			return
 		}
+		if r.numChildren < node4Capacity {
+			r.insertChild(key[0], newLeaf(key, value))
+			return
+		}
+		grown := growToNode16(r)
+		grown.insertChild(key[0], newLeaf(key, value))
+		t.root = grown
+	case *node16:
 		r.insertChild(key[0], newLeaf(key, value))
 	}
 }
@@ -120,6 +174,8 @@ func (t *Tree) Get(key []byte) (value any, ok bool) {
 			}
 			return nil, false
 		case *node4:
+			current = n.findChild(key[0])
+		case *node16:
 			current = n.findChild(key[0])
 		}
 	}

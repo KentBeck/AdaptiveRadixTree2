@@ -55,3 +55,16 @@ func TestOverwriteExistingKey(t *testing.T) {
 		t.Fatalf("after node4-child overwrite, Get(world) = (%v, %v), want (20, true)", v, ok)
 	}
 }
+
+func TestPutMoreThanFourKeys(t *testing.T) {
+	tree := New()
+	keys := []string{"a", "b", "c", "d", "e"}
+	for i, k := range keys {
+		tree.Put([]byte(k), i)
+	}
+	for i, k := range keys {
+		if v, ok := tree.Get([]byte(k)); !ok || v != i {
+			t.Fatalf("Get(%q) = (%v, %v), want (%d, true)", k, v, ok, i)
+		}
+	}
+}
