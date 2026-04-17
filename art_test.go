@@ -91,3 +91,20 @@ func TestPutMoreThanSixteenKeys(t *testing.T) {
 		t.Fatalf("Get(200) = (%v, %v), want (nil, false)", v, ok)
 	}
 }
+
+func TestPutMoreThanFortyEightKeys(t *testing.T) {
+	tree := New()
+	const n = 49
+	for i := 0; i < n; i++ {
+		tree.Put([]byte{byte(i)}, i)
+	}
+	for i := 0; i < n; i++ {
+		if v, ok := tree.Get([]byte{byte(i)}); !ok || v != i {
+			t.Fatalf("Get(%d) = (%v, %v), want (%d, true)", i, v, ok, i)
+		}
+	}
+	tree.Put([]byte{byte(10)}, 123)
+	if v, ok := tree.Get([]byte{byte(10)}); !ok || v != 123 {
+		t.Fatalf("after overwrite, Get(10) = (%v, %v), want (123, true)", v, ok)
+	}
+}

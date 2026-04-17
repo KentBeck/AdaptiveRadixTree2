@@ -1,7 +1,7 @@
 // Package art is an Adaptive Radix Tree implementation.
 //
-// Keys are currently assumed to differ at byte 0. Path compression,
-// lazy expansion, and the Node256 variant will arrive in later slices.
+// Keys are currently assumed to differ at byte 0. Path compression
+// and lazy expansion will arrive in later slices.
 package art
 
 import "bytes"
@@ -13,12 +13,14 @@ const (
 	kindNode4
 	kindNode16
 	kindNode48
+	kindNode256
 )
 
 const (
-	node4Capacity  = 4
-	node16Capacity = 16
-	node48Capacity = 48
+	node4Capacity   = 4
+	node16Capacity  = 16
+	node48Capacity  = 48
+	node256Capacity = 256
 )
 
 type node interface {
@@ -156,6 +158,37 @@ func growToNode48(n *node16) *node48 {
 	return grown
 }
 
+// node256 indexes children directly by edge byte; a nil slot means
+// absent. numChildren tracks the count for fast emptiness checks.
+type node256 struct {
+	children    [node256Capacity]node
+	numChildren uint16
+}
+
+func (*node256) kind() nodeKind { return kindNode256 }
+
+func (n *node256) findChild(b byte) node {
+	return n.children[b]
+}
+
+func (n *node256) addChild(b byte, child node) {
+	n.children[b] = child
+	n.numChildren++
+}
+
+// growToNode256 returns a node256 holding the same children as n,
+// indexed directly by edge byte.
+func growToNode256(n *node48) *node256 {
+	grown := &node256{numChildren: uint16(n.numChildren)}
+	for b := 0; b < 256; b++ {
+		slot := n.childIndex[b]
+		if slot != 0 {
+			grown.children[b] = n.children[slot-1]
+		}
+	}
+	return grown
+}
+
 // Tree is a sorted map backed by an Adaptive Radix Tree.
 type Tree struct {
 	root node
@@ -210,6 +243,18 @@ func (t *Tree) Put(key []byte, value any) {
 			existing.value = value
 			return
 		}
+		if r.numChildren < node48Capacity {
+			r.addChild(key[0], newLeaf(key, value))
+			return
+		}
+		grown := growToNode256(r)
+		grown.addChild(key[0], newLeaf(key, value))
+		t.root = grown
+	case *node256:
+		if existing, ok := r.findChild(key[0]).(*leaf); ok && bytes.Equal(existing.key, key) {
+			existing.value = value
+			return
+		}
 		r.addChild(key[0], newLeaf(key, value))
 	}
 }
@@ -229,6 +274,8 @@ func (t *Tree) Get(key []byte) (value any, ok bool) {
 		case *node16:
 			current = n.findChild(key[0])
 		case *node48:
+			current = n.findChild(key[0])
+		case *node256:
 			current = n.findChild(key[0])
 		}
 	}
