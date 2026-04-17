@@ -108,3 +108,46 @@ func TestPutMoreThanFortyEightKeys(t *testing.T) {
 		t.Fatalf("after overwrite, Get(10) = (%v, %v), want (123, true)", v, ok)
 	}
 }
+
+func TestDeleteKey(t *testing.T) {
+	tree := New()
+
+	// Delete on empty tree.
+	if tree.Delete([]byte("nope")) {
+		t.Fatal("Delete on empty tree returned true")
+	}
+
+	// Delete single leaf root.
+	tree.Put([]byte("solo"), 1)
+	if !tree.Delete([]byte("solo")) {
+		t.Fatal("Delete(solo) returned false")
+	}
+	if v, ok := tree.Get([]byte("solo")); ok {
+		t.Fatalf("Get after delete = (%v, %v), want miss", v, ok)
+	}
+
+	// Delete one of three children; the other two remain reachable.
+	tree.Put([]byte("apple"), 1)
+	tree.Put([]byte("banana"), 2)
+	tree.Put([]byte("cherry"), 3)
+	if !tree.Delete([]byte("banana")) {
+		t.Fatal("Delete(banana) returned false")
+	}
+	if v, ok := tree.Get([]byte("banana")); ok {
+		t.Fatalf("Get(banana) after delete = (%v, %v), want miss", v, ok)
+	}
+	if v, ok := tree.Get([]byte("apple")); !ok || v != 1 {
+		t.Fatalf("Get(apple) = (%v, %v), want (1, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("cherry")); !ok || v != 3 {
+		t.Fatalf("Get(cherry) = (%v, %v), want (3, true)", v, ok)
+	}
+
+	// Deleting a missing key returns false without disturbing the tree.
+	if tree.Delete([]byte("zzz")) {
+		t.Fatal("Delete(zzz) returned true")
+	}
+	if v, ok := tree.Get([]byte("apple")); !ok || v != 1 {
+		t.Fatalf("Get(apple) post-miss-delete = (%v, %v), want (1, true)", v, ok)
+	}
+}

@@ -27,6 +27,16 @@ type node interface {
 	kind() nodeKind
 }
 
+// innerNode is the interface satisfied by every non-leaf node. It
+// exposes the subset of operations used by Tree.Delete so the caller
+// can act uniformly across node4/16/48/256.
+type innerNode interface {
+	node
+	findChild(b byte) node
+	removeChild(b byte)
+	isEmpty() bool
+}
+
 type leaf struct {
 	key   []byte
 	value any
@@ -72,6 +82,23 @@ func (n *node4) addChild(b byte, child node) {
 	n.numChildren++
 }
 
+// removeChild removes the child stored under edge byte b, preserving
+// the sorted order of the remaining keys. A no-op if b is absent.
+func (n *node4) removeChild(b byte) {
+	for i := uint8(0); i < n.numChildren; i++ {
+		if n.keys[i] == b {
+			copy(n.keys[i:], n.keys[i+1:n.numChildren])
+			copy(n.children[i:], n.children[i+1:n.numChildren])
+			n.numChildren--
+			n.keys[n.numChildren] = 0
+			n.children[n.numChildren] = nil
+			return
+		}
+	}
+}
+
+func (n *node4) isEmpty() bool { return n.numChildren == 0 }
+
 // newNode4With returns a node4 branching an existing leaf and a new
 // leaf on their first key byte. Only valid when the two keys differ at
 // byte 0.
@@ -114,6 +141,23 @@ func (n *node16) insertChild(b byte, child node) {
 	n.numChildren++
 }
 
+// removeChild removes the child stored under edge byte b, preserving
+// the sorted order of the remaining keys. A no-op if b is absent.
+func (n *node16) removeChild(b byte) {
+	for i := uint8(0); i < n.numChildren; i++ {
+		if n.keys[i] == b {
+			copy(n.keys[i:], n.keys[i+1:n.numChildren])
+			copy(n.children[i:], n.children[i+1:n.numChildren])
+			n.numChildren--
+			n.keys[n.numChildren] = 0
+			n.children[n.numChildren] = nil
+			return
+		}
+	}
+}
+
+func (n *node16) isEmpty() bool { return n.numChildren == 0 }
+
 // growToNode16 returns a node16 holding the same sorted children as n.
 func growToNode16(n *node4) *node16 {
 	grown := &node16{numChildren: n.numChildren}
@@ -147,6 +191,32 @@ func (n *node48) addChild(newEdge byte, child node) {
 	n.numChildren++
 }
 
+// removeChild removes the child stored under edge byte b. To keep
+// children[:numChildren] dense (which addChild relies on), the last
+// live child is swapped into the vacated slot and its index entry is
+// updated. A no-op if b is absent.
+func (n *node48) removeChild(b byte) {
+	slot := n.childIndex[b]
+	if slot == 0 {
+		return
+	}
+	last := n.numChildren
+	if slot != last {
+		for edge := 0; edge < 256; edge++ {
+			if n.childIndex[byte(edge)] == last {
+				n.children[slot-1] = n.children[last-1]
+				n.childIndex[byte(edge)] = slot
+				break
+			}
+		}
+	}
+	n.children[last-1] = nil
+	n.childIndex[b] = 0
+	n.numChildren--
+}
+
+func (n *node48) isEmpty() bool { return n.numChildren == 0 }
+
 // growToNode48 returns a node48 holding the same children as n, with
 // childIndex populated from n's sorted edge bytes.
 func growToNode48(n *node16) *node48 {
@@ -175,6 +245,18 @@ func (n *node256) addChild(b byte, child node) {
 	n.children[b] = child
 	n.numChildren++
 }
+
+// removeChild removes the child stored under edge byte b. A no-op if
+// b is absent.
+func (n *node256) removeChild(b byte) {
+	if n.children[b] == nil {
+		return
+	}
+	n.children[b] = nil
+	n.numChildren--
+}
+
+func (n *node256) isEmpty() bool { return n.numChildren == 0 }
 
 // growToNode256 returns a node256 holding the same children as n,
 // indexed directly by edge byte.
@@ -280,4 +362,38 @@ func (t *Tree) Get(key []byte) (value any, ok bool) {
 		}
 	}
 	return nil, false
+}
+
+// Delete removes key from the tree, returning whether it was present.
+// This slice assumes keys differ at byte 0, so the root is either the
+// matching leaf or an inner node whose child at key[0] is the leaf.
+// Emptied inner roots collapse to nil; node-type demotion is deferred.
+func (t *Tree) Delete(key []byte) bool {
+	if t.root == nil {
+		return false
+	}
+	if leafRoot, ok := t.root.(*leaf); ok {
+		if bytes.Equal(leafRoot.key, key) {
+			t.root = nil
+			return true
+		}
+		return false
+	}
+	inner := t.root.(innerNode)
+	if !isLeafWithKey(inner.findChild(key[0]), key) {
+		return false
+	}
+	inner.removeChild(key[0])
+	if inner.isEmpty() {
+		t.root = nil
+	}
+	return true
+}
+
+// isLeafWithKey reports whether child is a leaf whose full key equals
+// key. It returns false for nil and for inner-node children (which
+// this slice's keys-differ-at-byte-0 assumption keeps out of reach).
+func isLeafWithKey(child node, key []byte) bool {
+	l, ok := child.(*leaf)
+	return ok && bytes.Equal(l.key, key)
 }
