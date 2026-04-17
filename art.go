@@ -7,9 +7,6 @@ package art
 
 import "bytes"
 
-// nodeKind tags the concrete node variant behind a node pointer. Naming
-// each variant keeps later slices honest when Node16/48/256 are
-// introduced.
 type nodeKind uint8
 
 const (
@@ -17,13 +14,10 @@ const (
 	kindNode4
 )
 
-// node is the common interface every ART node variant satisfies.
 type node interface {
 	kind() nodeKind
 }
 
-// leaf stores the full key alongside its value. Inner nodes branch on
-// key bytes with leaves below them.
 type leaf struct {
 	key   []byte
 	value any
@@ -39,9 +33,7 @@ func newLeaf(key []byte, value any) *leaf {
 	}
 }
 
-// node4 is ART's smallest branching inner node (capacity 4). Children
-// are kept sorted by their edge byte so iteration and later promotions
-// (Node16, Node48) can rely on the same invariant.
+// node4 keeps keys[:numChildren] sorted ascending by edge byte.
 type node4 struct {
 	keys        [4]byte
 	children    [4]node
@@ -50,8 +42,6 @@ type node4 struct {
 
 func (*node4) kind() nodeKind { return kindNode4 }
 
-// findChild returns the child reached by edge byte b, or nil when none
-// of the populated slots match.
 func (n *node4) findChild(b byte) node {
 	for i := uint8(0); i < n.numChildren; i++ {
 		if n.keys[i] == b {
@@ -61,10 +51,9 @@ func (n *node4) findChild(b byte) node {
 	return nil
 }
 
-// insertChildSorted inserts child under edge byte b while preserving
-// the sorted-keys invariant. The caller guarantees b is not already
-// present and that the node is not yet full.
-func (n *node4) insertChildSorted(b byte, child node) {
+// insertChild inserts child under edge byte b. Caller guarantees b is
+// not already present and that the node is not yet full.
+func (n *node4) insertChild(b byte, child node) {
 	i := uint8(0)
 	for i < n.numChildren && n.keys[i] < b {
 		i++
@@ -76,13 +65,13 @@ func (n *node4) insertChildSorted(b byte, child node) {
 	n.numChildren++
 }
 
-// splitLeafIntoNode4 replaces an existing leaf with a node4 holding
-// both the existing leaf and a new leaf, indexed by their first bytes.
-// Only valid when the two keys differ at byte 0.
-func splitLeafIntoNode4(existing *leaf, newKey []byte, newValue any) *node4 {
+// newNode4With returns a node4 branching an existing leaf and a new
+// leaf on their first key byte. Only valid when the two keys differ at
+// byte 0.
+func newNode4With(existing *leaf, newKey []byte, newValue any) *node4 {
 	n := &node4{}
-	n.insertChildSorted(existing.key[0], existing)
-	n.insertChildSorted(newKey[0], newLeaf(newKey, newValue))
+	n.insertChild(existing.key[0], existing)
+	n.insertChild(newKey[0], newLeaf(newKey, newValue))
 	return n
 }
 
@@ -105,9 +94,9 @@ func (t *Tree) Put(key []byte, value any) {
 	}
 	switch r := t.root.(type) {
 	case *leaf:
-		t.root = splitLeafIntoNode4(r, key, value)
+		t.root = newNode4With(r, key, value)
 	case *node4:
-		r.insertChildSorted(key[0], newLeaf(key, value))
+		r.insertChild(key[0], newLeaf(key, value))
 	}
 }
 
