@@ -373,11 +373,20 @@ func putInto(current node, key []byte, value any, depth int) node {
 		}
 		return newNode4With(r, key, value, depth)
 	case *node4:
-		end := depth + len(r.prefix)
-		if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-			panic("art: node4 prefix mismatch on Put - see Slice 9 (split)")
+		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
+		if splitPoint < len(r.prefix) {
+			if depth+splitPoint >= len(key) {
+				panic("art: key exhausted before split point - see Slice 10 (key is prefix of another)")
+			}
+			oldBranchByte := r.prefix[splitPoint]
+			newBranchByte := key[depth+splitPoint]
+			parent := &node4{prefix: append([]byte(nil), r.prefix[:splitPoint]...)}
+			r.prefix = r.prefix[splitPoint+1:]
+			parent.addChild(oldBranchByte, r)
+			parent.addChild(newBranchByte, newLeaf(key, value))
+			return parent
 		}
-		depth = end
+		depth += len(r.prefix)
 		if depth >= len(key) {
 			panic("art: key exhausted at node4 branch - see Slice 10 (key is prefix of another)")
 		}
@@ -460,12 +469,16 @@ func (t *Tree) Get(key []byte) (value any, ok bool) {
 				return nil, false
 			}
 			current = n.findChild(key[depth])
+			depth++
 		case *node16:
 			current = n.findChild(key[depth])
+			depth++
 		case *node48:
 			current = n.findChild(key[depth])
+			depth++
 		case *node256:
 			current = n.findChild(key[depth])
+			depth++
 		}
 	}
 	return nil, false

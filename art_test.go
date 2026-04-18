@@ -228,3 +228,65 @@ func TestTwoKeysSharingPrefix(t *testing.T) {
 		t.Fatalf("Get(apricot) after overwrite = (%v, %v), want (200, true)", v, ok)
 	}
 }
+
+func TestSplitPrefixAtRoot(t *testing.T) {
+	// Slice 8 creates node4(prefix="ap") for "apple" + "apricot".
+	// Inserting "banana" diverges at depth 0 → split at position 0.
+	// New root: node4(prefix="") with children 'a' (the old node4, now prefix="p") and 'b' (leaf).
+	tree := New()
+	tree.Put([]byte("apple"), 1)
+	tree.Put([]byte("apricot"), 2)
+	tree.Put([]byte("banana"), 3)
+
+	for _, c := range []struct {
+		key   string
+		value any
+	}{{"apple", 1}, {"apricot", 2}, {"banana", 3}} {
+		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
+			t.Fatalf("Get(%q) = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
+		}
+	}
+	if _, ok := tree.Get([]byte("ap")); ok {
+		t.Fatalf("Get(ap) should miss")
+	}
+	if _, ok := tree.Get([]byte("bandana")); ok {
+		t.Fatalf("Get(bandana) should miss")
+	}
+}
+
+func TestSplitPrefixInMiddle(t *testing.T) {
+	// node4(prefix="ap") for "apple" + "apricot".
+	// Insert "aardvark": LCP with prefix "ap" is "a" (length 1). Split at position 1.
+	// New root: node4(prefix="a") with children 'p' (old node4, now prefix="") and 'a' (leaf).
+	tree := New()
+	tree.Put([]byte("apple"), 1)
+	tree.Put([]byte("apricot"), 2)
+	tree.Put([]byte("aardvark"), 3)
+
+	for _, c := range []struct {
+		key   string
+		value any
+	}{{"apple", 1}, {"apricot", 2}, {"aardvark", 3}} {
+		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
+			t.Fatalf("Get(%q) = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
+		}
+	}
+	if _, ok := tree.Get([]byte("a")); ok {
+		t.Fatalf("Get(a) should miss")
+	}
+	if _, ok := tree.Get([]byte("apply")); ok {
+		t.Fatalf("Get(apply) should miss")
+	}
+
+	// And a fourth key that requires another split of the new root's prefix.
+	// "cherry" diverges at position 0 with prefix "a" → split at 0. New root gets prefix "".
+	tree.Put([]byte("cherry"), 4)
+	for _, c := range []struct {
+		key   string
+		value any
+	}{{"apple", 1}, {"apricot", 2}, {"aardvark", 3}, {"cherry", 4}} {
+		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
+			t.Fatalf("Get(%q) = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
+		}
+	}
+}
