@@ -505,3 +505,97 @@ func TestSplitPrefixedNode16WithExhaustedKey(t *testing.T) {
 		t.Fatalf("Get(co) after overwrite = (%v, %v), want (43, true)", v, ok)
 	}
 }
+
+func TestGrowToNode48PreservesPrefixAndTerminal(t *testing.T) {
+	// Build a node16 with prefix "k" and terminal set to ("k", 0).
+	// Then push it to 17 branching bytes to force node16 → node48.
+	tree := New()
+	tree.Put([]byte("k"), 0)
+	for i := 0; i < 17; i++ {
+		key := []byte{'k', byte('a' + i)}
+		tree.Put(key, i+1)
+	}
+
+	if v, ok := tree.Get([]byte("k")); !ok || v != 0 {
+		t.Fatalf("Get(k) after grow = (%v, %v), want (0, true)", v, ok)
+	}
+	for i := 0; i < 17; i++ {
+		key := []byte{'k', byte('a' + i)}
+		if v, ok := tree.Get(key); !ok || v != i+1 {
+			t.Fatalf("Get(%q) after grow = (%v, %v), want (%d, true)", key, v, ok, i+1)
+		}
+	}
+
+	// Overwrite terminal survives at node48.
+	tree.Put([]byte("k"), 99)
+	if v, ok := tree.Get([]byte("k")); !ok || v != 99 {
+		t.Fatalf("Get(k) after overwrite = (%v, %v), want (99, true)", v, ok)
+	}
+}
+
+func TestGrowToNode256PreservesPrefixAndTerminal(t *testing.T) {
+	tree := New()
+	tree.Put([]byte("k"), 0)
+	for i := 0; i < 49; i++ {
+		key := []byte{'k', byte('a' + i)}
+		tree.Put(key, i+1)
+	}
+
+	if v, ok := tree.Get([]byte("k")); !ok || v != 0 {
+		t.Fatalf("Get(k) after grow = (%v, %v), want (0, true)", v, ok)
+	}
+	for i := 0; i < 49; i++ {
+		key := []byte{'k', byte('a' + i)}
+		if v, ok := tree.Get(key); !ok || v != i+1 {
+			t.Fatalf("Get(%q) after grow = (%v, %v), want (%d, true)", key, v, ok, i+1)
+		}
+	}
+
+	tree.Put([]byte("k"), 99)
+	if v, ok := tree.Get([]byte("k")); !ok || v != 99 {
+		t.Fatalf("Get(k) after overwrite = (%v, %v), want (99, true)", v, ok)
+	}
+}
+
+func TestSplitPrefixedNode48(t *testing.T) {
+	// Promote to a node48 with prefix "comm" by using 17 distinct bytes after "comm".
+	tree := New()
+	for i := 0; i < 17; i++ {
+		key := append([]byte("comm"), byte('a'+i))
+		tree.Put(key, i)
+	}
+	// Split it with a key sharing only "co".
+	tree.Put([]byte("copper"), 999)
+
+	for i := 0; i < 17; i++ {
+		key := append([]byte("comm"), byte('a'+i))
+		if v, ok := tree.Get(key); !ok || v != i {
+			t.Fatalf("Get(%q) after split = (%v, %v), want (%d, true)", key, v, ok, i)
+		}
+	}
+	if v, ok := tree.Get([]byte("copper")); !ok || v != 999 {
+		t.Fatalf("Get(copper) = (%v, %v), want (999, true)", v, ok)
+	}
+	if _, ok := tree.Get([]byte("comm")); ok {
+		t.Fatalf("Get(comm) should miss")
+	}
+}
+
+func TestSplitPrefixedNode256(t *testing.T) {
+	tree := New()
+	for i := 0; i < 49; i++ {
+		key := append([]byte("comm"), byte('a'+i))
+		tree.Put(key, i)
+	}
+	tree.Put([]byte("copper"), 999)
+
+	for i := 0; i < 49; i++ {
+		key := append([]byte("comm"), byte('a'+i))
+		if v, ok := tree.Get(key); !ok || v != i {
+			t.Fatalf("Get(%q) after split = (%v, %v), want (%d, true)", key, v, ok, i)
+		}
+	}
+	if v, ok := tree.Get([]byte("copper")); !ok || v != 999 {
+		t.Fatalf("Get(copper) = (%v, %v), want (999, true)", v, ok)
+	}
+}
