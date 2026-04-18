@@ -52,8 +52,10 @@ func newLeaf(key []byte, value any) *leaf {
 	}
 }
 
-// node4 keeps keys[:numChildren] sorted ascending by edge byte.
+// node4 keeps keys[:numChildren] sorted ascending by edge byte. The
+// prefix is consumed from the search key before branching.
 type node4 struct {
+	prefix      []byte
 	keys        [4]byte
 	children    [4]node
 	numChildren uint8
@@ -99,13 +101,32 @@ func (n *node4) removeChild(b byte) {
 
 func (n *node4) isEmpty() bool { return n.numChildren == 0 }
 
-// newNode4With returns a node4 branching an existing leaf and a new
-// leaf on their first key byte. Only valid when the two keys differ at
-// byte 0.
-func newNode4With(existing *leaf, newKey []byte, newValue any) *node4 {
-	n := &node4{}
-	n.addChild(existing.key[0], existing)
-	n.addChild(newKey[0], newLeaf(newKey, newValue))
+// longestCommonPrefix returns the leading slice of a that also
+// prefixes b.
+func longestCommonPrefix(a, b []byte) []byte {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	i := 0
+	for i < n && a[i] == b[i] {
+		i++
+	}
+	return a[:i]
+}
+
+// newNode4With returns a node4 whose prefix is the longest common tail
+// of existing.key and newKey starting at depth, branching the two
+// leaves on their first divergent byte after that prefix.
+func newNode4With(existing *leaf, newKey []byte, newValue any, depth int) *node4 {
+	shared := longestCommonPrefix(existing.key[depth:], newKey[depth:])
+	diverge := depth + len(shared)
+	if diverge >= len(existing.key) || diverge >= len(newKey) {
+		panic("art: one key is a prefix of another - see Slice 10 (key is prefix of another)")
+	}
+	n := &node4{prefix: append([]byte(nil), shared...)}
+	n.addChild(existing.key[diverge], existing)
+	n.addChild(newKey[diverge], newLeaf(newKey, newValue))
 	return n
 }
 
@@ -332,69 +353,96 @@ func New() *Tree {
 	return &Tree{}
 }
 
-// Put associates value with key. This slice handles overwrites of
-// existing keys up to one node4 level; shared-prefix handling arrives
-// later.
+// Put associates value with key. A node4's prefix is consumed from
+// the key as traversal descends; mismatches and edge cases that
+// require splitting, exhausted keys, or nested node4s are out of
+// scope for this slice and panic with pointers to the follow-up.
 func (t *Tree) Put(key []byte, value any) {
-	if t.root == nil {
-		t.root = newLeaf(key, value)
-		return
+	t.root = putInto(t.root, key, value, 0)
+}
+
+func putInto(current node, key []byte, value any, depth int) node {
+	if current == nil {
+		return newLeaf(key, value)
 	}
-	switch r := t.root.(type) {
+	switch r := current.(type) {
 	case *leaf:
 		if bytes.Equal(r.key, key) {
 			r.value = value
-			return
+			return r
 		}
-		t.root = newNode4With(r, key, value)
+		return newNode4With(r, key, value, depth)
 	case *node4:
-		if existing, ok := r.findChild(key[0]).(*leaf); ok && bytes.Equal(existing.key, key) {
+		end := depth + len(r.prefix)
+		if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
+			panic("art: node4 prefix mismatch on Put - see Slice 9 (split)")
+		}
+		depth = end
+		if depth >= len(key) {
+			panic("art: key exhausted at node4 branch - see Slice 10 (key is prefix of another)")
+		}
+		branch := key[depth]
+		child := r.findChild(branch)
+		if child == nil {
+			if r.numChildren < node4Capacity {
+				r.addChild(branch, newLeaf(key, value))
+				return r
+			}
+			grown := growToNode16(r)
+			grown.insertChild(branch, newLeaf(key, value))
+			return grown
+		}
+		existing, ok := child.(*leaf)
+		if !ok {
+			panic("art: nested inner node under node4 - out of scope this slice (nested path compression follow-up)")
+		}
+		if bytes.Equal(existing.key, key) {
 			existing.value = value
-			return
+			return r
 		}
-		if r.numChildren < node4Capacity {
-			r.addChild(key[0], newLeaf(key, value))
-			return
-		}
-		grown := growToNode16(r)
-		grown.insertChild(key[0], newLeaf(key, value))
-		t.root = grown
+		panic("art: colliding leaves under node4 branch - out of scope this slice (nested path compression follow-up)")
 	case *node16:
-		if existing, ok := r.findChild(key[0]).(*leaf); ok && bytes.Equal(existing.key, key) {
+		branch := key[depth]
+		if existing, ok := r.findChild(branch).(*leaf); ok && bytes.Equal(existing.key, key) {
 			existing.value = value
-			return
+			return r
 		}
 		if r.numChildren < node16Capacity {
-			r.insertChild(key[0], newLeaf(key, value))
-			return
+			r.insertChild(branch, newLeaf(key, value))
+			return r
 		}
 		grown := growToNode48(r)
-		grown.addChild(key[0], newLeaf(key, value))
-		t.root = grown
+		grown.addChild(branch, newLeaf(key, value))
+		return grown
 	case *node48:
-		if existing, ok := r.findChild(key[0]).(*leaf); ok && bytes.Equal(existing.key, key) {
+		branch := key[depth]
+		if existing, ok := r.findChild(branch).(*leaf); ok && bytes.Equal(existing.key, key) {
 			existing.value = value
-			return
+			return r
 		}
 		if r.numChildren < node48Capacity {
-			r.addChild(key[0], newLeaf(key, value))
-			return
+			r.addChild(branch, newLeaf(key, value))
+			return r
 		}
 		grown := growToNode256(r)
-		grown.addChild(key[0], newLeaf(key, value))
-		t.root = grown
+		grown.addChild(branch, newLeaf(key, value))
+		return grown
 	case *node256:
-		if existing, ok := r.findChild(key[0]).(*leaf); ok && bytes.Equal(existing.key, key) {
+		branch := key[depth]
+		if existing, ok := r.findChild(branch).(*leaf); ok && bytes.Equal(existing.key, key) {
 			existing.value = value
-			return
+			return r
 		}
-		r.addChild(key[0], newLeaf(key, value))
+		r.addChild(branch, newLeaf(key, value))
+		return r
 	}
+	return current
 }
 
 // Get returns the value previously stored under key, if any.
 func (t *Tree) Get(key []byte) (value any, ok bool) {
 	current := t.root
+	depth := 0
 	for current != nil {
 		switch n := current.(type) {
 		case *leaf:
@@ -403,13 +451,21 @@ func (t *Tree) Get(key []byte) (value any, ok bool) {
 			}
 			return nil, false
 		case *node4:
-			current = n.findChild(key[0])
+			end := depth + len(n.prefix)
+			if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
+				return nil, false
+			}
+			depth = end
+			if depth >= len(key) {
+				return nil, false
+			}
+			current = n.findChild(key[depth])
 		case *node16:
-			current = n.findChild(key[0])
+			current = n.findChild(key[depth])
 		case *node48:
-			current = n.findChild(key[0])
+			current = n.findChild(key[depth])
 		case *node256:
-			current = n.findChild(key[0])
+			current = n.findChild(key[depth])
 		}
 	}
 	return nil, false

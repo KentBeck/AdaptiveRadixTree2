@@ -183,3 +183,48 @@ func TestDeleteShrinksThroughAllNodeTypes(t *testing.T) {
 		t.Fatalf("Get(0) on empty = (%v, %v), want miss", v, ok)
 	}
 }
+
+func TestTwoKeysSharingPrefix(t *testing.T) {
+	tree := New()
+	tree.Put([]byte("apple"), 1)
+	tree.Put([]byte("apricot"), 2)
+
+	if v, ok := tree.Get([]byte("apple")); !ok || v != 1 {
+		t.Fatalf("Get(apple) = (%v, %v), want (1, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("apricot")); !ok || v != 2 {
+		t.Fatalf("Get(apricot) = (%v, %v), want (2, true)", v, ok)
+	}
+
+	// Key that doesn't match the shared prefix at all.
+	if v, ok := tree.Get([]byte("banana")); ok {
+		t.Fatalf("Get(banana) = (%v, %v), want miss", v, ok)
+	}
+	// Key that matches the prefix but has no corresponding child.
+	if v, ok := tree.Get([]byte("apology")); ok {
+		t.Fatalf("Get(apology) = (%v, %v), want miss", v, ok)
+	}
+	// Key shorter than the prefix.
+	if v, ok := tree.Get([]byte("a")); ok {
+		t.Fatalf("Get(a) = (%v, %v), want miss", v, ok)
+	}
+
+	// Put a third key that shares the prefix; both old and new visible.
+	tree.Put([]byte("apology"), 3)
+	if v, ok := tree.Get([]byte("apology")); !ok || v != 3 {
+		t.Fatalf("Get(apology) after Put = (%v, %v), want (3, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("apple")); !ok || v != 1 {
+		t.Fatalf("Get(apple) still visible = (%v, %v), want (1, true)", v, ok)
+	}
+
+	// Overwrite of an existing key inside a prefixed node4.
+	tree.Put([]byte("apple"), 99)
+	if v, ok := tree.Get([]byte("apple")); !ok || v != 99 {
+		t.Fatalf("Get(apple) after overwrite = (%v, %v), want (99, true)", v, ok)
+	}
+	tree.Put([]byte("apricot"), 200)
+	if v, ok := tree.Get([]byte("apricot")); !ok || v != 200 {
+		t.Fatalf("Get(apricot) after overwrite = (%v, %v), want (200, true)", v, ok)
+	}
+}
