@@ -438,7 +438,7 @@ func putInto(current node, key []byte, value any, depth int) node {
 	case *node16:
 		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
 		if splitPoint < len(r.prefix) {
-			panic("art: splitting prefixed node16 - see Slice 11b (split prefixed node16)")
+			return splitNode16Prefix(r, key, value, depth, splitPoint)
 		}
 		return putIntoNode16(r, key, value, depth+len(r.prefix))
 	case *node48:
@@ -473,10 +473,32 @@ func putInto(current node, key []byte, value any, depth int) node {
 // split point it becomes the parent's terminal value; otherwise the
 // new leaf is attached as the second branching child.
 func splitNode4Prefix(r *node4, key []byte, value any, depth, splitPoint int) *node4 {
-	parent := &node4{prefix: append([]byte(nil), r.prefix[:splitPoint]...)}
+	shared := r.prefix[:splitPoint]
 	oldBranch := r.prefix[splitPoint]
 	r.prefix = r.prefix[splitPoint+1:]
-	parent.addChild(oldBranch, r)
+	return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint)
+}
+
+// splitNode16Prefix mirrors splitNode4Prefix at node16 capacity. The
+// new parent is still a node4 (it holds at most the adopted node16
+// plus one new leaf), with the adoptee's prefix shortened past the
+// divergence byte.
+func splitNode16Prefix(r *node16, key []byte, value any, depth, splitPoint int) *node4 {
+	shared := r.prefix[:splitPoint]
+	oldBranch := r.prefix[splitPoint]
+	r.prefix = r.prefix[splitPoint+1:]
+	return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint)
+}
+
+// splitPrefixedInner builds a new parent node4 whose prefix is a copy
+// of shared and which adopts adoptee under edge byte oldBranch. If
+// key is exhausted at the split point the parent's terminal holds
+// (key, value); otherwise a new leaf is attached as the second
+// branching child. Caller guarantees adoptee's own prefix has already
+// been shortened past oldBranch.
+func splitPrefixedInner(adoptee node, oldBranch byte, shared, key []byte, value any, depth, splitPoint int) *node4 {
+	parent := &node4{prefix: append([]byte(nil), shared...)}
+	parent.addChild(oldBranch, adoptee)
 	if depth+splitPoint == len(key) {
 		parent.terminal = newLeaf(key, value)
 	} else {

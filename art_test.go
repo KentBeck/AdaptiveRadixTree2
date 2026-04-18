@@ -436,3 +436,72 @@ func TestNestedNode4FromDivergentLeaves(t *testing.T) {
 		t.Fatalf("Get(ap) should miss")
 	}
 }
+
+func TestSplitPrefixedNode16(t *testing.T) {
+	// Build a node16 whose prefix is "comm" by inserting keys that share "comm".
+	// Five keys with distinct bytes after "comm" promote node4 → node16.
+	tree := New()
+	tree.Put([]byte("commit"), 1)
+	tree.Put([]byte("common"), 2)
+	tree.Put([]byte("compare"), 3)
+	tree.Put([]byte("compute"), 4)
+	tree.Put([]byte("company"), 5)
+
+	// All five read back.
+	for _, c := range []struct {
+		key   string
+		value any
+	}{{"commit", 1}, {"common", 2}, {"compare", 3}, {"compute", 4}, {"company", 5}} {
+		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
+			t.Fatalf("Get(%q) = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
+		}
+	}
+
+	// Insert a key that shares only "co" — forces a split of the prefixed node16.
+	tree.Put([]byte("copper"), 6)
+	for _, c := range []struct {
+		key   string
+		value any
+	}{{"commit", 1}, {"common", 2}, {"compare", 3}, {"compute", 4}, {"company", 5}, {"copper", 6}} {
+		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
+			t.Fatalf("Get(%q) after split = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
+		}
+	}
+	// Intermediate prefixes should miss.
+	if _, ok := tree.Get([]byte("co")); ok {
+		t.Fatalf("Get(co) should miss")
+	}
+	if _, ok := tree.Get([]byte("comm")); ok {
+		t.Fatalf("Get(comm) should miss")
+	}
+}
+
+func TestSplitPrefixedNode16WithExhaustedKey(t *testing.T) {
+	// Same node16 with prefix "comm" as above, but the splitting key is
+	// exhausted exactly at the split point → parent node4 gets a terminal.
+	tree := New()
+	tree.Put([]byte("commit"), 1)
+	tree.Put([]byte("common"), 2)
+	tree.Put([]byte("compare"), 3)
+	tree.Put([]byte("compute"), 4)
+	tree.Put([]byte("company"), 5)
+
+	tree.Put([]byte("co"), 42) // exhausts at the split point
+
+	if v, ok := tree.Get([]byte("co")); !ok || v != 42 {
+		t.Fatalf("Get(co) = (%v, %v), want (42, true)", v, ok)
+	}
+	for _, c := range []struct {
+		key   string
+		value any
+	}{{"commit", 1}, {"common", 2}, {"compare", 3}, {"compute", 4}, {"company", 5}} {
+		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
+			t.Fatalf("Get(%q) after exhausted split = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
+		}
+	}
+	// Overwrite the new terminal.
+	tree.Put([]byte("co"), 43)
+	if v, ok := tree.Get([]byte("co")); !ok || v != 43 {
+		t.Fatalf("Get(co) after overwrite = (%v, %v), want (43, true)", v, ok)
+	}
+}
