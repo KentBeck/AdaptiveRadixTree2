@@ -472,62 +472,51 @@ func putInto(current node, key []byte, value any, depth int) node {
 	case *node4:
 		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
 		if splitPoint < len(r.prefix) {
-			return splitNode4Prefix(r, key, value, depth, splitPoint)
+			shared := r.prefix[:splitPoint]
+			oldBranch := r.prefix[splitPoint]
+			r.prefix = r.prefix[splitPoint+1:]
+			return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint)
 		}
 		return putIntoNode4(r, key, value, depth+len(r.prefix))
 	case *node16:
 		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
 		if splitPoint < len(r.prefix) {
-			return splitNode16Prefix(r, key, value, depth, splitPoint)
+			shared := r.prefix[:splitPoint]
+			oldBranch := r.prefix[splitPoint]
+			r.prefix = r.prefix[splitPoint+1:]
+			return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint)
 		}
 		return putIntoNode16(r, key, value, depth+len(r.prefix))
 	case *node48:
 		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
 		if splitPoint < len(r.prefix) {
-			return splitNode48Prefix(r, key, value, depth, splitPoint)
+			shared := r.prefix[:splitPoint]
+			oldBranch := r.prefix[splitPoint]
+			r.prefix = r.prefix[splitPoint+1:]
+			return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint)
 		}
 		return putIntoNode48(r, key, value, depth+len(r.prefix))
 	case *node256:
 		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
 		if splitPoint < len(r.prefix) {
-			return splitNode256Prefix(r, key, value, depth, splitPoint)
+			shared := r.prefix[:splitPoint]
+			oldBranch := r.prefix[splitPoint]
+			r.prefix = r.prefix[splitPoint+1:]
+			return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint)
 		}
 		return putIntoNode256(r, key, value, depth+len(r.prefix))
 	}
 	return current
 }
 
-// splitNode4Prefix handles the case where key[depth:] shares only a
-// proper prefix of r.prefix. A new parent node4 takes that shared
-// prefix and adopts r (with its prefix shortened past the divergence
-// byte) as one branching child. If key is exhausted exactly at the
-// split point it becomes the parent's terminal value; otherwise the
-// new leaf is attached as the second branching child.
-func splitNode4Prefix(r *node4, key []byte, value any, depth, splitPoint int) *node4 {
-	shared := r.prefix[:splitPoint]
-	oldBranch := r.prefix[splitPoint]
-	r.prefix = r.prefix[splitPoint+1:]
-	return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint)
-}
-
-// splitNode16Prefix mirrors splitNode4Prefix at node16 capacity. The
-// new parent is still a node4 (it holds at most the adopted node16
-// plus one new leaf), with the adoptee's prefix shortened past the
-// divergence byte.
-func splitNode16Prefix(r *node16, key []byte, value any, depth, splitPoint int) *node4 {
-	shared := r.prefix[:splitPoint]
-	oldBranch := r.prefix[splitPoint]
-	r.prefix = r.prefix[splitPoint+1:]
-	return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint)
-}
-
-// splitPrefixedInner builds a new parent node4 whose prefix is a copy
-// of shared and which adopts adoptee under edge byte oldBranch. If
-// key is exhausted at the split point the parent's terminal holds
-// (key, value); otherwise a new leaf is attached as the second
-// branching child. Caller guarantees adoptee's own prefix has already
-// been shortened past oldBranch.
-func splitPrefixedInner(adoptee node, oldBranch byte, shared, key []byte, value any, depth, splitPoint int) *node4 {
+// splitPrefixedInner handles the case where key[depth:] shares only a
+// proper prefix of adoptee's prefix. It builds a new parent node4
+// whose prefix is a copy of shared and which adopts adoptee under
+// edge byte oldBranch. If key is exhausted at the split point the
+// parent's terminal holds (key, value); otherwise a new leaf is
+// attached as the second branching child. Caller guarantees adoptee's
+// own prefix has already been shortened past oldBranch.
+func splitPrefixedInner(adoptee innerNode, oldBranch byte, shared, key []byte, value any, depth, splitPoint int) *node4 {
 	parent := &node4{prefix: append([]byte(nil), shared...)}
 	parent.addChild(oldBranch, adoptee)
 	if depth+splitPoint == len(key) {
@@ -622,25 +611,6 @@ func node16AddOrGrow(r *node16, b byte, child node) node {
 	grown := growToNode48(r)
 	grown.addChild(b, child)
 	return grown
-}
-
-// splitNode48Prefix mirrors splitNode4Prefix at node48 capacity. The
-// new parent is still a node4 (it holds at most the adopted node48
-// plus one new leaf), with the adoptee's prefix shortened past the
-// divergence byte.
-func splitNode48Prefix(r *node48, key []byte, value any, depth, splitPoint int) *node4 {
-	shared := r.prefix[:splitPoint]
-	oldBranch := r.prefix[splitPoint]
-	r.prefix = r.prefix[splitPoint+1:]
-	return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint)
-}
-
-// splitNode256Prefix mirrors splitNode4Prefix at node256 capacity.
-func splitNode256Prefix(r *node256, key []byte, value any, depth, splitPoint int) *node4 {
-	shared := r.prefix[:splitPoint]
-	oldBranch := r.prefix[splitPoint]
-	r.prefix = r.prefix[splitPoint+1:]
-	return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint)
 }
 
 // putIntoNode48 mirrors putIntoNode4 at node48 capacity. r.prefix has
