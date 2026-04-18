@@ -53,11 +53,14 @@ func newLeaf(key []byte, value any) *leaf {
 }
 
 // node4 keeps keys[:numChildren] sorted ascending by edge byte. The
-// prefix is consumed from the search key before branching.
+// prefix is consumed from the search key before branching. terminal,
+// when non-nil, holds the value stored at this node's exact path (a
+// key that ends after the prefix and does not branch further).
 type node4 struct {
 	prefix      []byte
 	keys        [4]byte
 	children    [4]node
+	terminal    *leaf
 	numChildren uint8
 }
 
@@ -82,6 +85,17 @@ func (n *node4) addChild(b byte, child node) {
 	n.keys[i] = b
 	n.children[i] = child
 	n.numChildren++
+}
+
+// replaceChild swaps the child stored under edge byte b. Caller
+// guarantees b is already present.
+func (n *node4) replaceChild(b byte, child node) {
+	for i := uint8(0); i < n.numChildren; i++ {
+		if n.keys[i] == b {
+			n.children[i] = child
+			return
+		}
+	}
 }
 
 // removeChild removes the child stored under edge byte b, preserving
@@ -116,17 +130,31 @@ func longestCommonPrefix(a, b []byte) []byte {
 }
 
 // newNode4With returns a node4 whose prefix is the longest common tail
-// of existing.key and newKey starting at depth, branching the two
-// leaves on their first divergent byte after that prefix.
+// of existing.key and newKey starting at depth. If one key is
+// exhausted at that point it becomes the new node's terminal value;
+// the other is attached as a branching child. If neither is exhausted
+// both are attached as branching children on their first divergent
+// byte. Caller guarantees the two keys are not equal.
 func newNode4With(existing *leaf, newKey []byte, newValue any, depth int) *node4 {
 	shared := longestCommonPrefix(existing.key[depth:], newKey[depth:])
 	diverge := depth + len(shared)
-	if diverge >= len(existing.key) || diverge >= len(newKey) {
-		panic("art: one key is a prefix of another - see Slice 10 (key is prefix of another)")
+	existingExhausted := diverge == len(existing.key)
+	newExhausted := diverge == len(newKey)
+	if existingExhausted && newExhausted {
+		panic("art: newNode4With called with equal keys - invariant violation")
 	}
 	n := &node4{prefix: append([]byte(nil), shared...)}
-	n.addChild(existing.key[diverge], existing)
-	n.addChild(newKey[diverge], newLeaf(newKey, newValue))
+	switch {
+	case existingExhausted:
+		n.terminal = existing
+		n.addChild(newKey[diverge], newLeaf(newKey, newValue))
+	case newExhausted:
+		n.terminal = newLeaf(newKey, newValue)
+		n.addChild(existing.key[diverge], existing)
+	default:
+		n.addChild(existing.key[diverge], existing)
+		n.addChild(newKey[diverge], newLeaf(newKey, newValue))
+	}
 	return n
 }
 
@@ -353,10 +381,10 @@ func New() *Tree {
 	return &Tree{}
 }
 
-// Put associates value with key. A node4's prefix is consumed from
-// the key as traversal descends; mismatches and edge cases that
-// require splitting, exhausted keys, or nested node4s are out of
-// scope for this slice and panic with pointers to the follow-up.
+// Put associates value with key, replacing any previous value. A
+// node4's prefix is consumed from the key as traversal descends;
+// keys that end at a node4's exact path are stored in that node's
+// terminal slot.
 func (t *Tree) Put(key []byte, value any) {
 	t.root = putInto(t.root, key, value, 0)
 }
@@ -375,41 +403,9 @@ func putInto(current node, key []byte, value any, depth int) node {
 	case *node4:
 		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
 		if splitPoint < len(r.prefix) {
-			if depth+splitPoint >= len(key) {
-				panic("art: key exhausted before split point - see Slice 10 (key is prefix of another)")
-			}
-			oldBranchByte := r.prefix[splitPoint]
-			newBranchByte := key[depth+splitPoint]
-			parent := &node4{prefix: append([]byte(nil), r.prefix[:splitPoint]...)}
-			r.prefix = r.prefix[splitPoint+1:]
-			parent.addChild(oldBranchByte, r)
-			parent.addChild(newBranchByte, newLeaf(key, value))
-			return parent
+			return splitNode4Prefix(r, key, value, depth, splitPoint)
 		}
-		depth += len(r.prefix)
-		if depth >= len(key) {
-			panic("art: key exhausted at node4 branch - see Slice 10 (key is prefix of another)")
-		}
-		branch := key[depth]
-		child := r.findChild(branch)
-		if child == nil {
-			if r.numChildren < node4Capacity {
-				r.addChild(branch, newLeaf(key, value))
-				return r
-			}
-			grown := growToNode16(r)
-			grown.insertChild(branch, newLeaf(key, value))
-			return grown
-		}
-		existing, ok := child.(*leaf)
-		if !ok {
-			panic("art: nested inner node under node4 - out of scope this slice (nested path compression follow-up)")
-		}
-		if bytes.Equal(existing.key, key) {
-			existing.value = value
-			return r
-		}
-		panic("art: colliding leaves under node4 branch - out of scope this slice (nested path compression follow-up)")
+		return putIntoNode4(r, key, value, depth+len(r.prefix))
 	case *node16:
 		branch := key[depth]
 		if existing, ok := r.findChild(branch).(*leaf); ok && bytes.Equal(existing.key, key) {
@@ -448,6 +444,73 @@ func putInto(current node, key []byte, value any, depth int) node {
 	return current
 }
 
+// splitNode4Prefix handles the case where key[depth:] shares only a
+// proper prefix of r.prefix. A new parent node4 takes that shared
+// prefix and adopts r (with its prefix shortened past the divergence
+// byte) as one branching child. If key is exhausted exactly at the
+// split point it becomes the parent's terminal value; otherwise the
+// new leaf is attached as the second branching child.
+func splitNode4Prefix(r *node4, key []byte, value any, depth, splitPoint int) *node4 {
+	parent := &node4{prefix: append([]byte(nil), r.prefix[:splitPoint]...)}
+	oldBranch := r.prefix[splitPoint]
+	r.prefix = r.prefix[splitPoint+1:]
+	parent.addChild(oldBranch, r)
+	if depth+splitPoint == len(key) {
+		parent.terminal = newLeaf(key, value)
+	} else {
+		parent.addChild(key[depth+splitPoint], newLeaf(key, value))
+	}
+	return parent
+}
+
+// putIntoNode4 writes (key, value) into r given that r.prefix has
+// already been consumed from key (the caller passes the advanced
+// depth). The decision reads as: key exhausted? → terminal. Else
+// switch on the child at key[depth]: absent → add/grow; leaf same
+// key → overwrite; leaf different key → nested node4; inner node →
+// recurse.
+func putIntoNode4(r *node4, key []byte, value any, depth int) node {
+	if depth == len(key) {
+		if r.terminal != nil {
+			r.terminal.value = value
+		} else {
+			r.terminal = newLeaf(key, value)
+		}
+		return r
+	}
+	branch := key[depth]
+	switch c := r.findChild(branch).(type) {
+	case nil:
+		return node4AddOrGrow(r, branch, newLeaf(key, value))
+	case *leaf:
+		if bytes.Equal(c.key, key) {
+			c.value = value
+			return r
+		}
+		r.replaceChild(branch, newNode4With(c, key, value, depth+1))
+		return r
+	default:
+		r.replaceChild(branch, putInto(c, key, value, depth+1))
+		return r
+	}
+}
+
+// node4AddOrGrow adds child under edge byte b, growing to a node16
+// when r is already full. Growth is not yet supported for node4s
+// that carry a terminal value; that lands in Slice 11.
+func node4AddOrGrow(r *node4, b byte, child node) node {
+	if r.numChildren < node4Capacity {
+		r.addChild(b, child)
+		return r
+	}
+	if r.terminal != nil {
+		panic("art: growing node4 with non-nil terminal - see Slice 11 (terminal on node16)")
+	}
+	grown := growToNode16(r)
+	grown.insertChild(b, child)
+	return grown
+}
+
 // Get returns the value previously stored under key, if any.
 func (t *Tree) Get(key []byte) (value any, ok bool) {
 	current := t.root
@@ -465,7 +528,10 @@ func (t *Tree) Get(key []byte) (value any, ok bool) {
 				return nil, false
 			}
 			depth = end
-			if depth >= len(key) {
+			if depth == len(key) {
+				if n.terminal != nil && bytes.Equal(n.terminal.key, key) {
+					return n.terminal.value, true
+				}
 				return nil, false
 			}
 			current = n.findChild(key[depth])

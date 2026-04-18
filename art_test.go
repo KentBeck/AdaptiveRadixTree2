@@ -290,3 +290,92 @@ func TestSplitPrefixInMiddle(t *testing.T) {
 		}
 	}
 }
+
+func TestPutShorterKeyAfterLonger(t *testing.T) {
+	tree := New()
+	tree.Put([]byte("apple"), 1)
+	tree.Put([]byte("applepie"), 2)
+	if v, ok := tree.Get([]byte("apple")); !ok || v != 1 {
+		t.Fatalf("Get(apple) = (%v, %v), want (1, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("applepie")); !ok || v != 2 {
+		t.Fatalf("Get(applepie) = (%v, %v), want (2, true)", v, ok)
+	}
+	if _, ok := tree.Get([]byte("app")); ok {
+		t.Fatalf("Get(app) should miss")
+	}
+	if _, ok := tree.Get([]byte("applesauce")); ok {
+		t.Fatalf("Get(applesauce) should miss")
+	}
+}
+
+func TestPutLongerKeyAfterShorter(t *testing.T) {
+	tree := New()
+	tree.Put([]byte("applepie"), 1)
+	tree.Put([]byte("apple"), 2)
+	if v, ok := tree.Get([]byte("applepie")); !ok || v != 1 {
+		t.Fatalf("Get(applepie) = (%v, %v), want (1, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("apple")); !ok || v != 2 {
+		t.Fatalf("Get(apple) = (%v, %v), want (2, true)", v, ok)
+	}
+}
+
+func TestOverwriteTerminalValue(t *testing.T) {
+	tree := New()
+	tree.Put([]byte("apple"), 1)
+	tree.Put([]byte("applepie"), 2)
+	tree.Put([]byte("apple"), 99)
+	if v, ok := tree.Get([]byte("apple")); !ok || v != 99 {
+		t.Fatalf("Get(apple) after overwrite = (%v, %v), want (99, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("applepie")); !ok || v != 2 {
+		t.Fatalf("Get(applepie) still visible = (%v, %v), want (2, true)", v, ok)
+	}
+}
+
+func TestSplitWithExhaustedKey(t *testing.T) {
+	// Slice 9 built node4(prefix="ap") for "apple"+"apricot".
+	// Inserting "a" splits at position 1, and "a" is exhausted at the split point.
+	// New root: node4(prefix="a") with terminal="a" and one branching child 'p' = old node4 (prefix="").
+	tree := New()
+	tree.Put([]byte("apple"), 1)
+	tree.Put([]byte("apricot"), 2)
+	tree.Put([]byte("a"), 3)
+	for _, c := range []struct {
+		key   string
+		value any
+	}{{"apple", 1}, {"apricot", 2}, {"a", 3}} {
+		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
+			t.Fatalf("Get(%q) = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
+		}
+	}
+	if _, ok := tree.Get([]byte("")); ok {
+		t.Fatalf(`Get("") should miss`)
+	}
+	if _, ok := tree.Get([]byte("ap")); ok {
+		t.Fatalf("Get(ap) should miss")
+	}
+}
+
+func TestNestedNode4FromDivergentLeaves(t *testing.T) {
+	// Root node4 has children at 'a' and 'b' (leaves "apple", "banana").
+	// Inserting "apricot" makes the 'a' slot need a nested node4 with prefix "p"
+	// (LCP of "pple" and "pricot" below depth 1 is "p", diverging at 'p'/'r').
+	// Wait: keys from depth 1 are "pple" and "pricot". LCP is "p", diverging at position 2 ('p' vs 'r').
+	tree := New()
+	tree.Put([]byte("apple"), 1)
+	tree.Put([]byte("banana"), 2)
+	tree.Put([]byte("apricot"), 3)
+	for _, c := range []struct {
+		key   string
+		value any
+	}{{"apple", 1}, {"banana", 2}, {"apricot", 3}} {
+		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
+			t.Fatalf("Get(%q) = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
+		}
+	}
+	if _, ok := tree.Get([]byte("ap")); ok {
+		t.Fatalf("Get(ap) should miss")
+	}
+}
