@@ -158,10 +158,15 @@ func newNode4With(existing *leaf, newKey []byte, newValue any, depth int) *node4
 	return n
 }
 
-// node16 keeps keys[:numChildren] sorted ascending by edge byte.
+// node16 keeps keys[:numChildren] sorted ascending by edge byte. Like
+// node4, prefix is consumed from the search key before branching and
+// terminal (when non-nil) holds the value stored at this node's exact
+// path.
 type node16 struct {
+	prefix      []byte
 	keys        [node16Capacity]byte
 	children    [node16Capacity]node
+	terminal    *leaf
 	numChildren uint8
 }
 
@@ -190,6 +195,17 @@ func (n *node16) insertChild(b byte, child node) {
 	n.numChildren++
 }
 
+// replaceChild swaps the child stored under edge byte b. Caller
+// guarantees b is already present.
+func (n *node16) replaceChild(b byte, child node) {
+	for i := uint8(0); i < n.numChildren; i++ {
+		if n.keys[i] == b {
+			n.children[i] = child
+			return
+		}
+	}
+}
+
 // removeChild removes the child stored under edge byte b, preserving
 // the sorted order of the remaining keys. A no-op if b is absent.
 func (n *node16) removeChild(b byte) {
@@ -207,17 +223,26 @@ func (n *node16) removeChild(b byte) {
 
 func (n *node16) isEmpty() bool { return n.numChildren == 0 }
 
-// growToNode16 returns a node16 holding the same sorted children as n.
+// growToNode16 returns a node16 holding the same sorted children,
+// prefix, and terminal as n.
 func growToNode16(n *node4) *node16 {
-	grown := &node16{numChildren: n.numChildren}
+	grown := &node16{
+		prefix:      n.prefix,
+		terminal:    n.terminal,
+		numChildren: n.numChildren,
+	}
 	copy(grown.keys[:n.numChildren], n.keys[:n.numChildren])
 	copy(grown.children[:n.numChildren], n.children[:n.numChildren])
 	return grown
 }
 
 // shrinkToNode4 returns a node4 holding the same sorted children as n.
-// Caller guarantees n.numChildren <= node4Capacity.
+// Caller guarantees n.numChildren <= node4Capacity. Carrying a terminal
+// or a prefix through this demotion lands in Slice 12.
 func shrinkToNode4(n *node16) *node4 {
+	if n.terminal != nil || len(n.prefix) > 0 {
+		panic("art: shrinking node16 with terminal or prefix - see Slice 12 (delete with prefix/terminal)")
+	}
 	shrunk := &node4{numChildren: n.numChildren}
 	copy(shrunk.keys[:n.numChildren], n.keys[:n.numChildren])
 	copy(shrunk.children[:n.numChildren], n.children[:n.numChildren])
@@ -276,8 +301,12 @@ func (n *node48) removeChild(b byte) {
 func (n *node48) isEmpty() bool { return n.numChildren == 0 }
 
 // growToNode48 returns a node48 holding the same children as n, with
-// childIndex populated from n's sorted edge bytes.
+// childIndex populated from n's sorted edge bytes. Carrying a terminal
+// or a prefix through this growth lands in Slice 11c.
 func growToNode48(n *node16) *node48 {
+	if n.terminal != nil || len(n.prefix) > 0 {
+		panic("art: growing node16 with terminal or prefix - see Slice 11c (terminal/prefix on node48)")
+	}
 	grown := &node48{numChildren: n.numChildren}
 	for i := uint8(0); i < n.numChildren; i++ {
 		grown.children[i] = n.children[i]
@@ -382,9 +411,9 @@ func New() *Tree {
 }
 
 // Put associates value with key, replacing any previous value. A
-// node4's prefix is consumed from the key as traversal descends;
-// keys that end at a node4's exact path are stored in that node's
-// terminal slot.
+// node4 or node16's prefix is consumed from the key as traversal
+// descends; keys that end at such a node's exact path are stored in
+// its terminal slot.
 func (t *Tree) Put(key []byte, value any) {
 	t.root = putInto(t.root, key, value, 0)
 }
@@ -407,18 +436,11 @@ func putInto(current node, key []byte, value any, depth int) node {
 		}
 		return putIntoNode4(r, key, value, depth+len(r.prefix))
 	case *node16:
-		branch := key[depth]
-		if existing, ok := r.findChild(branch).(*leaf); ok && bytes.Equal(existing.key, key) {
-			existing.value = value
-			return r
+		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
+		if splitPoint < len(r.prefix) {
+			panic("art: splitting prefixed node16 - see Slice 11b (split prefixed node16)")
 		}
-		if r.numChildren < node16Capacity {
-			r.insertChild(branch, newLeaf(key, value))
-			return r
-		}
-		grown := growToNode48(r)
-		grown.addChild(branch, newLeaf(key, value))
-		return grown
+		return putIntoNode16(r, key, value, depth+len(r.prefix))
 	case *node48:
 		branch := key[depth]
 		if existing, ok := r.findChild(branch).(*leaf); ok && bytes.Equal(existing.key, key) {
@@ -495,19 +517,57 @@ func putIntoNode4(r *node4, key []byte, value any, depth int) node {
 	}
 }
 
+// putIntoNode16 mirrors putIntoNode4 at node16 capacity. r.prefix has
+// already been consumed from key by the caller.
+func putIntoNode16(r *node16, key []byte, value any, depth int) node {
+	if depth == len(key) {
+		if r.terminal != nil {
+			r.terminal.value = value
+		} else {
+			r.terminal = newLeaf(key, value)
+		}
+		return r
+	}
+	branch := key[depth]
+	switch c := r.findChild(branch).(type) {
+	case nil:
+		return node16AddOrGrow(r, branch, newLeaf(key, value))
+	case *leaf:
+		if bytes.Equal(c.key, key) {
+			c.value = value
+			return r
+		}
+		r.replaceChild(branch, newNode4With(c, key, value, depth+1))
+		return r
+	default:
+		r.replaceChild(branch, putInto(c, key, value, depth+1))
+		return r
+	}
+}
+
 // node4AddOrGrow adds child under edge byte b, growing to a node16
-// when r is already full. Growth is not yet supported for node4s
-// that carry a terminal value; that lands in Slice 11.
+// when r is already full. The grown node16 inherits r's prefix and
+// terminal.
 func node4AddOrGrow(r *node4, b byte, child node) node {
 	if r.numChildren < node4Capacity {
 		r.addChild(b, child)
 		return r
 	}
-	if r.terminal != nil {
-		panic("art: growing node4 with non-nil terminal - see Slice 11 (terminal on node16)")
-	}
 	grown := growToNode16(r)
 	grown.insertChild(b, child)
+	return grown
+}
+
+// node16AddOrGrow adds child under edge byte b, growing to a node48
+// when r is already full. Growth is not yet supported for node16s
+// that carry a terminal or a prefix; growToNode48 panics in that case.
+func node16AddOrGrow(r *node16, b byte, child node) node {
+	if r.numChildren < node16Capacity {
+		r.insertChild(b, child)
+		return r
+	}
+	grown := growToNode48(r)
+	grown.addChild(b, child)
 	return grown
 }
 
@@ -537,6 +597,17 @@ func (t *Tree) Get(key []byte) (value any, ok bool) {
 			current = n.findChild(key[depth])
 			depth++
 		case *node16:
+			end := depth + len(n.prefix)
+			if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
+				return nil, false
+			}
+			depth = end
+			if depth == len(key) {
+				if n.terminal != nil && bytes.Equal(n.terminal.key, key) {
+					return n.terminal.value, true
+				}
+				return nil, false
+			}
 			current = n.findChild(key[depth])
 			depth++
 		case *node48:

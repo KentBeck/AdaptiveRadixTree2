@@ -358,6 +358,63 @@ func TestSplitWithExhaustedKey(t *testing.T) {
 	}
 }
 
+func TestGrowToNode16PreservesPrefixAndTerminal(t *testing.T) {
+	// Build a node4(prefix="ap", terminal="ap", children 'p','r','o','e') with 4 children:
+	tree := New()
+	tree.Put([]byte("ap"), 0)
+	tree.Put([]byte("apple"), 1)
+	tree.Put([]byte("apricot"), 2)
+	tree.Put([]byte("apology"), 3)
+	tree.Put([]byte("apex"), 4)
+	// Adding a fifth distinct branching byte forces grow to node16.
+	tree.Put([]byte("apt"), 5)
+
+	cases := []struct {
+		key   string
+		value any
+	}{
+		{"ap", 0}, {"apple", 1}, {"apricot", 2},
+		{"apology", 3}, {"apex", 4}, {"apt", 5},
+	}
+	for _, c := range cases {
+		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
+			t.Fatalf("Get(%q) = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
+		}
+	}
+
+	// Misses that exercise prefix and terminal handling:
+	if _, ok := tree.Get([]byte("a")); ok {
+		t.Fatalf("Get(a) should miss")
+	}
+	if _, ok := tree.Get([]byte("apply")); ok {
+		t.Fatalf("Get(apply) should miss")
+	}
+	if _, ok := tree.Get([]byte("apes")); ok {
+		t.Fatalf("Get(apes) should miss")
+	}
+	if _, ok := tree.Get([]byte("banana")); ok {
+		t.Fatalf("Get(banana) should miss")
+	}
+
+	// Add a sixth branching byte — still inside node16's capacity.
+	tree.Put([]byte("apse"), 6)
+	if v, ok := tree.Get([]byte("apse")); !ok || v != 6 {
+		t.Fatalf("Get(apse) after second add = (%v, %v), want (6, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("ap")); !ok || v != 0 {
+		t.Fatalf("Get(ap) still visible = (%v, %v), want (0, true)", v, ok)
+	}
+
+	// Overwrite the terminal value at the promoted node16.
+	tree.Put([]byte("ap"), 99)
+	if v, ok := tree.Get([]byte("ap")); !ok || v != 99 {
+		t.Fatalf("Get(ap) after overwrite = (%v, %v), want (99, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("apple")); !ok || v != 1 {
+		t.Fatalf("Get(apple) still visible = (%v, %v), want (1, true)", v, ok)
+	}
+}
+
 func TestNestedNode4FromDivergentLeaves(t *testing.T) {
 	// Root node4 has children at 'a' and 'b' (leaves "apple", "banana").
 	// Inserting "apricot" makes the 'a' slot need a nested node4 with prefix "p"
