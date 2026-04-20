@@ -20,8 +20,20 @@ type kv struct {
 
 func kvLess(a, b kv) bool { return bytes.Compare(a.k, b.k) < 0 }
 
+// Range window: 1 % of the working set. Keys are big-endian uint64 of a
+// permutation of [0, benchN), so the half-open byte range [rangeLo, rangeHi)
+// contains exactly rangeN distinct entries in sorted order.
+const (
+	rangeLoV = benchN / 2
+	rangeHiV = rangeLoV + benchN/100
+	rangeN   = rangeHiV - rangeLoV
+)
+
 var (
 	benchKeys [][]byte
+	missKeys  [][]byte
+	rangeLo   []byte
+	rangeHi   []byte
 	keysOnce  sync.Once
 
 	artOnce sync.Once
@@ -41,6 +53,18 @@ func initKeys() {
 			binary.BigEndian.PutUint64(b, uint64(v))
 			benchKeys[i] = b
 		}
+		// Miss keys: values outside [0, benchN), guaranteed not present.
+		const missCount = 1024
+		missKeys = make([][]byte, missCount)
+		for i := 0; i < missCount; i++ {
+			b := make([]byte, 8)
+			binary.BigEndian.PutUint64(b, uint64(benchN+i))
+			missKeys[i] = b
+		}
+		rangeLo = make([]byte, 8)
+		rangeHi = make([]byte, 8)
+		binary.BigEndian.PutUint64(rangeLo, uint64(rangeLoV))
+		binary.BigEndian.PutUint64(rangeHi, uint64(rangeHiV))
 	})
 }
 
@@ -120,6 +144,28 @@ func BenchmarkGet_BTree(b *testing.B) {
 	}
 }
 
+// --- GetMiss: lookup of keys not present in the tree ---
+
+func BenchmarkGetMiss_ART(b *testing.B) {
+	t := getArtBig()
+	n := len(missKeys)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = t.Get(missKeys[i%n])
+	}
+}
+
+func BenchmarkGetMiss_BTree(b *testing.B) {
+	t := getBtBig()
+	n := len(missKeys)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = t.Get(kv{k: missKeys[i%n]})
+	}
+}
+
 // --- Delete: delete all 10M entries from a populated tree (setup excluded) ---
 
 func BenchmarkDelete_ART(b *testing.B) {
@@ -156,35 +202,37 @@ func BenchmarkDelete_BTree(b *testing.B) {
 	perKey(b, benchN)
 }
 
-// --- Iterate: full in-order scan of 10M entries ---
+// --- Range: in-order scan of 1 % of the working set (~100K entries) ---
 
-func BenchmarkIterate_ART(b *testing.B) {
+func BenchmarkRange_ART(b *testing.B) {
 	t := getArtBig()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		count := 0
-		for range t.All() {
+		for range t.Range(rangeLo, rangeHi) {
 			count++
 		}
-		if count != benchN {
-			b.Fatalf("iterated %d, want %d", count, benchN)
+		if count != rangeN {
+			b.Fatalf("ranged %d, want %d", count, rangeN)
 		}
 	}
-	perKey(b, benchN)
+	perKey(b, rangeN)
 }
 
-func BenchmarkIterate_BTree(b *testing.B) {
+func BenchmarkRange_BTree(b *testing.B) {
 	t := getBtBig()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		count := 0
-		t.Ascend(func(_ kv) bool { count++; return true })
-		if count != benchN {
-			b.Fatalf("iterated %d, want %d", count, benchN)
+		t.AscendRange(kv{k: rangeLo}, kv{k: rangeHi}, func(_ kv) bool {
+			count++
+			return true
+		})
+		if count != rangeN {
+			b.Fatalf("ranged %d, want %d", count, rangeN)
 		}
 	}
-	perKey(b, benchN)
+	perKey(b, rangeN)
 }
-
