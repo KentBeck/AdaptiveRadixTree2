@@ -867,3 +867,160 @@ func TestAllEarlyTermination(t *testing.T) {
 		t.Fatalf("got %v, want %v", keys, want)
 	}
 }
+
+func TestRangeInclusiveStartExclusiveEnd(t *testing.T) {
+	tree := New()
+	for _, s := range []string{"apple", "apricot", "banana", "blueberry", "cherry"} {
+		tree.Put([]byte(s), s)
+	}
+	var got []string
+	for k := range tree.Range([]byte("apricot"), []byte("cherry")) {
+		got = append(got, string(k))
+	}
+	want := []string{"apricot", "banana", "blueberry"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestRangeNilStartMeansUnbounded(t *testing.T) {
+	tree := New()
+	for _, s := range []string{"a", "b", "c", "d"} {
+		tree.Put([]byte(s), s)
+	}
+	var got []string
+	for k := range tree.Range(nil, []byte("c")) {
+		got = append(got, string(k))
+	}
+	want := []string{"a", "b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestRangeNilEndMeansUnbounded(t *testing.T) {
+	tree := New()
+	for _, s := range []string{"a", "b", "c", "d"} {
+		tree.Put([]byte(s), s)
+	}
+	var got []string
+	for k := range tree.Range([]byte("b"), nil) {
+		got = append(got, string(k))
+	}
+	want := []string{"b", "c", "d"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestRangeBothNilEqualsAll(t *testing.T) {
+	tree := New()
+	inserted := []string{"", "a", "ap", "apple", "application", "apricot", "banana", "z"}
+	for _, s := range inserted {
+		tree.Put([]byte(s), s)
+	}
+	var all, ranged []string
+	for k := range tree.All() {
+		all = append(all, string(k))
+	}
+	for k := range tree.Range(nil, nil) {
+		ranged = append(ranged, string(k))
+	}
+	if !reflect.DeepEqual(all, ranged) {
+		t.Fatalf("Range(nil,nil) = %v, All = %v", ranged, all)
+	}
+}
+
+func TestRangeStartEqualsEndIsEmpty(t *testing.T) {
+	tree := New()
+	for _, s := range []string{"a", "b", "c"} {
+		tree.Put([]byte(s), s)
+	}
+	count := 0
+	for range tree.Range([]byte("b"), []byte("b")) {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("Range with start==end yielded %d, want 0", count)
+	}
+}
+
+func TestRangeStartAfterEndIsEmpty(t *testing.T) {
+	tree := New()
+	for _, s := range []string{"a", "b", "c"} {
+		tree.Put([]byte(s), s)
+	}
+	count := 0
+	for range tree.Range([]byte("c"), []byte("a")) {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("Range with start>end yielded %d, want 0", count)
+	}
+}
+
+func TestRangeHandlesPrefixAndTerminal(t *testing.T) {
+	tree := New()
+	for _, s := range []string{"ap", "apple", "application", "apricot", "banana"} {
+		tree.Put([]byte(s), s)
+	}
+	var got []string
+	for k := range tree.Range([]byte("ap"), []byte("apricot")) {
+		got = append(got, string(k))
+	}
+	want := []string{"ap", "apple", "application"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestRangeAcrossLargeTree(t *testing.T) {
+	tree := New()
+	var keys [][]byte
+	for i := 0; i < 300; i++ {
+		k := []byte{byte(i % 256), byte(i / 256)}
+		tree.Put(k, i)
+		keys = append(keys, append([]byte(nil), k...))
+	}
+	sort.Slice(keys, func(i, j int) bool { return bytes.Compare(keys[i], keys[j]) < 0 })
+
+	start := []byte{0x40, 0x00}
+	end := []byte{0xC0, 0x00}
+	var want [][]byte
+	for _, k := range keys {
+		if bytes.Compare(k, start) >= 0 && bytes.Compare(k, end) < 0 {
+			want = append(want, k)
+		}
+	}
+
+	var got [][]byte
+	for k := range tree.Range(start, end) {
+		got = append(got, append([]byte(nil), k...))
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d pairs, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if !bytes.Equal(got[i], want[i]) {
+			t.Fatalf("pair %d: got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestRangeEarlyTermination(t *testing.T) {
+	tree := New()
+	for _, s := range []string{"a", "b", "c", "d", "e"} {
+		tree.Put([]byte(s), s)
+	}
+	var got []string
+	for k := range tree.Range([]byte("a"), []byte("e")) {
+		got = append(got, string(k))
+		if string(k) == "c" {
+			break
+		}
+	}
+	want := []string{"a", "b", "c"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
