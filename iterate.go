@@ -1,4 +1,6 @@
-// This file contains All and Range iteration logic across all node types.
+// This file contains the All/Range entry points and the iterateRange
+// helper. Per-node-type iterate logic lives in iterate methods on each
+// node type (see types.go).
 package art
 
 import (
@@ -11,69 +13,15 @@ import (
 // traversal immediately.
 func (t *Tree) All() iter.Seq2[[]byte, any] {
 	return func(yield func([]byte, any) bool) {
-		iterate(t.root, yield)
+		switch r := t.root.(type) {
+		case nil:
+			return
+		case *leaf:
+			yield(r.key, r.value)
+		case innerNode:
+			r.iterate(yield)
+		}
 	}
-}
-
-// iterate visits every (key, value) pair reachable from n in sorted
-// key order, returning false as soon as yield does so the caller can
-// short-circuit all the way up.
-func iterate(n node, yield func([]byte, any) bool) bool {
-	switch r := n.(type) {
-	case nil:
-		return true
-	case *leaf:
-		return yield(r.key, r.value)
-	case *node4:
-		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
-			return false
-		}
-		for i := uint8(0); i < r.numChildren; i++ {
-			if !iterate(r.children[i], yield) {
-				return false
-			}
-		}
-		return true
-	case *node16:
-		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
-			return false
-		}
-		for i := uint8(0); i < r.numChildren; i++ {
-			if !iterate(r.children[i], yield) {
-				return false
-			}
-		}
-		return true
-	case *node48:
-		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
-			return false
-		}
-		for edge := 0; edge < 256; edge++ {
-			slot := r.childIndex[byte(edge)]
-			if slot == 0 {
-				continue
-			}
-			if !iterate(r.children[slot-1], yield) {
-				return false
-			}
-		}
-		return true
-	case *node256:
-		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
-			return false
-		}
-		for edge := 0; edge < 256; edge++ {
-			child := r.children[edge]
-			if child == nil {
-				continue
-			}
-			if !iterate(child, yield) {
-				return false
-			}
-		}
-		return true
-	}
-	return true
 }
 
 // Range returns an iterator over every (key, value) pair whose key

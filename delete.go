@@ -1,4 +1,6 @@
-// This file contains Delete operation logic across all node types.
+// This file contains the Delete entry point plus post-remove reshape
+// helpers. Per-node-type delete logic lives in delete methods on each
+// node type (see types.go).
 package art
 
 import "bytes"
@@ -10,142 +12,24 @@ import "bytes"
 // type (or collapsed to its only child) whenever its child count
 // crosses the next-smaller capacity.
 func (t *Tree) Delete(key []byte) bool {
-	newRoot, deleted := deleteFrom(t.root, key, 0)
-	if deleted {
-		t.root = newRoot
+	if t.root == nil {
+		return false
 	}
-	return deleted
-}
-
-// deleteFrom removes key from the subtree rooted at current, returning
-// the (possibly replaced) root and whether the key was present. A nil
-// return means the caller should drop its reference to this subtree.
-// The structure mirrors Get: consume the node's prefix, then either
-// clear the terminal (key exhausted) or recurse through the branching
-// child at key[depth].
-func deleteFrom(current node, key []byte, depth int) (node, bool) {
-	switch r := current.(type) {
-	case nil:
-		return nil, false
+	switch r := t.root.(type) {
 	case *leaf:
 		if bytes.Equal(r.key, key) {
-			return nil, true
+			t.root = nil
+			return true
 		}
-		return r, false
-	case *node4:
-		end := depth + len(r.prefix)
-		if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-			return r, false
+		return false
+	case innerNode:
+		newRoot, deleted := r.delete(key, 0)
+		if deleted {
+			t.root = newRoot
 		}
-		depth = end
-		if depth == len(key) {
-			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
-				return r, false
-			}
-			r.terminal = nil
-			return postDeleteReshape(r), true
-		}
-		branch := key[depth]
-		child := r.findChild(branch)
-		if child == nil {
-			return r, false
-		}
-		newChild, deleted := deleteFrom(child, key, depth+1)
-		if !deleted {
-			return r, false
-		}
-		if newChild == nil {
-			r.removeChild(branch)
-		} else {
-			r.replaceChild(branch, newChild)
-		}
-		return postDeleteReshape(r), true
-	case *node16:
-		end := depth + len(r.prefix)
-		if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-			return r, false
-		}
-		depth = end
-		if depth == len(key) {
-			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
-				return r, false
-			}
-			r.terminal = nil
-			return postDeleteReshape(r), true
-		}
-		branch := key[depth]
-		child := r.findChild(branch)
-		if child == nil {
-			return r, false
-		}
-		newChild, deleted := deleteFrom(child, key, depth+1)
-		if !deleted {
-			return r, false
-		}
-		if newChild == nil {
-			r.removeChild(branch)
-		} else {
-			r.replaceChild(branch, newChild)
-		}
-		return postDeleteReshape(r), true
-	case *node48:
-		end := depth + len(r.prefix)
-		if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-			return r, false
-		}
-		depth = end
-		if depth == len(key) {
-			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
-				return r, false
-			}
-			r.terminal = nil
-			return postDeleteReshape(r), true
-		}
-		branch := key[depth]
-		child := r.findChild(branch)
-		if child == nil {
-			return r, false
-		}
-		newChild, deleted := deleteFrom(child, key, depth+1)
-		if !deleted {
-			return r, false
-		}
-		if newChild == nil {
-			r.removeChild(branch)
-		} else {
-			r.replaceChild(branch, newChild)
-		}
-		return postDeleteReshape(r), true
-	case *node256:
-		end := depth + len(r.prefix)
-		if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-			return r, false
-		}
-		depth = end
-		if depth == len(key) {
-			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
-				return r, false
-			}
-			r.terminal = nil
-			return postDeleteReshape(r), true
-		}
-		branch := key[depth]
-		child := r.findChild(branch)
-		if child == nil {
-			return r, false
-		}
-		newChild, deleted := deleteFrom(child, key, depth+1)
-		if !deleted {
-			return r, false
-		}
-		if newChild == nil {
-			r.removeChild(branch)
-		} else {
-			r.replaceChild(branch, newChild)
-		}
-		return postDeleteReshape(r), true
+		return deleted
 	}
-	return current, false
+	return false
 }
 
 // postDeleteReshape inspects n after a child removal or terminal clear

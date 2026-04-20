@@ -6,6 +6,8 @@
 // This file contains type definitions and node lifecycle (grow/shrink/addChild).
 package art
 
+import "bytes"
+
 type nodeKind uint8
 
 const (
@@ -27,14 +29,30 @@ type node interface {
 	kind() nodeKind
 }
 
-// innerNode is the interface satisfied by every non-leaf node. It
-// exposes the subset of operations used by Tree.Delete so the caller
-// can act uniformly across node4/16/48/256.
+// innerNode is implemented by all four inner node types (node4,
+// node16, node48, node256) and defines the operations each must
+// support. Tree.Put/Get/Delete/All dispatch through this interface so
+// the per-node-type logic lives with each node rather than in a single
+// switch.
 type innerNode interface {
 	node
+
+	// Operations.
+	put(key []byte, value any, depth int) (node, bool)
+	get(key []byte, depth int) (any, bool)
+	delete(key []byte, depth int) (node, bool)
+	iterate(yield func([]byte, any) bool) bool
+
+	// Structural.
 	findChild(b byte) node
 	removeChild(b byte)
 	isEmpty() bool
+
+	// Path compression accessors.
+	getPrefix() []byte
+	setPrefix([]byte)
+	getTerminal() *leaf
+	setTerminal(*leaf)
 }
 
 type leaf struct {
@@ -107,6 +125,11 @@ func (n *node4) removeChild(b byte) {
 
 func (n *node4) isEmpty() bool { return n.numChildren == 0 }
 
+func (n *node4) getPrefix() []byte   { return n.prefix }
+func (n *node4) setPrefix(p []byte)  { n.prefix = p }
+func (n *node4) getTerminal() *leaf  { return n.terminal }
+func (n *node4) setTerminal(t *leaf) { n.terminal = t }
+
 // node16 keeps keys[:numChildren] sorted ascending by edge byte. Like
 // node4, prefix is consumed from the search key before branching and
 // terminal (when non-nil) holds the value stored at this node's exact
@@ -171,6 +194,11 @@ func (n *node16) removeChild(b byte) {
 }
 
 func (n *node16) isEmpty() bool { return n.numChildren == 0 }
+
+func (n *node16) getPrefix() []byte   { return n.prefix }
+func (n *node16) setPrefix(p []byte)  { n.prefix = p }
+func (n *node16) getTerminal() *leaf  { return n.terminal }
+func (n *node16) setTerminal(t *leaf) { n.terminal = t }
 
 // growToNode16 returns a node16 holding the same sorted children,
 // prefix, and terminal as n.
@@ -264,6 +292,11 @@ func (n *node48) removeChild(b byte) {
 
 func (n *node48) isEmpty() bool { return n.numChildren == 0 }
 
+func (n *node48) getPrefix() []byte   { return n.prefix }
+func (n *node48) setPrefix(p []byte)  { n.prefix = p }
+func (n *node48) getTerminal() *leaf  { return n.terminal }
+func (n *node48) setTerminal(t *leaf) { n.terminal = t }
+
 // growToNode48 returns a node48 holding the same children, prefix, and
 // terminal as n, with childIndex populated from n's sorted edge bytes.
 func growToNode48(n *node16) *node48 {
@@ -346,6 +379,11 @@ func (n *node256) removeChild(b byte) {
 
 func (n *node256) isEmpty() bool { return n.numChildren == 0 }
 
+func (n *node256) getPrefix() []byte   { return n.prefix }
+func (n *node256) setPrefix(p []byte)  { n.prefix = p }
+func (n *node256) getTerminal() *leaf  { return n.terminal }
+func (n *node256) setTerminal(t *leaf) { n.terminal = t }
+
 // growToNode256 returns a node256 holding the same children, prefix,
 // and terminal as n, indexed directly by edge byte.
 func growToNode256(n *node48) *node256 {
@@ -382,6 +420,517 @@ func shrinkToNode48(n *node256) *node48 {
 		slot++
 	}
 	return shrunk
+}
+
+// --- node4 operations ---
+
+// put writes (key, value) into n, handling the prefix-split, terminal,
+// and branching-child cases. The shared prefix-match / terminal /
+// exhausted-key logic is duplicated across all four inner node types;
+// a future refactor may factor it out.
+func (n *node4) put(key []byte, value any, depth int) (node, bool) {
+	splitPoint := len(longestCommonPrefix(key[depth:], n.prefix))
+	if splitPoint < len(n.prefix) {
+		shared := n.prefix[:splitPoint]
+		oldBranch := n.prefix[splitPoint]
+		n.prefix = n.prefix[splitPoint+1:]
+		return splitPrefixedInner(n, oldBranch, shared, key, value, depth, splitPoint), true
+	}
+	depth += len(n.prefix)
+	if depth == len(key) {
+		if n.terminal != nil {
+			n.terminal.value = value
+		} else {
+			n.terminal = newLeaf(key, value)
+		}
+		return n, true
+	}
+	branch := key[depth]
+	switch c := n.findChild(branch).(type) {
+	case nil:
+		return node4AddOrGrow(n, branch, newLeaf(key, value)), true
+	case *leaf:
+		if bytes.Equal(c.key, key) {
+			c.value = value
+			return n, true
+		}
+		n.replaceChild(branch, newNode4With(c, key, value, depth+1))
+		return n, true
+	case innerNode:
+		newChild, _ := c.put(key, value, depth+1)
+		n.replaceChild(branch, newChild)
+		return n, true
+	}
+	return n, true
+}
+
+func (n *node4) get(key []byte, depth int) (any, bool) {
+	end := depth + len(n.prefix)
+	if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
+		return nil, false
+	}
+	depth = end
+	if depth == len(key) {
+		if n.terminal != nil && bytes.Equal(n.terminal.key, key) {
+			return n.terminal.value, true
+		}
+		return nil, false
+	}
+	switch c := n.findChild(key[depth]).(type) {
+	case nil:
+		return nil, false
+	case *leaf:
+		if bytes.Equal(c.key, key) {
+			return c.value, true
+		}
+		return nil, false
+	case innerNode:
+		return c.get(key, depth+1)
+	}
+	return nil, false
+}
+
+func (n *node4) delete(key []byte, depth int) (node, bool) {
+	end := depth + len(n.prefix)
+	if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
+		return n, false
+	}
+	depth = end
+	if depth == len(key) {
+		if n.terminal == nil || !bytes.Equal(n.terminal.key, key) {
+			return n, false
+		}
+		n.terminal = nil
+		return postDeleteReshape(n), true
+	}
+	branch := key[depth]
+	child := n.findChild(branch)
+	if child == nil {
+		return n, false
+	}
+	var (
+		newChild node
+		deleted  bool
+	)
+	switch c := child.(type) {
+	case *leaf:
+		if !bytes.Equal(c.key, key) {
+			return n, false
+		}
+		newChild, deleted = nil, true
+	case innerNode:
+		newChild, deleted = c.delete(key, depth+1)
+	}
+	if !deleted {
+		return n, false
+	}
+	if newChild == nil {
+		n.removeChild(branch)
+	} else {
+		n.replaceChild(branch, newChild)
+	}
+	return postDeleteReshape(n), true
+}
+
+func (n *node4) iterate(yield func([]byte, any) bool) bool {
+	if n.terminal != nil && !yield(n.terminal.key, n.terminal.value) {
+		return false
+	}
+	for i := uint8(0); i < n.numChildren; i++ {
+		switch c := n.children[i].(type) {
+		case *leaf:
+			if !yield(c.key, c.value) {
+				return false
+			}
+		case innerNode:
+			if !c.iterate(yield) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// --- node16 operations ---
+
+func (n *node16) put(key []byte, value any, depth int) (node, bool) {
+	splitPoint := len(longestCommonPrefix(key[depth:], n.prefix))
+	if splitPoint < len(n.prefix) {
+		shared := n.prefix[:splitPoint]
+		oldBranch := n.prefix[splitPoint]
+		n.prefix = n.prefix[splitPoint+1:]
+		return splitPrefixedInner(n, oldBranch, shared, key, value, depth, splitPoint), true
+	}
+	depth += len(n.prefix)
+	if depth == len(key) {
+		if n.terminal != nil {
+			n.terminal.value = value
+		} else {
+			n.terminal = newLeaf(key, value)
+		}
+		return n, true
+	}
+	branch := key[depth]
+	switch c := n.findChild(branch).(type) {
+	case nil:
+		return node16AddOrGrow(n, branch, newLeaf(key, value)), true
+	case *leaf:
+		if bytes.Equal(c.key, key) {
+			c.value = value
+			return n, true
+		}
+		n.replaceChild(branch, newNode4With(c, key, value, depth+1))
+		return n, true
+	case innerNode:
+		newChild, _ := c.put(key, value, depth+1)
+		n.replaceChild(branch, newChild)
+		return n, true
+	}
+	return n, true
+}
+
+func (n *node16) get(key []byte, depth int) (any, bool) {
+	end := depth + len(n.prefix)
+	if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
+		return nil, false
+	}
+	depth = end
+	if depth == len(key) {
+		if n.terminal != nil && bytes.Equal(n.terminal.key, key) {
+			return n.terminal.value, true
+		}
+		return nil, false
+	}
+	switch c := n.findChild(key[depth]).(type) {
+	case nil:
+		return nil, false
+	case *leaf:
+		if bytes.Equal(c.key, key) {
+			return c.value, true
+		}
+		return nil, false
+	case innerNode:
+		return c.get(key, depth+1)
+	}
+	return nil, false
+}
+
+func (n *node16) delete(key []byte, depth int) (node, bool) {
+	end := depth + len(n.prefix)
+	if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
+		return n, false
+	}
+	depth = end
+	if depth == len(key) {
+		if n.terminal == nil || !bytes.Equal(n.terminal.key, key) {
+			return n, false
+		}
+		n.terminal = nil
+		return postDeleteReshape(n), true
+	}
+	branch := key[depth]
+	child := n.findChild(branch)
+	if child == nil {
+		return n, false
+	}
+	var (
+		newChild node
+		deleted  bool
+	)
+	switch c := child.(type) {
+	case *leaf:
+		if !bytes.Equal(c.key, key) {
+			return n, false
+		}
+		newChild, deleted = nil, true
+	case innerNode:
+		newChild, deleted = c.delete(key, depth+1)
+	}
+	if !deleted {
+		return n, false
+	}
+	if newChild == nil {
+		n.removeChild(branch)
+	} else {
+		n.replaceChild(branch, newChild)
+	}
+	return postDeleteReshape(n), true
+}
+
+func (n *node16) iterate(yield func([]byte, any) bool) bool {
+	if n.terminal != nil && !yield(n.terminal.key, n.terminal.value) {
+		return false
+	}
+	for i := uint8(0); i < n.numChildren; i++ {
+		switch c := n.children[i].(type) {
+		case *leaf:
+			if !yield(c.key, c.value) {
+				return false
+			}
+		case innerNode:
+			if !c.iterate(yield) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// --- node48 operations ---
+
+func (n *node48) put(key []byte, value any, depth int) (node, bool) {
+	splitPoint := len(longestCommonPrefix(key[depth:], n.prefix))
+	if splitPoint < len(n.prefix) {
+		shared := n.prefix[:splitPoint]
+		oldBranch := n.prefix[splitPoint]
+		n.prefix = n.prefix[splitPoint+1:]
+		return splitPrefixedInner(n, oldBranch, shared, key, value, depth, splitPoint), true
+	}
+	depth += len(n.prefix)
+	if depth == len(key) {
+		if n.terminal != nil {
+			n.terminal.value = value
+		} else {
+			n.terminal = newLeaf(key, value)
+		}
+		return n, true
+	}
+	branch := key[depth]
+	switch c := n.findChild(branch).(type) {
+	case nil:
+		return node48AddOrGrow(n, branch, newLeaf(key, value)), true
+	case *leaf:
+		if bytes.Equal(c.key, key) {
+			c.value = value
+			return n, true
+		}
+		n.replaceChild(branch, newNode4With(c, key, value, depth+1))
+		return n, true
+	case innerNode:
+		newChild, _ := c.put(key, value, depth+1)
+		n.replaceChild(branch, newChild)
+		return n, true
+	}
+	return n, true
+}
+
+func (n *node48) get(key []byte, depth int) (any, bool) {
+	end := depth + len(n.prefix)
+	if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
+		return nil, false
+	}
+	depth = end
+	if depth == len(key) {
+		if n.terminal != nil && bytes.Equal(n.terminal.key, key) {
+			return n.terminal.value, true
+		}
+		return nil, false
+	}
+	switch c := n.findChild(key[depth]).(type) {
+	case nil:
+		return nil, false
+	case *leaf:
+		if bytes.Equal(c.key, key) {
+			return c.value, true
+		}
+		return nil, false
+	case innerNode:
+		return c.get(key, depth+1)
+	}
+	return nil, false
+}
+
+func (n *node48) delete(key []byte, depth int) (node, bool) {
+	end := depth + len(n.prefix)
+	if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
+		return n, false
+	}
+	depth = end
+	if depth == len(key) {
+		if n.terminal == nil || !bytes.Equal(n.terminal.key, key) {
+			return n, false
+		}
+		n.terminal = nil
+		return postDeleteReshape(n), true
+	}
+	branch := key[depth]
+	child := n.findChild(branch)
+	if child == nil {
+		return n, false
+	}
+	var (
+		newChild node
+		deleted  bool
+	)
+	switch c := child.(type) {
+	case *leaf:
+		if !bytes.Equal(c.key, key) {
+			return n, false
+		}
+		newChild, deleted = nil, true
+	case innerNode:
+		newChild, deleted = c.delete(key, depth+1)
+	}
+	if !deleted {
+		return n, false
+	}
+	if newChild == nil {
+		n.removeChild(branch)
+	} else {
+		n.replaceChild(branch, newChild)
+	}
+	return postDeleteReshape(n), true
+}
+
+func (n *node48) iterate(yield func([]byte, any) bool) bool {
+	if n.terminal != nil && !yield(n.terminal.key, n.terminal.value) {
+		return false
+	}
+	for edge := 0; edge < 256; edge++ {
+		slot := n.childIndex[byte(edge)]
+		if slot == 0 {
+			continue
+		}
+		switch c := n.children[slot-1].(type) {
+		case *leaf:
+			if !yield(c.key, c.value) {
+				return false
+			}
+		case innerNode:
+			if !c.iterate(yield) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// --- node256 operations ---
+
+func (n *node256) put(key []byte, value any, depth int) (node, bool) {
+	splitPoint := len(longestCommonPrefix(key[depth:], n.prefix))
+	if splitPoint < len(n.prefix) {
+		shared := n.prefix[:splitPoint]
+		oldBranch := n.prefix[splitPoint]
+		n.prefix = n.prefix[splitPoint+1:]
+		return splitPrefixedInner(n, oldBranch, shared, key, value, depth, splitPoint), true
+	}
+	depth += len(n.prefix)
+	if depth == len(key) {
+		if n.terminal != nil {
+			n.terminal.value = value
+		} else {
+			n.terminal = newLeaf(key, value)
+		}
+		return n, true
+	}
+	branch := key[depth]
+	switch c := n.findChild(branch).(type) {
+	case nil:
+		n.addChild(branch, newLeaf(key, value))
+		return n, true
+	case *leaf:
+		if bytes.Equal(c.key, key) {
+			c.value = value
+			return n, true
+		}
+		n.replaceChild(branch, newNode4With(c, key, value, depth+1))
+		return n, true
+	case innerNode:
+		newChild, _ := c.put(key, value, depth+1)
+		n.replaceChild(branch, newChild)
+		return n, true
+	}
+	return n, true
+}
+
+func (n *node256) get(key []byte, depth int) (any, bool) {
+	end := depth + len(n.prefix)
+	if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
+		return nil, false
+	}
+	depth = end
+	if depth == len(key) {
+		if n.terminal != nil && bytes.Equal(n.terminal.key, key) {
+			return n.terminal.value, true
+		}
+		return nil, false
+	}
+	switch c := n.findChild(key[depth]).(type) {
+	case nil:
+		return nil, false
+	case *leaf:
+		if bytes.Equal(c.key, key) {
+			return c.value, true
+		}
+		return nil, false
+	case innerNode:
+		return c.get(key, depth+1)
+	}
+	return nil, false
+}
+
+func (n *node256) delete(key []byte, depth int) (node, bool) {
+	end := depth + len(n.prefix)
+	if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
+		return n, false
+	}
+	depth = end
+	if depth == len(key) {
+		if n.terminal == nil || !bytes.Equal(n.terminal.key, key) {
+			return n, false
+		}
+		n.terminal = nil
+		return postDeleteReshape(n), true
+	}
+	branch := key[depth]
+	child := n.findChild(branch)
+	if child == nil {
+		return n, false
+	}
+	var (
+		newChild node
+		deleted  bool
+	)
+	switch c := child.(type) {
+	case *leaf:
+		if !bytes.Equal(c.key, key) {
+			return n, false
+		}
+		newChild, deleted = nil, true
+	case innerNode:
+		newChild, deleted = c.delete(key, depth+1)
+	}
+	if !deleted {
+		return n, false
+	}
+	if newChild == nil {
+		n.removeChild(branch)
+	} else {
+		n.replaceChild(branch, newChild)
+	}
+	return postDeleteReshape(n), true
+}
+
+func (n *node256) iterate(yield func([]byte, any) bool) bool {
+	if n.terminal != nil && !yield(n.terminal.key, n.terminal.value) {
+		return false
+	}
+	for edge := 0; edge < 256; edge++ {
+		switch c := n.children[edge].(type) {
+		case nil:
+			continue
+		case *leaf:
+			if !yield(c.key, c.value) {
+				return false
+			}
+		case innerNode:
+			if !c.iterate(yield) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // Tree is a sorted map backed by an Adaptive Radix Tree.
