@@ -81,20 +81,20 @@ func main() {
 
 ## Architecture
 
-**Node types.** There are four inner node types (`node4`, `node16`, `node48`, `node256`) plus a `leaf`. Inner nodes grow and shrink based on child count, so each node's capacity matches its fanout. Each inner node may also carry a `prefix` (for path compression) and an optional `terminal` leaf holding a value for a key that ends exactly at that node.
+**Node types.** There are four inner node types (`node4`, `node16`, `node48`, `node256`) plus a `leaf`. Inner nodes grow and shrink based on child count. Each inner node may carry a `prefix` (for path compression) and an optional `terminal` leaf holding a value for a key that ends exactly at that node.
 
-**The `innerNode` interface.** All four inner node types implement a common `innerNode` interface covering put/get/delete/iterate plus prefix and terminal accessors. Public methods on `Tree` dispatch through this interface, so each operation is expressed once per node type.
+**The `innerNode` interface.** All four inner node types implement a minimal `innerNode` interface covering `findChild`, `removeChild`, and `isEmpty`. Operations (`Put`, `Get`, `Delete`, iteration) are implemented as standalone functions with switch statements dispatching on node type.
 
 **File organization.**
 
 | File | Purpose |
 |------|---------|
-| `types.go` | Node structs, `innerNode` interface, lifecycle (grow/shrink/addChild), operation methods |
-| `put.go` | `Tree.Put` dispatcher |
-| `get.go` | `Tree.Get` dispatcher |
-| `delete.go` | `Tree.Delete` dispatcher + `postDeleteReshape` collapse logic |
-| `iterate.go` | `Tree.All`, `Tree.Range`, iteration helpers |
-| `helpers.go` | Shared pure functions: `longestCommonPrefixLen`, `newNode4With`, `splitPrefixedInner`, `newLeaf` |
+| `types.go` | Node structs, `innerNode` interface, node lifecycle (grow/shrink/addChild/replaceChild/removeChild) |
+| `put.go` | `Tree.Put` + `putInto` dispatcher + `putIntoNode4/16/48/256` helpers |
+| `get.go` | `Tree.Get` with inline switch over node types |
+| `delete.go` | `Tree.Delete` + `deleteFrom` switch + `postDeleteReshape` collapse logic |
+| `iterate.go` | `Tree.All`, `Tree.Range` + `iterate`/`iterateRange` switches |
+| `helpers.go` | Shared pure functions: `longestCommonPrefix`, `newNode4With`, `splitPrefixedInner`, `newLeaf` |
 | `art_test.go` | 44 unit tests |
 | `art_fuzz_test.go` | `FuzzSortedMap` differential fuzzer + 6 seed inputs |
 
