@@ -86,17 +86,21 @@ func (t *Tree) Range(start, end []byte) iter.Seq2[[]byte, any] {
 		if start != nil && end != nil && bytes.Compare(start, end) >= 0 {
 			return
 		}
-		iterateRange(t.root, nil, start, end, yield)
+		path := make([]byte, 0, 32)
+		iterateRange(t.root, &path, start, end, yield)
 	}
 }
 
-// iterateRange is the pruning analogue of iterate. path is the byte
-// sequence consumed from the root to n (before n's own prefix). At
-// each inner node the terminal is yielded first, then child edges are
-// visited in ascending order; a subtree whose keys all fall outside
-// [start, end) is skipped, and because edges are sorted, the first
-// edge whose subtree is at-or-after end ends the walk of this node.
-func iterateRange(n node, path []byte, start, end []byte, yield func([]byte, any) bool) bool {
+// iterateRange is the pruning analogue of iterate. *path is the byte
+// sequence consumed from the root to n (before n's own prefix); the
+// same backing buffer is reused across the recursion and every exit
+// path restores *path to its length on entry. At each inner node the
+// terminal is yielded first, then child edges are visited in
+// ascending order; a subtree whose keys all fall outside [start, end)
+// is skipped without materializing its path, and because edges are
+// sorted, the first edge whose subtree is at-or-after end ends the
+// walk of this node.
+func iterateRange(n node, path *[]byte, start, end []byte, yield func([]byte, any) bool) bool {
 	switch r := n.(type) {
 	case nil:
 		return true
@@ -106,49 +110,66 @@ func iterateRange(n node, path []byte, start, end []byte, yield func([]byte, any
 		}
 		return true
 	case *node4:
-		nodePath := concatPrefix(path, r.prefix)
-		if r.terminal != nil && keyInRange(nodePath, start, end) {
+		before := len(*path)
+		*path = append(*path, r.prefix...)
+		nodeLen := len(*path)
+		if r.terminal != nil && keyInRange((*path)[:nodeLen], start, end) {
 			if !yield(r.terminal.key, r.terminal.value) {
+				*path = (*path)[:before]
 				return false
 			}
 		}
 		for i := uint8(0); i < r.numChildren; i++ {
-			childPath := concatByte(nodePath, r.keys[i])
-			if subtreeBefore(childPath, start) {
+			b := r.keys[i]
+			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
 				continue
 			}
-			if subtreeAtOrAfter(childPath, end) {
+			if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
+				*path = (*path)[:before]
 				return true
 			}
-			if !iterateRange(r.children[i], childPath, start, end, yield) {
+			*path = append((*path)[:nodeLen], b)
+			if !iterateRange(r.children[i], path, start, end, yield) {
+				*path = (*path)[:before]
 				return false
 			}
 		}
+		*path = (*path)[:before]
 		return true
 	case *node16:
-		nodePath := concatPrefix(path, r.prefix)
-		if r.terminal != nil && keyInRange(nodePath, start, end) {
+		before := len(*path)
+		*path = append(*path, r.prefix...)
+		nodeLen := len(*path)
+		if r.terminal != nil && keyInRange((*path)[:nodeLen], start, end) {
 			if !yield(r.terminal.key, r.terminal.value) {
+				*path = (*path)[:before]
 				return false
 			}
 		}
 		for i := uint8(0); i < r.numChildren; i++ {
-			childPath := concatByte(nodePath, r.keys[i])
-			if subtreeBefore(childPath, start) {
+			b := r.keys[i]
+			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
 				continue
 			}
-			if subtreeAtOrAfter(childPath, end) {
+			if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
+				*path = (*path)[:before]
 				return true
 			}
-			if !iterateRange(r.children[i], childPath, start, end, yield) {
+			*path = append((*path)[:nodeLen], b)
+			if !iterateRange(r.children[i], path, start, end, yield) {
+				*path = (*path)[:before]
 				return false
 			}
 		}
+		*path = (*path)[:before]
 		return true
 	case *node48:
-		nodePath := concatPrefix(path, r.prefix)
-		if r.terminal != nil && keyInRange(nodePath, start, end) {
+		before := len(*path)
+		*path = append(*path, r.prefix...)
+		nodeLen := len(*path)
+		if r.terminal != nil && keyInRange((*path)[:nodeLen], start, end) {
 			if !yield(r.terminal.key, r.terminal.value) {
+				*path = (*path)[:before]
 				return false
 			}
 		}
@@ -157,22 +178,29 @@ func iterateRange(n node, path []byte, start, end []byte, yield func([]byte, any
 			if slot == 0 {
 				continue
 			}
-			childPath := concatByte(nodePath, byte(edge))
-			if subtreeBefore(childPath, start) {
+			b := byte(edge)
+			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
 				continue
 			}
-			if subtreeAtOrAfter(childPath, end) {
+			if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
+				*path = (*path)[:before]
 				return true
 			}
-			if !iterateRange(r.children[slot-1], childPath, start, end, yield) {
+			*path = append((*path)[:nodeLen], b)
+			if !iterateRange(r.children[slot-1], path, start, end, yield) {
+				*path = (*path)[:before]
 				return false
 			}
 		}
+		*path = (*path)[:before]
 		return true
 	case *node256:
-		nodePath := concatPrefix(path, r.prefix)
-		if r.terminal != nil && keyInRange(nodePath, start, end) {
+		before := len(*path)
+		*path = append(*path, r.prefix...)
+		nodeLen := len(*path)
+		if r.terminal != nil && keyInRange((*path)[:nodeLen], start, end) {
 			if !yield(r.terminal.key, r.terminal.value) {
+				*path = (*path)[:before]
 				return false
 			}
 		}
@@ -181,17 +209,21 @@ func iterateRange(n node, path []byte, start, end []byte, yield func([]byte, any
 			if child == nil {
 				continue
 			}
-			childPath := concatByte(nodePath, byte(edge))
-			if subtreeBefore(childPath, start) {
+			b := byte(edge)
+			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
 				continue
 			}
-			if subtreeAtOrAfter(childPath, end) {
+			if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
+				*path = (*path)[:before]
 				return true
 			}
-			if !iterateRange(child, childPath, start, end, yield) {
+			*path = append((*path)[:nodeLen], b)
+			if !iterateRange(child, path, start, end, yield) {
+				*path = (*path)[:before]
 				return false
 			}
 		}
+		*path = (*path)[:before]
 		return true
 	}
 	return true
@@ -209,47 +241,42 @@ func keyInRange(key, start, end []byte) bool {
 	return true
 }
 
-// subtreeBefore reports whether every key that has childPath as a
-// prefix is strictly less than start. A nil start is never before.
-func subtreeBefore(childPath, start []byte) bool {
-	if start == nil {
+// subtreeBeforeWithByte reports whether every key beginning with
+// (nodePath ++ extra) compares strictly less than bound. Equivalent
+// to subtreeBefore(concatByte(nodePath, extra), bound) but does not
+// allocate.
+func subtreeBeforeWithByte(nodePath []byte, extra byte, bound []byte) bool {
+	if bound == nil {
 		return false
 	}
-	k := len(childPath)
-	if len(start) < k {
-		k = len(start)
+	if len(bound) <= len(nodePath) {
+		return bytes.Compare(nodePath[:len(bound)], bound) < 0
 	}
-	return bytes.Compare(childPath[:k], start[:k]) < 0
+	c := bytes.Compare(nodePath, bound[:len(nodePath)])
+	if c != 0 {
+		return c < 0
+	}
+	return extra < bound[len(nodePath)]
 }
 
-// subtreeAtOrAfter reports whether every key that has childPath as a
-// prefix is greater than or equal to end. A nil end never bounds from
-// above.
-func subtreeAtOrAfter(childPath, end []byte) bool {
-	if end == nil {
+// subtreeAtOrAfterWithByte reports whether every key beginning with
+// (nodePath ++ extra) is greater than or equal to bound. Equivalent
+// to subtreeAtOrAfter(concatByte(nodePath, extra), bound) but does
+// not allocate.
+func subtreeAtOrAfterWithByte(nodePath []byte, extra byte, bound []byte) bool {
+	if bound == nil {
 		return false
 	}
-	k := len(childPath)
-	if len(end) < k {
-		k = len(end)
+	if len(bound) <= len(nodePath) {
+		return bytes.Compare(nodePath[:len(bound)], bound) >= 0
 	}
-	c := bytes.Compare(childPath[:k], end[:k])
-	return c > 0 || (c == 0 && len(childPath) >= len(end))
-}
-
-// concatPrefix returns a fresh slice containing path followed by
-// prefix so recursive callers can extend it without aliasing.
-func concatPrefix(path, prefix []byte) []byte {
-	out := make([]byte, len(path)+len(prefix))
-	copy(out, path)
-	copy(out[len(path):], prefix)
-	return out
-}
-
-// concatByte returns a fresh slice containing path with b appended.
-func concatByte(path []byte, b byte) []byte {
-	out := make([]byte, len(path)+1)
-	copy(out, path)
-	out[len(path)] = b
-	return out
+	c := bytes.Compare(nodePath, bound[:len(nodePath)])
+	if c != 0 {
+		return c > 0
+	}
+	bb := bound[len(nodePath)]
+	if extra != bb {
+		return extra > bb
+	}
+	return len(bound) <= len(nodePath)+1
 }
