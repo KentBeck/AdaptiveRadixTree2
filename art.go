@@ -896,18 +896,18 @@ func deleteFrom(current node, key []byte, depth int) (node, bool) {
 }
 
 // postDeleteReshape inspects n after a child removal or terminal clear
-// and either demotes, collapses, or returns it unchanged. A nil return
-// signals "drop this subtree" (no children and no terminal). Two
-// collapse cases are reserved for Slice 12b: a node that retains only
-// a terminal (numChildren == 0, terminal != nil) and a single-child
-// collapse whose surviving child is an inner node whose prefix would
-// need merging with the parent's prefix plus branch byte.
+// and either demotes, collapses, or returns it unchanged. The flat
+// decision: 0 children with a terminal collapses to the terminal leaf;
+// 0 children without a terminal drops the subtree (nil return); a
+// node4 with exactly one child and no terminal collapses to that child
+// (a leaf replaces the node directly; an inner child absorbs the
+// parent's prefix and branch byte into its own prefix).
 func postDeleteReshape(n innerNode) node {
 	switch m := n.(type) {
 	case *node256:
 		if m.numChildren == 0 {
 			if m.terminal != nil {
-				panic("art: collapse to terminal-only leaf - see Slice 12b")
+				return m.terminal
 			}
 			return nil
 		}
@@ -917,7 +917,7 @@ func postDeleteReshape(n innerNode) node {
 	case *node48:
 		if m.numChildren == 0 {
 			if m.terminal != nil {
-				panic("art: collapse to terminal-only leaf - see Slice 12b")
+				return m.terminal
 			}
 			return nil
 		}
@@ -927,7 +927,7 @@ func postDeleteReshape(n innerNode) node {
 	case *node16:
 		if m.numChildren == 0 {
 			if m.terminal != nil {
-				panic("art: collapse to terminal-only leaf - see Slice 12b")
+				return m.terminal
 			}
 			return nil
 		}
@@ -937,17 +937,48 @@ func postDeleteReshape(n innerNode) node {
 	case *node4:
 		if m.numChildren == 0 {
 			if m.terminal != nil {
-				panic("art: collapse to terminal-only leaf - see Slice 12b")
+				return m.terminal
 			}
 			return nil
 		}
 		if m.numChildren == 1 && m.terminal == nil {
 			only := m.children[0]
-			if _, isLeaf := only.(*leaf); !isLeaf {
-				panic("art: prefix-merge collapse - see Slice 12b")
+			if leaf, isLeaf := only.(*leaf); isLeaf {
+				return leaf
 			}
-			return only
+			return mergePrefixIntoChild(m.prefix, m.keys[0], only.(innerNode))
 		}
 	}
 	return n
+}
+
+// mergePrefixIntoChild rewrites child's prefix to parentPrefix ||
+// branchByte || child's old prefix and returns child for use as the
+// replacement of its collapsed parent. The merged slice is freshly
+// allocated so the parent's prefix backing array is not aliased.
+func mergePrefixIntoChild(parentPrefix []byte, branchByte byte, child innerNode) node {
+	switch c := child.(type) {
+	case *node4:
+		c.prefix = mergedPrefix(parentPrefix, branchByte, c.prefix)
+		return c
+	case *node16:
+		c.prefix = mergedPrefix(parentPrefix, branchByte, c.prefix)
+		return c
+	case *node48:
+		c.prefix = mergedPrefix(parentPrefix, branchByte, c.prefix)
+		return c
+	case *node256:
+		c.prefix = mergedPrefix(parentPrefix, branchByte, c.prefix)
+		return c
+	}
+	return child
+}
+
+// mergedPrefix returns a new slice holding parent || branch || child.
+func mergedPrefix(parent []byte, branch byte, child []byte) []byte {
+	merged := make([]byte, len(parent)+1+len(child))
+	copy(merged, parent)
+	merged[len(parent)] = branch
+	copy(merged[len(parent)+1:], child)
+	return merged
 }

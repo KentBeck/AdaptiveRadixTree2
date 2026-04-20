@@ -657,3 +657,122 @@ func TestDeleteDemotesPrefixedNode256(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteCollapsesToTerminalAtRoot(t *testing.T) {
+	// Root is a node4 with prefix "ap", terminal ("ap", 1), one leaf child at 'p' ("apple", 2).
+	// Wait — that's 1 child + terminal. Insert three keys so root ends up with terminal + multiple children.
+	tree := New()
+	tree.Put([]byte("ap"), 1)
+	tree.Put([]byte("apple"), 2)
+	tree.Put([]byte("apricot"), 3)
+
+	// Delete both branching children → root should collapse to the terminal leaf ("ap", 1).
+	if !tree.Delete([]byte("apple")) {
+		t.Fatal("Delete(apple) returned false")
+	}
+	if !tree.Delete([]byte("apricot")) {
+		t.Fatal("Delete(apricot) returned false")
+	}
+
+	if v, ok := tree.Get([]byte("ap")); !ok || v != 1 {
+		t.Fatalf("Get(ap) after collapse = (%v, %v), want (1, true)", v, ok)
+	}
+	if _, ok := tree.Get([]byte("apple")); ok {
+		t.Fatal("Get(apple) after delete should miss")
+	}
+	if _, ok := tree.Get([]byte("apricot")); ok {
+		t.Fatal("Get(apricot) after delete should miss")
+	}
+	// Deleting the terminal itself empties the tree.
+	if !tree.Delete([]byte("ap")) {
+		t.Fatal("Delete(ap) returned false")
+	}
+	if _, ok := tree.Get([]byte("ap")); ok {
+		t.Fatal("Get(ap) after final delete should miss")
+	}
+}
+
+func TestDeleteCollapsesToTerminalAtInnerNode(t *testing.T) {
+	// Root node4 has no prefix, branches 'a' (subtree) and 'b' (leaf "banana").
+	// 'a' subtree has prefix "p", terminal ("ap", 1), and child 'p' leaf "apple".
+	tree := New()
+	tree.Put([]byte("ap"), 1)
+	tree.Put([]byte("apple"), 2)
+	tree.Put([]byte("banana"), 3)
+
+	// Delete "apple" → 'a' subtree becomes (0 children, terminal "ap") → collapse.
+	// Root's 'a' child should become the leaf ("ap", 1) directly.
+	if !tree.Delete([]byte("apple")) {
+		t.Fatal("Delete(apple) returned false")
+	}
+	if v, ok := tree.Get([]byte("ap")); !ok || v != 1 {
+		t.Fatalf("Get(ap) = (%v, %v), want (1, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("banana")); !ok || v != 3 {
+		t.Fatalf("Get(banana) = (%v, %v), want (3, true)", v, ok)
+	}
+	if _, ok := tree.Get([]byte("apple")); ok {
+		t.Fatal("Get(apple) should miss")
+	}
+}
+
+func TestDeletePrefixMergeCollapse(t *testing.T) {
+	// Root node4 has prefix "", branches 'a' (subtree) and 'b' (leaf "banana").
+	// 'a' subtree has prefix "p", branches 'p' (leaf "apple") and 'r' (leaf "apricot").
+	tree := New()
+	tree.Put([]byte("apple"), 1)
+	tree.Put([]byte("apricot"), 2)
+	tree.Put([]byte("banana"), 3)
+
+	// Delete "banana" → root has 1 child (the 'a' subtree, an inner node) and no terminal.
+	// Root and child must merge: new root has prefix "" || 'a' || "p" = "ap".
+	if !tree.Delete([]byte("banana")) {
+		t.Fatal("Delete(banana) returned false")
+	}
+
+	if v, ok := tree.Get([]byte("apple")); !ok || v != 1 {
+		t.Fatalf("Get(apple) after merge = (%v, %v), want (1, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("apricot")); !ok || v != 2 {
+		t.Fatalf("Get(apricot) after merge = (%v, %v), want (2, true)", v, ok)
+	}
+	if _, ok := tree.Get([]byte("banana")); ok {
+		t.Fatal("Get(banana) should miss")
+	}
+	// Further inserts/deletes on the merged structure still work.
+	tree.Put([]byte("aprons"), 4)
+	if v, ok := tree.Get([]byte("aprons")); !ok || v != 4 {
+		t.Fatalf("Get(aprons) = (%v, %v), want (4, true)", v, ok)
+	}
+}
+
+func TestDeletePrefixMergeAtInnerNode(t *testing.T) {
+	// Build a deeper tree so the merge happens below the root.
+	// Root branches 'a' (subtree) and 'z' (leaf "zoo").
+	// 'a' subtree has prefix "p", branches 'p' (subtree "pl"/apple/application) and 'r' (leaf apricot).
+	// The 'p' subtree has prefix "pl", branches 'e' (leaf apple) and 'i' (leaf application).
+	tree := New()
+	tree.Put([]byte("apple"), 1)
+	tree.Put([]byte("application"), 2)
+	tree.Put([]byte("apricot"), 3)
+	tree.Put([]byte("zoo"), 4)
+
+	// Delete "apricot" → 'a' subtree is left with one child (the 'p' subtree, an inner node) and no terminal.
+	// Must merge: 'a' subtree's prefix "p" + branch 'p' + child prefix "pl" = "ppl"
+	// so the new 'a' child of the root is a node4 with prefix "ppl" branching on 'e' and 'i'.
+	if !tree.Delete([]byte("apricot")) {
+		t.Fatal("Delete(apricot) returned false")
+	}
+	if v, ok := tree.Get([]byte("apple")); !ok || v != 1 {
+		t.Fatalf("Get(apple) = (%v, %v), want (1, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("application")); !ok || v != 2 {
+		t.Fatalf("Get(application) = (%v, %v), want (2, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("zoo")); !ok || v != 4 {
+		t.Fatalf("Get(zoo) = (%v, %v), want (4, true)", v, ok)
+	}
+	if _, ok := tree.Get([]byte("apricot")); ok {
+		t.Fatal("Get(apricot) should miss")
+	}
+}
