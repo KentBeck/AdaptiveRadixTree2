@@ -4,7 +4,10 @@
 // and lazy expansion will arrive in later slices.
 package art
 
-import "bytes"
+import (
+	"bytes"
+	"iter"
+)
 
 type nodeKind uint8
 
@@ -981,4 +984,74 @@ func mergedPrefix(parent []byte, branch byte, child []byte) []byte {
 	merged[len(parent)] = branch
 	copy(merged[len(parent)+1:], child)
 	return merged
+}
+
+// All returns an iterator over every (key, value) pair in the tree in
+// ascending byte-wise key order. Breaking out of the range stops the
+// traversal immediately.
+func (t *Tree) All() iter.Seq2[[]byte, any] {
+	return func(yield func([]byte, any) bool) {
+		iterate(t.root, yield)
+	}
+}
+
+// iterate visits every (key, value) pair reachable from n in sorted
+// key order, returning false as soon as yield does so the caller can
+// short-circuit all the way up.
+func iterate(n node, yield func([]byte, any) bool) bool {
+	switch r := n.(type) {
+	case nil:
+		return true
+	case *leaf:
+		return yield(r.key, r.value)
+	case *node4:
+		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
+			return false
+		}
+		for i := uint8(0); i < r.numChildren; i++ {
+			if !iterate(r.children[i], yield) {
+				return false
+			}
+		}
+		return true
+	case *node16:
+		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
+			return false
+		}
+		for i := uint8(0); i < r.numChildren; i++ {
+			if !iterate(r.children[i], yield) {
+				return false
+			}
+		}
+		return true
+	case *node48:
+		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
+			return false
+		}
+		for edge := 0; edge < 256; edge++ {
+			slot := r.childIndex[byte(edge)]
+			if slot == 0 {
+				continue
+			}
+			if !iterate(r.children[slot-1], yield) {
+				return false
+			}
+		}
+		return true
+	case *node256:
+		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
+			return false
+		}
+		for edge := 0; edge < 256; edge++ {
+			child := r.children[edge]
+			if child == nil {
+				continue
+			}
+			if !iterate(child, yield) {
+				return false
+			}
+		}
+		return true
+	}
+	return true
 }

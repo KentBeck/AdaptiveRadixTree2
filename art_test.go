@@ -1,6 +1,11 @@
 package art
 
-import "testing"
+import (
+	"bytes"
+	"reflect"
+	"sort"
+	"testing"
+)
 
 func TestPutThenGet(t *testing.T) {
 	tree := New()
@@ -774,5 +779,91 @@ func TestDeletePrefixMergeAtInnerNode(t *testing.T) {
 	}
 	if _, ok := tree.Get([]byte("apricot")); ok {
 		t.Fatal("Get(apricot) should miss")
+	}
+}
+
+func TestAllEmptyTreeYieldsNothing(t *testing.T) {
+	tree := New()
+	count := 0
+	for range tree.All() {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("empty tree yielded %d pairs, want 0", count)
+	}
+}
+
+func TestAllYieldsSingleKey(t *testing.T) {
+	tree := New()
+	tree.Put([]byte("apple"), 1)
+	var gotKeys [][]byte
+	var gotVals []any
+	for k, v := range tree.All() {
+		gotKeys = append(gotKeys, append([]byte(nil), k...))
+		gotVals = append(gotVals, v)
+	}
+	if len(gotKeys) != 1 || string(gotKeys[0]) != "apple" || gotVals[0] != 1 {
+		t.Fatalf("got %v / %v, want [apple] / [1]", gotKeys, gotVals)
+	}
+}
+
+func TestAllYieldsSortedOrderAcrossNodeTypes(t *testing.T) {
+	tree := New()
+	want := [][]byte{}
+	for _, s := range []string{"", "a", "ap", "apple", "application", "apricot", "banana", "z", "zoo"} {
+		tree.Put([]byte(s), s)
+		want = append(want, []byte(s))
+	}
+	for i := 0; i < 260; i++ {
+		key := []byte{'k', byte(i % 256), byte(i / 256)}
+		tree.Put(key, string(key))
+		want = append(want, append([]byte(nil), key...))
+	}
+	sort.Slice(want, func(i, j int) bool { return bytes.Compare(want[i], want[j]) < 0 })
+
+	got := [][]byte{}
+	for k := range tree.All() {
+		got = append(got, append([]byte(nil), k...))
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d pairs, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if !bytes.Equal(got[i], want[i]) {
+			t.Fatalf("pair %d: got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestAllYieldsTerminalBeforeChildren(t *testing.T) {
+	tree := New()
+	tree.Put([]byte("ap"), 1)
+	tree.Put([]byte("apple"), 2)
+	tree.Put([]byte("apricot"), 3)
+	var keys []string
+	for k := range tree.All() {
+		keys = append(keys, string(k))
+	}
+	want := []string{"ap", "apple", "apricot"}
+	if !reflect.DeepEqual(keys, want) {
+		t.Fatalf("got %v, want %v", keys, want)
+	}
+}
+
+func TestAllEarlyTermination(t *testing.T) {
+	tree := New()
+	for _, s := range []string{"a", "b", "c", "d", "e"} {
+		tree.Put([]byte(s), s)
+	}
+	var keys []string
+	for k := range tree.All() {
+		keys = append(keys, string(k))
+		if string(k) == "c" {
+			break
+		}
+	}
+	want := []string{"a", "b", "c"}
+	if !reflect.DeepEqual(keys, want) {
+		t.Fatalf("got %v, want %v", keys, want)
 	}
 }
