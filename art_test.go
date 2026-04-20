@@ -599,3 +599,61 @@ func TestSplitPrefixedNode256(t *testing.T) {
 		t.Fatalf("Get(copper) = (%v, %v), want (999, true)", v, ok)
 	}
 }
+
+func TestDeleteTerminalLeavesChildren(t *testing.T) {
+	tree := New()
+	tree.Put([]byte("ap"), 0)
+	tree.Put([]byte("apple"), 1)
+	tree.Put([]byte("apricot"), 2)
+
+	if !tree.Delete([]byte("ap")) {
+		t.Fatal("Delete(ap) returned false")
+	}
+	if _, ok := tree.Get([]byte("ap")); ok {
+		t.Fatal("Get(ap) after delete should miss")
+	}
+	if v, ok := tree.Get([]byte("apple")); !ok || v != 1 {
+		t.Fatalf("Get(apple) = (%v, %v), want (1, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte("apricot")); !ok || v != 2 {
+		t.Fatalf("Get(apricot) = (%v, %v), want (2, true)", v, ok)
+	}
+}
+
+func TestDeleteMissOnPrefixMismatch(t *testing.T) {
+	tree := New()
+	tree.Put([]byte("apple"), 1)
+	tree.Put([]byte("apricot"), 2)
+
+	if tree.Delete([]byte("banana")) {
+		t.Fatal("Delete(banana) on unrelated key should return false")
+	}
+	if tree.Delete([]byte("ap")) {
+		t.Fatal("Delete(ap) when no terminal exists should return false")
+	}
+	if v, ok := tree.Get([]byte("apple")); !ok || v != 1 {
+		t.Fatalf("Get(apple) = (%v, %v), want (1, true)", v, ok)
+	}
+}
+
+func TestDeleteDemotesPrefixedNode256(t *testing.T) {
+	tree := New()
+	tree.Put([]byte("k"), 0)
+	for i := 0; i < 49; i++ {
+		key := []byte{'k', byte(i)}
+		tree.Put(key, i+1)
+	}
+
+	if !tree.Delete([]byte{'k', byte(0)}) {
+		t.Fatal("Delete returned false")
+	}
+	if v, ok := tree.Get([]byte("k")); !ok || v != 0 {
+		t.Fatalf("Get(k) after demote = (%v, %v), want (0, true)", v, ok)
+	}
+	for i := 1; i < 49; i++ {
+		key := []byte{'k', byte(i)}
+		if v, ok := tree.Get(key); !ok || v != i+1 {
+			t.Fatalf("Get(%q) after demote = (%v, %v), want (%d, true)", key, v, ok, i+1)
+		}
+	}
+}

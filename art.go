@@ -236,14 +236,15 @@ func growToNode16(n *node4) *node16 {
 	return grown
 }
 
-// shrinkToNode4 returns a node4 holding the same sorted children as n.
-// Caller guarantees n.numChildren <= node4Capacity. Carrying a terminal
-// or a prefix through this demotion lands in Slice 12.
+// shrinkToNode4 returns a node4 holding the same sorted children,
+// prefix, and terminal as n. Caller guarantees n.numChildren <=
+// node4Capacity.
 func shrinkToNode4(n *node16) *node4 {
-	if n.terminal != nil || len(n.prefix) > 0 {
-		panic("art: shrinking node16 with terminal or prefix - see Slice 12 (delete with prefix/terminal)")
+	shrunk := &node4{
+		prefix:      n.prefix,
+		terminal:    n.terminal,
+		numChildren: n.numChildren,
 	}
-	shrunk := &node4{numChildren: n.numChildren}
 	copy(shrunk.keys[:n.numChildren], n.keys[:n.numChildren])
 	copy(shrunk.children[:n.numChildren], n.children[:n.numChildren])
 	return shrunk
@@ -329,16 +330,16 @@ func growToNode48(n *node16) *node48 {
 	return grown
 }
 
-// shrinkToNode16 returns a node16 holding the same children as n, with
-// keys populated in ascending edge-byte order so node16's sort
-// invariant is preserved. Caller guarantees n.numChildren <=
-// node16Capacity. Carrying a terminal or a prefix through this
-// demotion lands in Slice 12.
+// shrinkToNode16 returns a node16 holding the same children, prefix,
+// and terminal as n, with keys populated in ascending edge-byte order
+// so node16's sort invariant is preserved. Caller guarantees
+// n.numChildren <= node16Capacity.
 func shrinkToNode16(n *node48) *node16 {
-	if n.terminal != nil || len(n.prefix) > 0 {
-		panic("art: shrinking node48 with terminal or prefix - see Slice 12 (delete with prefix/terminal)")
+	shrunk := &node16{
+		prefix:      n.prefix,
+		terminal:    n.terminal,
+		numChildren: n.numChildren,
 	}
-	shrunk := &node16{numChildren: n.numChildren}
 	i := uint8(0)
 	for edge := 0; edge < 256; edge++ {
 		slot := n.childIndex[byte(edge)]
@@ -413,15 +414,15 @@ func growToNode256(n *node48) *node256 {
 	return grown
 }
 
-// shrinkToNode48 returns a node48 holding the same children as n, with
-// childIndex populated from the occupied slots in n. Caller guarantees
-// n.numChildren <= node48Capacity. Carrying a terminal or a prefix
-// through this demotion lands in Slice 12.
+// shrinkToNode48 returns a node48 holding the same children, prefix,
+// and terminal as n, with childIndex populated from the occupied slots
+// in n. Caller guarantees n.numChildren <= node48Capacity.
 func shrinkToNode48(n *node256) *node48 {
-	if n.terminal != nil || len(n.prefix) > 0 {
-		panic("art: shrinking node256 with terminal or prefix - see Slice 12 (delete with prefix/terminal)")
+	shrunk := &node48{
+		prefix:      n.prefix,
+		terminal:    n.terminal,
+		numChildren: uint8(n.numChildren),
 	}
-	shrunk := &node48{numChildren: uint8(n.numChildren)}
 	slot := uint8(0)
 	for b := 0; b < 256; b++ {
 		if n.children[b] == nil {
@@ -432,12 +433,6 @@ func shrinkToNode48(n *node256) *node48 {
 		slot++
 	}
 	return shrunk
-}
-
-// collapseToOnlyChild returns the single remaining child of n. Caller
-// guarantees n.numChildren == 1.
-func collapseToOnlyChild(n *node4) node {
-	return n.children[0]
 }
 
 // Tree is a sorted map backed by an Adaptive Radix Tree.
@@ -756,64 +751,203 @@ func (t *Tree) Get(key []byte) (value any, ok bool) {
 }
 
 // Delete removes key from the tree, returning whether it was present.
-// This slice assumes keys differ at byte 0, so the root is either the
-// matching leaf or an inner node whose child at key[0] is the leaf.
-// After a successful remove the root is demoted to a smaller node type
-// (or collapsed to its only child) whenever its child count crosses
-// the next-smaller capacity.
+// Traversal consumes each inner node's prefix and, if the key is
+// exhausted at a node, targets that node's terminal value. After a
+// successful remove the affected node is demoted to a smaller node
+// type (or collapsed to its only child) whenever its child count
+// crosses the next-smaller capacity.
 func (t *Tree) Delete(key []byte) bool {
-	if t.root == nil {
-		return false
+	newRoot, deleted := deleteFrom(t.root, key, 0)
+	if deleted {
+		t.root = newRoot
 	}
-	if leafRoot, ok := t.root.(*leaf); ok {
-		if bytes.Equal(leafRoot.key, key) {
-			t.root = nil
-			return true
-		}
-		return false
-	}
-	inner := t.root.(innerNode)
-	if !isLeafWithKey(inner.findChild(key[0]), key) {
-		return false
-	}
-	inner.removeChild(key[0])
-	if inner.isEmpty() {
-		t.root = nil
-		return true
-	}
-	t.root = shrunkenOrSame(inner)
-	return true
+	return deleted
 }
 
-// shrunkenOrSame returns the smaller-kinded replacement for n if its
-// child count has dropped to the next-smaller capacity (or to a single
-// child, in node4's case), otherwise n itself.
-func shrunkenOrSame(n innerNode) node {
+// deleteFrom removes key from the subtree rooted at current, returning
+// the (possibly replaced) root and whether the key was present. A nil
+// return means the caller should drop its reference to this subtree.
+// The structure mirrors Get: consume the node's prefix, then either
+// clear the terminal (key exhausted) or recurse through the branching
+// child at key[depth].
+func deleteFrom(current node, key []byte, depth int) (node, bool) {
+	switch r := current.(type) {
+	case nil:
+		return nil, false
+	case *leaf:
+		if bytes.Equal(r.key, key) {
+			return nil, true
+		}
+		return r, false
+	case *node4:
+		end := depth + len(r.prefix)
+		if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
+			return r, false
+		}
+		depth = end
+		if depth == len(key) {
+			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
+				return r, false
+			}
+			r.terminal = nil
+			return postDeleteReshape(r), true
+		}
+		branch := key[depth]
+		child := r.findChild(branch)
+		if child == nil {
+			return r, false
+		}
+		newChild, deleted := deleteFrom(child, key, depth+1)
+		if !deleted {
+			return r, false
+		}
+		if newChild == nil {
+			r.removeChild(branch)
+		} else {
+			r.replaceChild(branch, newChild)
+		}
+		return postDeleteReshape(r), true
+	case *node16:
+		end := depth + len(r.prefix)
+		if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
+			return r, false
+		}
+		depth = end
+		if depth == len(key) {
+			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
+				return r, false
+			}
+			r.terminal = nil
+			return postDeleteReshape(r), true
+		}
+		branch := key[depth]
+		child := r.findChild(branch)
+		if child == nil {
+			return r, false
+		}
+		newChild, deleted := deleteFrom(child, key, depth+1)
+		if !deleted {
+			return r, false
+		}
+		if newChild == nil {
+			r.removeChild(branch)
+		} else {
+			r.replaceChild(branch, newChild)
+		}
+		return postDeleteReshape(r), true
+	case *node48:
+		end := depth + len(r.prefix)
+		if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
+			return r, false
+		}
+		depth = end
+		if depth == len(key) {
+			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
+				return r, false
+			}
+			r.terminal = nil
+			return postDeleteReshape(r), true
+		}
+		branch := key[depth]
+		child := r.findChild(branch)
+		if child == nil {
+			return r, false
+		}
+		newChild, deleted := deleteFrom(child, key, depth+1)
+		if !deleted {
+			return r, false
+		}
+		if newChild == nil {
+			r.removeChild(branch)
+		} else {
+			r.replaceChild(branch, newChild)
+		}
+		return postDeleteReshape(r), true
+	case *node256:
+		end := depth + len(r.prefix)
+		if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
+			return r, false
+		}
+		depth = end
+		if depth == len(key) {
+			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
+				return r, false
+			}
+			r.terminal = nil
+			return postDeleteReshape(r), true
+		}
+		branch := key[depth]
+		child := r.findChild(branch)
+		if child == nil {
+			return r, false
+		}
+		newChild, deleted := deleteFrom(child, key, depth+1)
+		if !deleted {
+			return r, false
+		}
+		if newChild == nil {
+			r.removeChild(branch)
+		} else {
+			r.replaceChild(branch, newChild)
+		}
+		return postDeleteReshape(r), true
+	}
+	return current, false
+}
+
+// postDeleteReshape inspects n after a child removal or terminal clear
+// and either demotes, collapses, or returns it unchanged. A nil return
+// signals "drop this subtree" (no children and no terminal). Two
+// collapse cases are reserved for Slice 12b: a node that retains only
+// a terminal (numChildren == 0, terminal != nil) and a single-child
+// collapse whose surviving child is an inner node whose prefix would
+// need merging with the parent's prefix plus branch byte.
+func postDeleteReshape(n innerNode) node {
 	switch m := n.(type) {
 	case *node256:
+		if m.numChildren == 0 {
+			if m.terminal != nil {
+				panic("art: collapse to terminal-only leaf - see Slice 12b")
+			}
+			return nil
+		}
 		if m.numChildren == node48Capacity {
 			return shrinkToNode48(m)
 		}
 	case *node48:
+		if m.numChildren == 0 {
+			if m.terminal != nil {
+				panic("art: collapse to terminal-only leaf - see Slice 12b")
+			}
+			return nil
+		}
 		if m.numChildren == node16Capacity {
 			return shrinkToNode16(m)
 		}
 	case *node16:
+		if m.numChildren == 0 {
+			if m.terminal != nil {
+				panic("art: collapse to terminal-only leaf - see Slice 12b")
+			}
+			return nil
+		}
 		if m.numChildren == node4Capacity {
 			return shrinkToNode4(m)
 		}
 	case *node4:
-		if m.numChildren == 1 {
-			return collapseToOnlyChild(m)
+		if m.numChildren == 0 {
+			if m.terminal != nil {
+				panic("art: collapse to terminal-only leaf - see Slice 12b")
+			}
+			return nil
+		}
+		if m.numChildren == 1 && m.terminal == nil {
+			only := m.children[0]
+			if _, isLeaf := only.(*leaf); !isLeaf {
+				panic("art: prefix-merge collapse - see Slice 12b")
+			}
+			return only
 		}
 	}
 	return n
-}
-
-// isLeafWithKey reports whether child is a leaf whose full key equals
-// key. It returns false for nil and for inner-node children (which
-// this slice's keys-differ-at-byte-0 assumption keeps out of reach).
-func isLeafWithKey(child node, key []byte) bool {
-	l, ok := child.(*leaf)
-	return ok && bytes.Equal(l.key, key)
 }
