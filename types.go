@@ -37,9 +37,12 @@ type innerNode interface {
 	isEmpty() bool
 }
 
+const inlineKeyMax = 24
+
 type leaf struct {
-	key   []byte
-	value any
+	key    []byte
+	value  any
+	inline [inlineKeyMax]byte
 }
 
 func (*leaf) kind() nodeKind { return kindLeaf }

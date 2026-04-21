@@ -2,11 +2,17 @@
 package art
 
 func newLeaf(key []byte, value any) *leaf {
-	// Copy the key so callers may safely reuse their slice.
-	return &leaf{
-		key:   append([]byte(nil), key...),
-		value: value,
+	// Copy the key so callers may safely reuse their slice. Keys up to
+	// inlineKeyMax bytes go into the leaf's inline buffer to avoid a
+	// second allocation; longer keys are heap-copied.
+	l := &leaf{value: value}
+	if len(key) <= inlineKeyMax {
+		n := copy(l.inline[:], key)
+		l.key = l.inline[:n]
+	} else {
+		l.key = append([]byte(nil), key...)
 	}
+	return l
 }
 
 // longestCommonPrefix returns the leading slice of a that also
