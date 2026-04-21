@@ -15,7 +15,7 @@
 | Put (bulk) | 219.8 ns/key | 897.8 ns/key | 0.24× | ART 4.1× |
 | Get (hit) | 98.9 ns/op | 1081 ns/op | 0.09× | ART 10.9× |
 | Get (miss) | 11.7 ns/op | 126.9 ns/op | 0.09× | ART 10.9× |
-| Delete (bulk) | 111.3 ns/key | 958.8 ns/key | 0.12× | ART 8.6× |
+| Delete (bulk) | 124.6 ns/key | 773.3 ns/key | 0.16× | ART 6.2× |
 | Range (1 %, 100K) | 28.6 ns/key | 9.6 ns/key | 2.97× | B-tree 3.0× |
 
 *Put / Delete measured with `-benchtime=1x` (one 10M-key pass is itself ~2–10 s of work, so `b.N=1` is all the framework gets). Get / GetMiss / Range measured with `-benchtime=3s`: 35.5M ops for ART Get, 307M ops for ART GetMiss, 1212 range passes for ART Range.*
