@@ -1969,3 +1969,189 @@ func TestRangeThroughNode48WithEdgeZeroChild(t *testing.T) {
 		}
 	}
 }
+
+// TestDeleteThroughNode16ThenInnerNode exercises Delete where the
+// root is a node16 and the traversed child is another inner node with
+// a non-empty prefix. Under an ARITHMETIC_BASE mutation that turns the
+// child recursion's depth+1 into depth-1, the child's prefix compare
+// slices the key with a negative start and the call panics. The
+// original implementation must return true, leave siblings intact, and
+// make a second Delete of the same key return false.
+func TestDeleteThroughNode16ThenInnerNode(t *testing.T) {
+	tree, deep := buildRootWithInnerChild(t, "node16")
+	sibling := bytes.Clone(deep)
+	sibling[len(sibling)-1] = 'b'
+	if ok := tree.Delete(deep); !ok {
+		t.Fatalf("Delete(%v) = false, want true", deep)
+	}
+	if got, ok := tree.Get(deep); ok || got != nil {
+		t.Fatalf("Get(%v) after delete = (%v, %v), want (nil, false)", deep, got, ok)
+	}
+	if got, ok := tree.Get(sibling); !ok || got != "deepB" {
+		t.Fatalf("Get(sibling=%v) = (%v, %v), want (\"deepB\", true)", sibling, got, ok)
+	}
+	if ok := tree.Delete(deep); ok {
+		t.Fatalf("second Delete(%v) = true, want false", deep)
+	}
+}
+
+// TestDeleteThroughNode48ThenInnerNode is the node48 analogue of
+// TestDeleteThroughNode16ThenInnerNode.
+func TestDeleteThroughNode48ThenInnerNode(t *testing.T) {
+	tree, deep := buildRootWithInnerChild(t, "node48")
+	sibling := bytes.Clone(deep)
+	sibling[len(sibling)-1] = 'b'
+	if ok := tree.Delete(deep); !ok {
+		t.Fatalf("Delete(%v) = false, want true", deep)
+	}
+	if got, ok := tree.Get(deep); ok || got != nil {
+		t.Fatalf("Get(%v) after delete = (%v, %v), want (nil, false)", deep, got, ok)
+	}
+	if got, ok := tree.Get(sibling); !ok || got != "deepB" {
+		t.Fatalf("Get(sibling=%v) = (%v, %v), want (\"deepB\", true)", sibling, got, ok)
+	}
+	if ok := tree.Delete(deep); ok {
+		t.Fatalf("second Delete(%v) = true, want false", deep)
+	}
+}
+
+// TestDeleteThroughNode256ThenInnerNode is the node256 analogue of
+// TestDeleteThroughNode16ThenInnerNode.
+func TestDeleteThroughNode256ThenInnerNode(t *testing.T) {
+	tree, deep := buildRootWithInnerChild(t, "node256")
+	sibling := bytes.Clone(deep)
+	sibling[len(sibling)-1] = 'b'
+	if ok := tree.Delete(deep); !ok {
+		t.Fatalf("Delete(%v) = false, want true", deep)
+	}
+	if got, ok := tree.Get(deep); ok || got != nil {
+		t.Fatalf("Get(%v) after delete = (%v, %v), want (nil, false)", deep, got, ok)
+	}
+	if got, ok := tree.Get(sibling); !ok || got != "deepB" {
+		t.Fatalf("Get(sibling=%v) = (%v, %v), want (\"deepB\", true)", sibling, got, ok)
+	}
+	if ok := tree.Delete(deep); ok {
+		t.Fatalf("second Delete(%v) = true, want false", deep)
+	}
+}
+
+// TestPutTerminalOnNode16 plants a terminal value on the exact path of
+// a node16 that previously had no terminal. Under the
+// CONDITIONALS_NEGATION mutation on the "if r.terminal != nil" guard
+// in putIntoNode16, the flipped branch dereferences a nil terminal and
+// panics, killing the mutant. A second Put covers the overwrite arm
+// for completeness (Get alone cannot distinguish it, per design notes).
+func TestPutTerminalOnNode16(t *testing.T) {
+	prefix := []byte{0xAB, 0xCD}
+	tree := New()
+	for i := 0; i < 5; i++ {
+		key := append(bytes.Clone(prefix), byte(0x01+i))
+		tree.Put(key, int(key[2]))
+	}
+	if got := rootKindOf(tree); got != "node16" {
+		t.Fatalf("rootKindOf = %q, want %q", got, "node16")
+	}
+	r := tree.root.(*node16)
+	if !bytes.Equal(r.prefix, prefix) {
+		t.Fatalf("root prefix = %v, want %v", r.prefix, prefix)
+	}
+	if r.terminal != nil {
+		t.Fatalf("root terminal = %v before terminal Put, want nil", r.terminal)
+	}
+
+	tree.Put(bytes.Clone(prefix), "first")
+	if got, ok := tree.Get(prefix); !ok || got != "first" {
+		t.Fatalf("Get(prefix) after first terminal Put = (%v, %v), want (\"first\", true)", got, ok)
+	}
+
+	tree.Put(bytes.Clone(prefix), "second")
+	if got, ok := tree.Get(prefix); !ok || got != "second" {
+		t.Fatalf("Get(prefix) after overwrite = (%v, %v), want (\"second\", true)", got, ok)
+	}
+
+	for i := 0; i < 2; i++ {
+		key := append(bytes.Clone(prefix), byte(0x01+i))
+		want := int(key[2])
+		if got, ok := tree.Get(key); !ok || got != want {
+			t.Fatalf("Get(%v) = (%v, %v), want (%d, true)", key, got, ok, want)
+		}
+	}
+}
+
+// TestPutTerminalOnNode48 is the node48 analogue of
+// TestPutTerminalOnNode16.
+func TestPutTerminalOnNode48(t *testing.T) {
+	prefix := []byte{0xAB, 0xCD}
+	tree := New()
+	for i := 0; i < 17; i++ {
+		key := append(bytes.Clone(prefix), byte(0x01+i))
+		tree.Put(key, int(key[2]))
+	}
+	if got := rootKindOf(tree); got != "node48" {
+		t.Fatalf("rootKindOf = %q, want %q", got, "node48")
+	}
+	r := tree.root.(*node48)
+	if !bytes.Equal(r.prefix, prefix) {
+		t.Fatalf("root prefix = %v, want %v", r.prefix, prefix)
+	}
+	if r.terminal != nil {
+		t.Fatalf("root terminal = %v before terminal Put, want nil", r.terminal)
+	}
+
+	tree.Put(bytes.Clone(prefix), "first")
+	if got, ok := tree.Get(prefix); !ok || got != "first" {
+		t.Fatalf("Get(prefix) after first terminal Put = (%v, %v), want (\"first\", true)", got, ok)
+	}
+
+	tree.Put(bytes.Clone(prefix), "second")
+	if got, ok := tree.Get(prefix); !ok || got != "second" {
+		t.Fatalf("Get(prefix) after overwrite = (%v, %v), want (\"second\", true)", got, ok)
+	}
+
+	for i := 0; i < 2; i++ {
+		key := append(bytes.Clone(prefix), byte(0x01+i))
+		want := int(key[2])
+		if got, ok := tree.Get(key); !ok || got != want {
+			t.Fatalf("Get(%v) = (%v, %v), want (%d, true)", key, got, ok, want)
+		}
+	}
+}
+
+// TestPutTerminalOnNode256 is the node256 analogue of
+// TestPutTerminalOnNode16.
+func TestPutTerminalOnNode256(t *testing.T) {
+	prefix := []byte{0xAB, 0xCD}
+	tree := New()
+	for i := 0; i < 49; i++ {
+		key := append(bytes.Clone(prefix), byte(0x01+i))
+		tree.Put(key, int(key[2]))
+	}
+	if got := rootKindOf(tree); got != "node256" {
+		t.Fatalf("rootKindOf = %q, want %q", got, "node256")
+	}
+	r := tree.root.(*node256)
+	if !bytes.Equal(r.prefix, prefix) {
+		t.Fatalf("root prefix = %v, want %v", r.prefix, prefix)
+	}
+	if r.terminal != nil {
+		t.Fatalf("root terminal = %v before terminal Put, want nil", r.terminal)
+	}
+
+	tree.Put(bytes.Clone(prefix), "first")
+	if got, ok := tree.Get(prefix); !ok || got != "first" {
+		t.Fatalf("Get(prefix) after first terminal Put = (%v, %v), want (\"first\", true)", got, ok)
+	}
+
+	tree.Put(bytes.Clone(prefix), "second")
+	if got, ok := tree.Get(prefix); !ok || got != "second" {
+		t.Fatalf("Get(prefix) after overwrite = (%v, %v), want (\"second\", true)", got, ok)
+	}
+
+	for i := 0; i < 2; i++ {
+		key := append(bytes.Clone(prefix), byte(0x01+i))
+		want := int(key[2])
+		if got, ok := tree.Get(key); !ok || got != want {
+			t.Fatalf("Get(%v) = (%v, %v), want (%d, true)", key, got, ok, want)
+		}
+	}
+}
