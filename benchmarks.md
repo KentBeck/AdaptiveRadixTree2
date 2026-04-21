@@ -44,7 +44,7 @@ At 10M entries with 8-byte random keys, ART is 5–15× faster than the most pop
 
 **Still slower on short-range scans, though no longer catastrophically so.**
 
-The 1 % range (100 K entries) is the common "pagination / windowed scan" shape, and B-tree is **~1.8× faster** there. Both implementations are now essentially zero-alloc on the scan, so the gap is pure traversal cost: this is still worse than the full-scan ratio (1.8×) because a small range pays ART's tree-descent cost to locate the start, and then walks through mostly-empty inner structure relative to the span it yields.
+The 1 % range (100 K entries) is the common "pagination / windowed scan" shape, and B-tree is **~1.8× faster** there. Both implementations are now essentially zero-alloc on the scan, so the gap is pure traversal cost: a small range pays ART's tree-descent cost to locate the start, and then walks through mostly-empty inner structure relative to the span it yields.
 
 **Memory trade-off is modest but real.** ART is ~36 % larger in bytes and allocates ~29× more objects during build. Under heavy GC pressure or on memory-tight hosts the allocation count matters more than the byte total.
 
