@@ -1558,3 +1558,143 @@ func TestNode256RemoveUpdatesNumChildren(t *testing.T) {
 		}
 	}
 }
+
+// buildRootWithInnerChild builds a tree whose root is an inner node of
+// the requested kind and whose edge byte 'A' leads to another inner
+// node with a non-empty prefix and two branching leaves. Returns the
+// tree and the deep key that traverses root -> inner-node -> leaf.
+func buildRootWithInnerChild(t *testing.T, rootKind string) (*Tree, []byte) {
+	t.Helper()
+	var fillers [][]byte
+	switch rootKind {
+	case "node16":
+		for c := byte('B'); c <= byte('P'); c++ {
+			fillers = append(fillers, []byte{c})
+		}
+	case "node48":
+		for c := byte('B'); c <= byte('T'); c++ {
+			fillers = append(fillers, []byte{c})
+		}
+	case "node256":
+		for b := 1; b <= 49; b++ {
+			fillers = append(fillers, []byte{byte(b)})
+		}
+	default:
+		t.Fatalf("buildRootWithInnerChild: unsupported rootKind %q", rootKind)
+	}
+	tree := New()
+	for i, k := range fillers {
+		tree.Put(k, i)
+	}
+	var edge byte
+	if rootKind == "node256" {
+		edge = 0
+	} else {
+		edge = 'A'
+	}
+	deepA := []byte{edge, 'X', 'Y', 'Z', 'a'}
+	deepB := []byte{edge, 'X', 'Y', 'Z', 'b'}
+	tree.Put(deepA, "deepA")
+	tree.Put(deepB, "deepB")
+	if got := rootKindOf(tree); got != rootKind {
+		t.Fatalf("root kind = %q, want %q", got, rootKind)
+	}
+	return tree, deepA
+}
+
+// TestGetThroughNode16ThenInnerNode exercises Get where the root is a
+// node16 and the traversed child is another inner node with a
+// non-empty prefix. A depth-- mutation on the node16 depth++ would
+// misalign the child's prefix compare and the Get must fail.
+func TestGetThroughNode16ThenInnerNode(t *testing.T) {
+	tree, deep := buildRootWithInnerChild(t, "node16")
+	got, ok := tree.Get(deep)
+	if !ok || got != "deepA" {
+		t.Fatalf("Get(%q) = (%v, %v), want (%q, true)", deep, got, ok, "deepA")
+	}
+}
+
+// TestGetThroughNode48ThenInnerNode exercises Get where the root is a
+// node48 and the traversed child is an inner node with a non-empty
+// prefix. A depth-- mutation on the node48 depth++ would misalign the
+// child's prefix compare and the Get must fail.
+func TestGetThroughNode48ThenInnerNode(t *testing.T) {
+	tree, deep := buildRootWithInnerChild(t, "node48")
+	got, ok := tree.Get(deep)
+	if !ok || got != "deepA" {
+		t.Fatalf("Get(%q) = (%v, %v), want (%q, true)", deep, got, ok, "deepA")
+	}
+}
+
+// TestGetThroughNode256ThenInnerNode exercises Get where the root is a
+// node256 and the traversed child is an inner node with a non-empty
+// prefix. A depth-- mutation on the node256 depth++ would misalign the
+// child's prefix compare and the Get must fail.
+func TestGetThroughNode256ThenInnerNode(t *testing.T) {
+	tree, deep := buildRootWithInnerChild(t, "node256")
+	got, ok := tree.Get(deep)
+	if !ok || got != "deepA" {
+		t.Fatalf("Get(%q) = (%v, %v), want (%q, true)", deep, got, ok, "deepA")
+	}
+}
+
+// TestInlineLeafBoundaryAndLongKey pins the inlineKeyMax boundary and
+// the heap-allocated long-key branch in newLeaf. The 24-byte subtest
+// kills the CONDITIONALS_BOUNDARY mutant (<= -> <); the 48-byte
+// subtest kills the CONDITIONALS_NEGATION mutant (<= -> >), under
+// which the long key would be silently truncated into the inline
+// buffer and Get/Delete/iteration would fail.
+func TestInlineLeafBoundaryAndLongKey(t *testing.T) {
+	cases := []struct {
+		name string
+		size int
+	}{
+		{"exactlyInlineKeyMax", 24},
+		{"longerThanInlineKeyMax", 48},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			key := make([]byte, tc.size)
+			for i := range key {
+				key[i] = byte('a' + (i % 26))
+			}
+			tree := New()
+			tree.Put(key, tc.size)
+
+			l, isLeaf := tree.root.(*leaf)
+			if !isLeaf {
+				t.Fatalf("root kind = %q, want leaf", rootKindOf(tree))
+			}
+			inlineAliased := len(l.key) > 0 && &l.inline[0] == &l.key[0]
+			if tc.size <= inlineKeyMax && !inlineAliased {
+				t.Fatalf("len=%d key not stored inline: &l.key[0]=%p, &l.inline[0]=%p",
+					tc.size, &l.key[0], &l.inline[0])
+			}
+			if tc.size > inlineKeyMax && inlineAliased {
+				t.Fatalf("len=%d key stored inline (truncation risk)", tc.size)
+			}
+
+			got, ok := tree.Get(key)
+			if !ok || got != tc.size {
+				t.Fatalf("Get(len=%d) = (%v, %v), want (%d, true)", tc.size, got, ok, tc.size)
+			}
+
+			var seenKeys [][]byte
+			var seenVals []any
+			for k, v := range tree.All() {
+				seenKeys = append(seenKeys, bytes.Clone(k))
+				seenVals = append(seenVals, v)
+			}
+			if len(seenKeys) != 1 || !bytes.Equal(seenKeys[0], key) || seenVals[0] != tc.size {
+				t.Fatalf("All() = (%v, %v), want single (%v, %d)", seenKeys, seenVals, key, tc.size)
+			}
+
+			if !tree.Delete(key) {
+				t.Fatalf("Delete(len=%d) = false, want true", tc.size)
+			}
+			if _, ok := tree.Get(key); ok {
+				t.Fatalf("Get after Delete(len=%d) ok=true, want false", tc.size)
+			}
+		})
+	}
+}
