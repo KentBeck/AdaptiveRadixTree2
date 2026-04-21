@@ -1024,3 +1024,233 @@ func TestRangeEarlyTermination(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
+
+// buildInnerNode constructs a Tree whose root — after descending through its
+// path-compressed prefix — is an inner node of exactly the requested child
+// count, with an optional terminal. Returns the tree plus the list of keys
+// that were inserted (in insertion order). If withTerminal is true, the
+// returned key slice's first element is the terminal key (equal to prefix);
+// the remaining keys are the inner-node children in insertion order.
+//
+// childCount:
+//
+//	1..4    → node4
+//	5..16   → node16
+//	17..48  → node48
+//	49..256 → node256
+func buildInnerNode(t *testing.T, prefix []byte, childCount int, withTerminal bool) (*Tree, [][]byte) {
+	t.Helper()
+	if childCount < 1 || childCount > 256 {
+		t.Fatalf("buildInnerNode: childCount must be 1..256, got %d", childCount)
+	}
+	tree := New()
+	var keys [][]byte
+	if withTerminal {
+		tp := bytes.Clone(prefix)
+		tree.Put(tp, "terminal")
+		keys = append(keys, tp)
+	}
+	for i := 0; i < childCount; i++ {
+		edge := byte((i * 256) / childCount)
+		key := append(bytes.Clone(prefix), edge)
+		tree.Put(key, int(edge))
+		keys = append(keys, key)
+	}
+	return tree, keys
+}
+
+// rootKindOf returns a short name for the root node's type.
+// Permitted because this file is in package art.
+func rootKindOf(tree *Tree) string {
+	if tree.root == nil {
+		return "nil"
+	}
+	switch tree.root.(type) {
+	case *leaf:
+		return "leaf"
+	case *node4:
+		return "node4"
+	case *node16:
+		return "node16"
+	case *node48:
+		return "node48"
+	case *node256:
+		return "node256"
+	default:
+		return "unknown"
+	}
+}
+
+func TestDeleteAcrossInnerNodeTypes(t *testing.T) {
+	prefix := []byte("common-prefix/")
+	cases := []struct {
+		name       string
+		childCount int
+	}{
+		{"node16", 5},
+		{"node48", 17},
+		{"node256", 49},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Run("delete_terminal", func(t *testing.T) {
+				tree, keys := buildInnerNode(t, prefix, tc.childCount, true)
+				terminal := keys[0]
+				if ok := tree.Delete(terminal); !ok {
+					t.Fatalf("Delete(terminal) = false, want true")
+				}
+				if got, ok := tree.Get(terminal); ok || got != nil {
+					t.Fatalf("Get(terminal) after delete = (%v, %v), want (nil, false)", got, ok)
+				}
+				for _, k := range keys[1:] {
+					if _, ok := tree.Get(k); !ok {
+						t.Fatalf("Get(%q) after terminal delete: ok=false, want true", k)
+					}
+				}
+			})
+			t.Run("delete_first_child", func(t *testing.T) {
+				tree, keys := buildInnerNode(t, prefix, tc.childCount, true)
+				victim := keys[1]
+				if ok := tree.Delete(victim); !ok {
+					t.Fatalf("Delete(%q) = false, want true", victim)
+				}
+				if got, ok := tree.Get(victim); ok || got != nil {
+					t.Fatalf("Get(%q) after delete = (%v, %v), want (nil, false)", victim, got, ok)
+				}
+				if _, ok := tree.Get(keys[0]); !ok {
+					t.Fatalf("terminal lost after deleting sibling")
+				}
+				for _, k := range keys[2:] {
+					if _, ok := tree.Get(k); !ok {
+						t.Fatalf("sibling %q lost after deleting first child", k)
+					}
+				}
+			})
+			t.Run("delete_nonexistent", func(t *testing.T) {
+				tree, keys := buildInnerNode(t, prefix, tc.childCount, true)
+				before := 0
+				for range tree.All() {
+					before++
+				}
+				missing := append(bytes.Clone(prefix), byte(255))
+				if ok := tree.Delete(missing); ok {
+					t.Fatalf("Delete(missing) = true, want false")
+				}
+				after := 0
+				for range tree.All() {
+					after++
+				}
+				if after != before {
+					t.Fatalf("count changed after no-op delete: before=%d after=%d", before, after)
+				}
+				for _, k := range keys {
+					if _, ok := tree.Get(k); !ok {
+						t.Fatalf("key %q lost after no-op delete", k)
+					}
+				}
+			})
+			t.Run("delete_down_to_empty", func(t *testing.T) {
+				tree, keys := buildInnerNode(t, prefix, tc.childCount, true)
+				for i, k := range keys {
+					if ok := tree.Delete(k); !ok {
+						t.Fatalf("Delete(keys[%d]=%q) = false, want true", i, k)
+					}
+				}
+				if tree.root != nil {
+					t.Fatalf("root = %s, want nil after deleting every key", rootKindOf(tree))
+				}
+				count := 0
+				for range tree.All() {
+					count++
+				}
+				if count != 0 {
+					t.Fatalf("All() yielded %d pairs on empty tree, want 0", count)
+				}
+			})
+		})
+	}
+}
+
+func TestGetTerminalAndMissAcrossInnerNodeTypes(t *testing.T) {
+	prefix := []byte("common-prefix/")
+	cases := []struct {
+		name       string
+		childCount int
+	}{
+		{"node16", 5},
+		{"node48", 17},
+		{"node256", 49},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tree, _ := buildInnerNode(t, prefix, tc.childCount, true)
+
+			if got, ok := tree.Get(prefix); !ok || got != "terminal" {
+				t.Fatalf("Get(terminal) = (%v, %v), want (\"terminal\", true)", got, ok)
+			}
+
+			missingEdge := append(bytes.Clone(prefix), byte(255))
+			if got, ok := tree.Get(missingEdge); ok || got != nil {
+				t.Fatalf("Get(prefix+missingEdge) = (%v, %v), want (nil, false)", got, ok)
+			}
+
+			wrongPrefix := bytes.Clone(prefix)
+			wrongPrefix[0] ^= 0xFF
+			if got, ok := tree.Get(wrongPrefix); ok || got != nil {
+				t.Fatalf("Get(wrongPrefix) = (%v, %v), want (nil, false)", got, ok)
+			}
+
+			shortPrefix := prefix[:3]
+			if got, ok := tree.Get(shortPrefix); ok || got != nil {
+				t.Fatalf("Get(shortPrefix) = (%v, %v), want (nil, false)", got, ok)
+			}
+		})
+	}
+}
+
+func TestPutOverwriteTerminalAcrossInnerNodeTypes(t *testing.T) {
+	prefix := []byte("common-prefix/")
+	cases := []struct {
+		name       string
+		childCount int
+	}{
+		{"node16", 5},
+		{"node48", 17},
+		{"node256", 49},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tree, keys := buildInnerNode(t, prefix, tc.childCount, true)
+
+			before := 0
+			for range tree.All() {
+				before++
+			}
+
+			tree.Put(bytes.Clone(prefix), "replacement")
+
+			if got, ok := tree.Get(prefix); !ok || got != "replacement" {
+				t.Fatalf("Get(terminal) after overwrite = (%v, %v), want (\"replacement\", true)", got, ok)
+			}
+
+			after := 0
+			for range tree.All() {
+				after++
+			}
+			if after != before {
+				t.Fatalf("count changed after overwrite: before=%d after=%d", before, after)
+			}
+
+			for _, k := range keys[1:] {
+				want := int(k[len(prefix)])
+				got, ok := tree.Get(k)
+				if !ok {
+					t.Fatalf("child %q lost after terminal overwrite", k)
+				}
+				if gi, _ := got.(int); gi != want {
+					t.Fatalf("child %q value = %v, want %d", k, got, want)
+				}
+			}
+		})
+	}
+}
