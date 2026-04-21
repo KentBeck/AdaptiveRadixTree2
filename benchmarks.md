@@ -12,11 +12,11 @@
 
 | Operation | ART | B-tree | Ratio | Faster |
 | --- | --- | --- | --- | --- |
-| Put (bulk) | 219.8 ns/key | 897.8 ns/key | 0.24× | ART 4.1× |
-| Get (hit) | 98.9 ns/op | 1081 ns/op | 0.09× | ART 10.9× |
-| Get (miss) | 11.7 ns/op | 126.9 ns/op | 0.09× | ART 10.9× |
-| Delete (bulk) | 104.2 ns/key | 772.3 ns/key | 0.13× | ART 7.4× |
-| Range (1 %, 100K) | 28.6 ns/key | 9.6 ns/key | 2.97× | B-tree 3.0× |
+| Put (bulk) | 165.5 ns/key | 897.8 ns/key | 0.18× | ART 5.4× |
+| Get (hit) | 72.84 ns/op | 1081 ns/op | 0.07× | ART 14.8× |
+| Get (miss) | 9.36 ns/op | 126.9 ns/op | 0.07× | ART 13.6× |
+| Delete (bulk) | 105.6 ns/key | 772.3 ns/key | 0.14× | ART 7.3× |
+| Range (1 %, 100K) | 17.75 ns/key | 9.6 ns/key | 1.85× | B-tree 1.8× |
 
 *Put measured with `-benchtime=1x` (one 10M-key pass, `b.N=1`). Delete measured with `-benchtime=3s` (setup excluded via `b.StopTimer()`/`b.StartTimer()`, so ~3 clean delete iterations per run; median of 5). Get / GetMiss / Range measured with `-benchtime=3s`: 35.5M ops for ART Get, 307M ops for ART GetMiss, 1212 range passes for ART Range.*
 
@@ -24,7 +24,7 @@
 
 | Impl | Total bytes | Allocs | Bytes/entry | Allocs/entry |
 | --- | --- | --- | --- | --- |
-| ART | 893 MB | 30.2M | ~89 | 3.0 |
+| ART | 973 MB | 20.2M | ~97 | 2.02 |
 | B-tree | 714 MB | 692K | ~71 | 0.07 |
 
 One 1 %-range scan (100K entries yielded):
@@ -34,24 +34,24 @@ One 1 %-range scan (100K entries yielded):
 | ART | 32 B | 1 |
 | B-tree | 0 B | 0 |
 
-B-tree uses ~20 % less memory overall and ~44× fewer allocations at build time (items packed into node slices). On range scans B-tree allocates nothing. ART now allocates a single reusable key buffer per scan: the `[]byte` yielded for each pair is a view into that buffer and is only valid until the next iteration step, so callers that retain the key must copy it.
+B-tree uses ~27 % less memory overall and ~29× fewer allocations at build time (items packed into node slices). On range scans B-tree allocates nothing. ART now allocates a single reusable key buffer per scan: the `[]byte` yielded for each pair is a view into that buffer and is only valid until the next iteration step, so callers that retain the key must copy it.
 
 ## Verdict
 
 **Supports production use for point-operation-heavy workloads.**
 
-At 10M entries with 8-byte random keys, ART is 4–11× faster than the most popular Go B-tree on Put, Get (hit), Get (miss), and Delete. Get-miss is particularly strong (11.7 ns/op) because mismatches can be resolved after one or two node visits.
+At 10M entries with 8-byte random keys, ART is 5–15× faster than the most popular Go B-tree on Put, Get (hit), Get (miss), and Delete. Get-miss is particularly strong (9.36 ns/op) because mismatches can be resolved after one or two node visits.
 
 **Still slower on short-range scans, though no longer catastrophically so.**
 
-The 1 % range (100 K entries) is the common "pagination / windowed scan" shape, and B-tree is **~3× faster** there. Both implementations are now essentially zero-alloc on the scan, so the gap is pure traversal cost: this is still worse than the full-scan ratio (1.8×) because a small range pays ART's tree-descent cost to locate the start, and then walks through mostly-empty inner structure relative to the span it yields.
+The 1 % range (100 K entries) is the common "pagination / windowed scan" shape, and B-tree is **~1.8× faster** there. Both implementations are now essentially zero-alloc on the scan, so the gap is pure traversal cost: this is still worse than the full-scan ratio (1.8×) because a small range pays ART's tree-descent cost to locate the start, and then walks through mostly-empty inner structure relative to the span it yields.
 
-**Memory trade-off is modest but real.** ART is ~25 % larger in bytes and allocates ~44× more objects during build. Under heavy GC pressure or on memory-tight hosts the allocation count matters more than the byte total.
+**Memory trade-off is modest but real.** ART is ~36 % larger in bytes and allocates ~29× more objects during build. Under heavy GC pressure or on memory-tight hosts the allocation count matters more than the byte total.
 
 **Net production guidance.**
 
 - Workload is point lookups / writes / deletes (cache, dedup, lookup table, set-membership): **ART wins decisively.**
-- Workload is ordered windowed reads (paginated iteration, range queries, scan-then-emit pipelines): **B-tree still wins, but the gap has narrowed** (~3× on short-range scans). Prefer B-tree for scan-heavy workloads.
+- Workload is ordered windowed reads (paginated iteration, range queries, scan-then-emit pipelines): **B-tree still wins, but the gap has narrowed** (~1.8× on short-range scans). Prefer B-tree for scan-heavy workloads.
 - Mixed / unknown: collect a representative trace and re-benchmark. The point-op / range ratio can flip the recommendation.
 
 ## Caveats / what these numbers don't cover
