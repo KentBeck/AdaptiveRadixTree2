@@ -15,11 +15,13 @@ func (t *Tree) Get(key []byte) (value any, ok bool) {
 			}
 			return nil, false
 		case *node4:
-			end := depth + len(n.prefix)
-			if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
-				return nil, false
+			if pl := len(n.prefix); pl != 0 {
+				end := depth + pl
+				if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
+					return nil, false
+				}
+				depth = end
 			}
-			depth = end
 			if depth == len(key) {
 				if n.terminal != nil && bytes.Equal(n.terminal.key, key) {
 					return n.terminal.value, true
@@ -29,11 +31,13 @@ func (t *Tree) Get(key []byte) (value any, ok bool) {
 			current = n.findChild(key[depth])
 			depth++
 		case *node16:
-			end := depth + len(n.prefix)
-			if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
-				return nil, false
+			if pl := len(n.prefix); pl != 0 {
+				end := depth + pl
+				if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
+					return nil, false
+				}
+				depth = end
 			}
-			depth = end
 			if depth == len(key) {
 				if n.terminal != nil && bytes.Equal(n.terminal.key, key) {
 					return n.terminal.value, true
@@ -43,11 +47,13 @@ func (t *Tree) Get(key []byte) (value any, ok bool) {
 			current = n.findChild(key[depth])
 			depth++
 		case *node48:
-			end := depth + len(n.prefix)
-			if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
-				return nil, false
+			if pl := len(n.prefix); pl != 0 {
+				end := depth + pl
+				if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
+					return nil, false
+				}
+				depth = end
 			}
-			depth = end
 			if depth == len(key) {
 				if n.terminal != nil && bytes.Equal(n.terminal.key, key) {
 					return n.terminal.value, true
@@ -57,11 +63,13 @@ func (t *Tree) Get(key []byte) (value any, ok bool) {
 			current = n.findChild(key[depth])
 			depth++
 		case *node256:
-			end := depth + len(n.prefix)
-			if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
-				return nil, false
+			if pl := len(n.prefix); pl != 0 {
+				end := depth + pl
+				if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
+					return nil, false
+				}
+				depth = end
 			}
-			depth = end
 			if depth == len(key) {
 				if n.terminal != nil && bytes.Equal(n.terminal.key, key) {
 					return n.terminal.value, true

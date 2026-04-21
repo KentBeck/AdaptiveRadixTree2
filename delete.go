@@ -33,11 +33,13 @@ func deleteFrom(current node, key []byte, depth int) (node, bool) {
 		}
 		return r, false
 	case *node4:
-		end := depth + len(r.prefix)
-		if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-			return r, false
+		if pl := len(r.prefix); pl != 0 {
+			end := depth + pl
+			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
+				return r, false
+			}
+			depth = end
 		}
-		depth = end
 		if depth == len(key) {
 			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
 				return r, false
@@ -61,11 +63,13 @@ func deleteFrom(current node, key []byte, depth int) (node, bool) {
 		}
 		return postDeleteReshape(r), true
 	case *node16:
-		end := depth + len(r.prefix)
-		if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-			return r, false
+		if pl := len(r.prefix); pl != 0 {
+			end := depth + pl
+			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
+				return r, false
+			}
+			depth = end
 		}
-		depth = end
 		if depth == len(key) {
 			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
 				return r, false
@@ -89,11 +93,13 @@ func deleteFrom(current node, key []byte, depth int) (node, bool) {
 		}
 		return postDeleteReshape(r), true
 	case *node48:
-		end := depth + len(r.prefix)
-		if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-			return r, false
+		if pl := len(r.prefix); pl != 0 {
+			end := depth + pl
+			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
+				return r, false
+			}
+			depth = end
 		}
-		depth = end
 		if depth == len(key) {
 			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
 				return r, false
@@ -117,11 +123,13 @@ func deleteFrom(current node, key []byte, depth int) (node, bool) {
 		}
 		return postDeleteReshape(r), true
 	case *node256:
-		end := depth + len(r.prefix)
-		if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-			return r, false
+		if pl := len(r.prefix); pl != 0 {
+			end := depth + pl
+			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
+				return r, false
+			}
+			depth = end
 		}
-		depth = end
 		if depth == len(key) {
 			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
 				return r, false
