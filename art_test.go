@@ -1422,3 +1422,139 @@ func TestGrowAndShrinkBoundaryStructure(t *testing.T) {
 	}
 	checkKindAfterCount(4, "node4")
 }
+
+func TestRangeBoundaryHelpers(t *testing.T) {
+	cases := []struct {
+		name          string
+		nodePath      []byte
+		extra         byte
+		bound         []byte
+		wantBefore    bool
+		wantAtOrAfter bool
+	}{
+		{"empty_nodepath_empty_bound", nil, 0, []byte{}, false, true},
+		{"empty_nodepath_nil_bound", nil, 0, nil, false, false},
+		{"empty_nodepath_extra_equals_single_bound", nil, 5, []byte{5}, false, true},
+		{"exact_boundary", []byte{1, 2, 3}, 4, []byte{1, 2, 3, 4}, false, true},
+		{"nodepath_equals_bound", []byte{1, 2, 3, 4}, 0, []byte{1, 2, 3, 4}, false, true},
+		{"extra_greater_at_same_depth", []byte{1, 2, 3}, 5, []byte{1, 2, 3, 4}, false, true},
+		{"extra_less_at_same_depth", []byte{1, 2, 3}, 3, []byte{1, 2, 3, 4}, true, false},
+		{"nodepath_longer_with_earlier_divergence_greater", []byte{1, 5, 0, 0}, 0, []byte{1, 3}, false, true},
+		{"nodepath_longer_with_earlier_divergence_less", []byte{1, 2, 9, 0, 0}, 0, []byte{1, 3, 5}, true, false},
+		{"nodepath_shorter_by_more_than_one", []byte{1, 2}, 3, []byte{1, 2, 3, 4, 5}, false, false},
+		{"nodepath_equals_bound_minus_one_extra_less", []byte{10, 20}, 0, []byte{10, 20, 30}, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := subtreeBeforeWithByte(tc.nodePath, tc.extra, tc.bound); got != tc.wantBefore {
+				t.Fatalf("subtreeBeforeWithByte(%v, %d, %v) = %v, want %v",
+					tc.nodePath, tc.extra, tc.bound, got, tc.wantBefore)
+			}
+			if got := subtreeAtOrAfterWithByte(tc.nodePath, tc.extra, tc.bound); got != tc.wantAtOrAfter {
+				t.Fatalf("subtreeAtOrAfterWithByte(%v, %d, %v) = %v, want %v",
+					tc.nodePath, tc.extra, tc.bound, got, tc.wantAtOrAfter)
+			}
+		})
+	}
+}
+
+func TestRangeAcrossNode256WithTerminal(t *testing.T) {
+	prefix := []byte("p/")
+	tree, keys := buildInnerNode(t, prefix, 50, true)
+	if got := rootKindOf(tree); got != "node256" {
+		t.Fatalf("rootKindOf = %q, want %q", got, "node256")
+	}
+	terminalKey := keys[0]
+
+	collect := func(start, end []byte) [][]byte {
+		var out [][]byte
+		for k := range tree.Range(start, end) {
+			out = append(out, bytes.Clone(k))
+		}
+		return out
+	}
+	assertSorted := func(t *testing.T, ks [][]byte) {
+		t.Helper()
+		for i := 1; i < len(ks); i++ {
+			if bytes.Compare(ks[i-1], ks[i]) >= 0 {
+				t.Fatalf("not sorted at %d: %v then %v", i, ks[i-1], ks[i])
+			}
+		}
+	}
+
+	t.Run("full_range", func(t *testing.T) {
+		got := collect(nil, nil)
+		if len(got) != 51 {
+			t.Fatalf("full Range len = %d, want 51", len(got))
+		}
+		assertSorted(t, got)
+	})
+
+	t.Run("start_at_terminal", func(t *testing.T) {
+		got := collect(terminalKey, nil)
+		if len(got) != 51 {
+			t.Fatalf("Range(terminal, nil) len = %d, want 51", len(got))
+		}
+		if !bytes.Equal(got[0], terminalKey) {
+			t.Fatalf("first key = %v, want terminal %v", got[0], terminalKey)
+		}
+		assertSorted(t, got)
+	})
+
+	t.Run("end_just_after_zero_edge_child", func(t *testing.T) {
+		firstChildKey := append(bytes.Clone(prefix), 0x00)
+		end := append(bytes.Clone(firstChildKey), 0x01)
+		got := collect(nil, end)
+		if len(got) != 2 {
+			t.Fatalf("Range(nil, %v) len = %d, want 2 (got %v)", end, len(got), got)
+		}
+		if !bytes.Equal(got[0], terminalKey) {
+			t.Fatalf("got[0] = %v, want terminal %v", got[0], terminalKey)
+		}
+		if !bytes.Equal(got[1], firstChildKey) {
+			t.Fatalf("got[1] = %v, want firstChild %v", got[1], firstChildKey)
+		}
+		assertSorted(t, got)
+	})
+
+	t.Run("strictly_after_terminal", func(t *testing.T) {
+		start := append(bytes.Clone(terminalKey), 0x00)
+		got := collect(start, nil)
+		if len(got) != 50 {
+			t.Fatalf("Range(%v, nil) len = %d, want 50", start, len(got))
+		}
+		for _, k := range got {
+			if bytes.Equal(k, terminalKey) {
+				t.Fatalf("result unexpectedly contains terminal %v", terminalKey)
+			}
+		}
+		assertSorted(t, got)
+	})
+}
+
+func TestNode256RemoveUpdatesNumChildren(t *testing.T) {
+	prefix := []byte("p/")
+	tree, keys := buildInnerNode(t, prefix, 49, false)
+	if got := rootKindOf(tree); got != "node256" {
+		t.Fatalf("rootKindOf at 49 children = %q, want %q", got, "node256")
+	}
+
+	victim := keys[0]
+	if ok := tree.Delete(victim); !ok {
+		t.Fatalf("Delete(%v) = false, want true", victim)
+	}
+	if got := rootKindOf(tree); got != "node48" {
+		t.Fatalf("rootKindOf after delete to 48 children = %q, want %q", got, "node48")
+	}
+
+	for _, k := range keys[1:] {
+		want := int(k[len(prefix)])
+		got, ok := tree.Get(k)
+		if !ok {
+			t.Fatalf("Get(%v) ok=false, want true", k)
+		}
+		if gi, _ := got.(int); gi != want {
+			t.Fatalf("Get(%v) = %v, want %d", k, got, want)
+		}
+	}
+}
