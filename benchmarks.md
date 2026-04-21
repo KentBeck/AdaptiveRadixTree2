@@ -15,10 +15,10 @@
 | Put (bulk) | 219.8 ns/key | 897.8 ns/key | 0.24× | ART 4.1× |
 | Get (hit) | 98.9 ns/op | 1081 ns/op | 0.09× | ART 10.9× |
 | Get (miss) | 11.7 ns/op | 126.9 ns/op | 0.09× | ART 10.9× |
-| Delete (bulk) | 124.6 ns/key | 773.3 ns/key | 0.16× | ART 6.2× |
+| Delete (bulk) | 104.2 ns/key | 772.3 ns/key | 0.13× | ART 7.4× |
 | Range (1 %, 100K) | 28.6 ns/key | 9.6 ns/key | 2.97× | B-tree 3.0× |
 
-*Put / Delete measured with `-benchtime=1x` (one 10M-key pass is itself ~2–10 s of work, so `b.N=1` is all the framework gets). Get / GetMiss / Range measured with `-benchtime=3s`: 35.5M ops for ART Get, 307M ops for ART GetMiss, 1212 range passes for ART Range.*
+*Put measured with `-benchtime=1x` (one 10M-key pass, `b.N=1`). Delete measured with `-benchtime=3s` (setup excluded via `b.StopTimer()`/`b.StartTimer()`, so ~3 clean delete iterations per run; median of 5). Get / GetMiss / Range measured with `-benchtime=3s`: 35.5M ops for ART Get, 307M ops for ART GetMiss, 1212 range passes for ART Range.*
 
 ## Memory (one 10M-element tree, from Put benchmark)
 
@@ -65,8 +65,10 @@ The 1 % range (100 K entries) is the common "pagination / windowed scan" shape, 
 ## Reproducing
 
 ```
-go test -run=^$ -bench='^BenchmarkPut_|^BenchmarkDelete_' \
+go test -run=^$ -bench='^BenchmarkPut_' \
   -benchmem -benchtime=1x -timeout=30m ./...
+go test -run=^$ -bench='^BenchmarkDelete_' \
+  -benchmem -benchtime=3s -timeout=30m -count=5 ./...
 go test -run=^$ -bench='^BenchmarkGet_|^BenchmarkGetMiss_|^BenchmarkRange_' \
   -benchmem -benchtime=3s -timeout=30m ./...
 ```
