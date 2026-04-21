@@ -16,9 +16,9 @@
 | Get (hit) | 98.9 ns/op | 1081 ns/op | 0.09× | ART 10.9× |
 | Get (miss) | 11.7 ns/op | 126.9 ns/op | 0.09× | ART 10.9× |
 | Delete (bulk) | 111.3 ns/key | 958.8 ns/key | 0.12× | ART 8.6× |
-| Range (1 %, 100K) | 67.2 ns/key | 10.8 ns/key | 6.20× | B-tree 6.2× |
+| Range (1 %, 100K) | 28.6 ns/key | 9.6 ns/key | 2.97× | B-tree 3.0× |
 
-*Put / Delete measured with `-benchtime=1x` (one 10M-key pass is itself ~2–10 s of work, so `b.N=1` is all the framework gets). Get / GetMiss / Range measured with `-benchtime=3s`: 35.5M ops for ART Get, 307M ops for ART GetMiss, 610 range passes for ART Range.*
+*Put / Delete measured with `-benchtime=1x` (one 10M-key pass is itself ~2–10 s of work, so `b.N=1` is all the framework gets). Get / GetMiss / Range measured with `-benchtime=3s`: 35.5M ops for ART Get, 307M ops for ART GetMiss, 1212 range passes for ART Range.*
 
 ## Memory (one 10M-element tree, from Put benchmark)
 
@@ -31,10 +31,10 @@ One 1 %-range scan (100K entries yielded):
 
 | Impl | Bytes/scan | Allocs/scan |
 | --- | --- | --- |
-| ART | 808 KB | 101 K |
+| ART | 32 B | 1 |
 | B-tree | 0 B | 0 |
 
-B-tree uses ~20 % less memory overall and ~44× fewer allocations at build time (items packed into node slices). On range scans B-tree allocates nothing; ART allocates ~1 per yielded pair because keys are reconstructed from the path.
+B-tree uses ~20 % less memory overall and ~44× fewer allocations at build time (items packed into node slices). On range scans B-tree allocates nothing. ART now allocates a single reusable key buffer per scan: the `[]byte` yielded for each pair is a view into that buffer and is only valid until the next iteration step, so callers that retain the key must copy it.
 
 ## Verdict
 
@@ -42,16 +42,16 @@ B-tree uses ~20 % less memory overall and ~44× fewer allocations at build time 
 
 At 10M entries with 8-byte random keys, ART is 4–11× faster than the most popular Go B-tree on Put, Get (hit), Get (miss), and Delete. Get-miss is particularly strong (11.7 ns/op) because mismatches can be resolved after one or two node visits.
 
-**Does not support production use where short-range scans dominate.**
+**Still slower on short-range scans, though no longer catastrophically so.**
 
-The 1 % range (100 K entries) is the common "pagination / windowed scan" shape, and B-tree is **6.2× faster** and zero-alloc there. ART's per-yield allocation of the reconstructed key also multiplies GC pressure for scan workloads. This is worse than the full-scan ratio (1.8×) because a small range still pays ART's tree-descent cost to locate the start, and then walks through mostly-empty inner structure relative to the span it yields.
+The 1 % range (100 K entries) is the common "pagination / windowed scan" shape, and B-tree is **~3× faster** there. Both implementations are now essentially zero-alloc on the scan, so the gap is pure traversal cost: this is still worse than the full-scan ratio (1.8×) because a small range pays ART's tree-descent cost to locate the start, and then walks through mostly-empty inner structure relative to the span it yields.
 
 **Memory trade-off is modest but real.** ART is ~25 % larger in bytes and allocates ~44× more objects during build. Under heavy GC pressure or on memory-tight hosts the allocation count matters more than the byte total.
 
 **Net production guidance.**
 
 - Workload is point lookups / writes / deletes (cache, dedup, lookup table, set-membership): **ART wins decisively.**
-- Workload is ordered windowed reads (paginated iteration, range queries, scan-then-emit pipelines): **B-tree wins decisively.** Consider B-tree or a hybrid before adopting ART.
+- Workload is ordered windowed reads (paginated iteration, range queries, scan-then-emit pipelines): **B-tree still wins, but the gap has narrowed** (~3× on short-range scans). Prefer B-tree for scan-heavy workloads.
 - Mixed / unknown: collect a representative trace and re-benchmark. The point-op / range ratio can flip the recommendation.
 
 ## Caveats / what these numbers don't cover
@@ -60,7 +60,7 @@ The 1 % range (100 K entries) is the common "pagination / windowed scan" shape, 
 2. **No concurrent access.** Both impls are single-goroutine; neither library ships a tested RW-safe wrapper.
 3. **Steady-state vs. cold.** Get / Range run on a warm cache; first-hit latency is not isolated.
 4. **B-tree degree.** Left at library default (32). Tuning could shift B-tree numbers by 10–30 % on any single op.
-5. **Range allocation is an ART implementation detail.** The 1-alloc-per-yield in `Tree.Range` is fixable in principle (reusable key buffer, unsafe reinterpret) but is not fixed here.
+5. **Yield-buffer sharing.** `Tree.Range` yields a `[]byte` view into a single reusable key buffer; callers that need to retain keys across iteration steps must copy them.
 
 ## Reproducing
 
