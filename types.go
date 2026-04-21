@@ -208,6 +208,7 @@ type node48 struct {
 	prefix      []byte
 	childIndex  [256]byte
 	children    [node48Capacity]node
+	childEdge   [node48Capacity]byte
 	terminal    *leaf
 	numChildren uint8
 }
@@ -224,6 +225,7 @@ func (n *node48) findChild(b byte) node {
 
 func (n *node48) addChild(newEdge byte, child node) {
 	n.children[n.numChildren] = child
+	n.childEdge[n.numChildren] = newEdge
 	n.childIndex[newEdge] = n.numChildren + 1
 	n.numChildren++
 }
@@ -249,15 +251,13 @@ func (n *node48) removeChild(b byte) {
 	}
 	last := n.numChildren
 	if slot != last {
-		for edge := 0; edge < 256; edge++ {
-			if n.childIndex[byte(edge)] == last {
-				n.children[slot-1] = n.children[last-1]
-				n.childIndex[byte(edge)] = slot
-				break
-			}
-		}
+		lastEdge := n.childEdge[last-1]
+		n.children[slot-1] = n.children[last-1]
+		n.childEdge[slot-1] = lastEdge
+		n.childIndex[lastEdge] = slot
 	}
 	n.children[last-1] = nil
+	n.childEdge[last-1] = 0
 	n.childIndex[b] = 0
 	n.numChildren--
 }
@@ -274,6 +274,7 @@ func growToNode48(n *node16) *node48 {
 	}
 	for i := uint8(0); i < n.numChildren; i++ {
 		grown.children[i] = n.children[i]
+		grown.childEdge[i] = n.keys[i]
 		grown.childIndex[n.keys[i]] = i + 1
 	}
 	return grown
@@ -378,6 +379,7 @@ func shrinkToNode48(n *node256) *node48 {
 			continue
 		}
 		shrunk.children[slot] = n.children[b]
+		shrunk.childEdge[slot] = byte(b)
 		shrunk.childIndex[b] = slot + 1
 		slot++
 	}
