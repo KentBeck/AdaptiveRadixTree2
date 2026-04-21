@@ -1698,3 +1698,274 @@ func TestInlineLeafBoundaryAndLongKey(t *testing.T) {
 		})
 	}
 }
+
+// newSentinelLeaf returns a leaf carrying a unique tag used for pointer
+// identity checks in structural tests of node child-list operations.
+func newSentinelLeaf(tag string) *leaf {
+	l := &leaf{value: tag}
+	l.key = []byte(tag)
+	return l
+}
+
+// TestNode4ChildListOps exercises node4.replaceChild and node4.removeChild
+// under conditions that distinguish several surviving mutants: the loop
+// bound (< vs <=), the key-match comparison (== vs !=), the loop
+// increment (i++ vs i--), and the loop-start negation (< vs >=). Only
+// direct structural observation of keys/children/numChildren can detect
+// the bad slot writes produced by these mutations.
+func TestNode4ChildListOps(t *testing.T) {
+	t.Run("replaceChildAtMiddleIndex", func(t *testing.T) {
+		c0 := newSentinelLeaf("c0")
+		c1 := newSentinelLeaf("c1")
+		c2 := newSentinelLeaf("c2")
+		n := &node4{
+			keys:        [4]byte{10, 20, 30, 0},
+			children:    [4]node{c0, c1, c2, nil},
+			numChildren: 3,
+		}
+		nc := newSentinelLeaf("new")
+		n.replaceChild(20, nc)
+		if n.children[0] != c0 {
+			t.Fatalf("children[0] = %v, want c0", n.children[0])
+		}
+		if n.children[1] != nc {
+			t.Fatalf("children[1] = %v, want new", n.children[1])
+		}
+		if n.children[2] != c2 {
+			t.Fatalf("children[2] = %v, want c2", n.children[2])
+		}
+		if n.numChildren != 3 {
+			t.Fatalf("numChildren = %d, want 3", n.numChildren)
+		}
+	})
+	t.Run("replaceChildOnAbsentZeroEdge", func(t *testing.T) {
+		c1 := newSentinelLeaf("c1")
+		c2 := newSentinelLeaf("c2")
+		nc := newSentinelLeaf("new")
+		n := &node4{
+			keys:        [4]byte{1, 2, 0, 0},
+			children:    [4]node{c1, c2, nil, nil},
+			numChildren: 2,
+		}
+		n.replaceChild(0, nc)
+		if n.children[0] != c1 || n.children[1] != c2 {
+			t.Fatalf("live slots modified: %v %v", n.children[0], n.children[1])
+		}
+		if n.children[2] != nil || n.children[3] != nil {
+			t.Fatalf("padding slots modified: %v %v", n.children[2], n.children[3])
+		}
+		if n.numChildren != 2 {
+			t.Fatalf("numChildren = %d, want 2", n.numChildren)
+		}
+	})
+	t.Run("removeChildOnAbsentZeroEdge", func(t *testing.T) {
+		c1 := newSentinelLeaf("c1")
+		c2 := newSentinelLeaf("c2")
+		n := &node4{
+			keys:        [4]byte{1, 2, 0, 0},
+			children:    [4]node{c1, c2, nil, nil},
+			numChildren: 2,
+		}
+		n.removeChild(0)
+		if n.numChildren != 2 {
+			t.Fatalf("numChildren = %d, want 2", n.numChildren)
+		}
+		if n.keys[0] != 1 || n.keys[1] != 2 {
+			t.Fatalf("keys corrupted: %v", n.keys)
+		}
+		if n.children[0] != c1 || n.children[1] != c2 {
+			t.Fatalf("children corrupted: %v %v", n.children[0], n.children[1])
+		}
+	})
+}
+
+// TestNode16ChildListOps mirrors TestNode4ChildListOps for node16,
+// targeting the same mutation classes on the larger inner node.
+func TestNode16ChildListOps(t *testing.T) {
+	t.Run("replaceChildAtMiddleIndex", func(t *testing.T) {
+		c0 := newSentinelLeaf("c0")
+		c1 := newSentinelLeaf("c1")
+		c2 := newSentinelLeaf("c2")
+		n := &node16{numChildren: 3}
+		n.keys[0], n.keys[1], n.keys[2] = 10, 20, 30
+		n.children[0], n.children[1], n.children[2] = c0, c1, c2
+		nc := newSentinelLeaf("new")
+		n.replaceChild(20, nc)
+		if n.children[0] != c0 {
+			t.Fatalf("children[0] = %v, want c0", n.children[0])
+		}
+		if n.children[1] != nc {
+			t.Fatalf("children[1] = %v, want new", n.children[1])
+		}
+		if n.children[2] != c2 {
+			t.Fatalf("children[2] = %v, want c2", n.children[2])
+		}
+		if n.numChildren != 3 {
+			t.Fatalf("numChildren = %d, want 3", n.numChildren)
+		}
+	})
+	t.Run("replaceChildOnAbsentZeroEdge", func(t *testing.T) {
+		c1 := newSentinelLeaf("c1")
+		c2 := newSentinelLeaf("c2")
+		nc := newSentinelLeaf("new")
+		n := &node16{numChildren: 2}
+		n.keys[0], n.keys[1] = 1, 2
+		n.children[0], n.children[1] = c1, c2
+		n.replaceChild(0, nc)
+		if n.children[0] != c1 || n.children[1] != c2 {
+			t.Fatalf("live slots modified: %v %v", n.children[0], n.children[1])
+		}
+		for i := uint8(2); i < node16Capacity; i++ {
+			if n.children[i] != nil {
+				t.Fatalf("children[%d] = %v, want nil", i, n.children[i])
+			}
+		}
+		if n.numChildren != 2 {
+			t.Fatalf("numChildren = %d, want 2", n.numChildren)
+		}
+	})
+	t.Run("removeChildOnAbsentZeroEdge", func(t *testing.T) {
+		c1 := newSentinelLeaf("c1")
+		c2 := newSentinelLeaf("c2")
+		n := &node16{numChildren: 2}
+		n.keys[0], n.keys[1] = 1, 2
+		n.children[0], n.children[1] = c1, c2
+		n.removeChild(0)
+		if n.numChildren != 2 {
+			t.Fatalf("numChildren = %d, want 2", n.numChildren)
+		}
+		if n.keys[0] != 1 || n.keys[1] != 2 {
+			t.Fatalf("keys corrupted: [%d %d]", n.keys[0], n.keys[1])
+		}
+		if n.children[0] != c1 || n.children[1] != c2 {
+			t.Fatalf("children corrupted: %v %v", n.children[0], n.children[1])
+		}
+	})
+}
+
+// TestNode48ReplaceChildSlot pins node48.replaceChild against three
+// mutants: the slot-guard negation (slot == 0 vs slot != 0), the
+// slot-1 index sign inversion, and the slot-1 -> slot+1 arithmetic
+// mutation. All require direct observation of which slot is written.
+func TestNode48ReplaceChildSlot(t *testing.T) {
+	c5 := newSentinelLeaf("c5")
+	c50 := newSentinelLeaf("c50")
+	c200 := newSentinelLeaf("c200")
+	n := &node48{}
+	n.addChild(5, c5)
+	n.addChild(50, c50)
+	n.addChild(200, c200)
+
+	slot5 := n.childIndex[5]
+	slot50 := n.childIndex[50]
+	slot200 := n.childIndex[200]
+	if slot5 == 0 || slot50 == 0 || slot200 == 0 {
+		t.Fatalf("setup: childIndex not populated: %d %d %d", slot5, slot50, slot200)
+	}
+
+	new50 := newSentinelLeaf("new50")
+	n.replaceChild(50, new50)
+
+	if n.children[slot50-1] != new50 {
+		t.Fatalf("children[slot50-1] = %v, want new50", n.children[slot50-1])
+	}
+	if n.children[slot5-1] != c5 {
+		t.Fatalf("children[slot5-1] = %v, want c5", n.children[slot5-1])
+	}
+	if n.children[slot200-1] != c200 {
+		t.Fatalf("children[slot200-1] = %v, want c200", n.children[slot200-1])
+	}
+	if n.childIndex[5] != slot5 || n.childIndex[50] != slot50 || n.childIndex[200] != slot200 {
+		t.Fatalf("childIndex modified: [5]=%d [50]=%d [200]=%d",
+			n.childIndex[5], n.childIndex[50], n.childIndex[200])
+	}
+	if n.numChildren != 3 {
+		t.Fatalf("numChildren = %d, want 3", n.numChildren)
+	}
+
+	var snapshot [node48Capacity]node
+	for i := 0; i < node48Capacity; i++ {
+		snapshot[i] = n.children[i]
+	}
+	nc := newSentinelLeaf("absent")
+	n.replaceChild(99, nc)
+	for i := 0; i < node48Capacity; i++ {
+		if n.children[i] != snapshot[i] {
+			t.Fatalf("replaceChild on absent edge modified children[%d]: %v -> %v",
+				i, snapshot[i], n.children[i])
+		}
+	}
+	if n.numChildren != 3 {
+		t.Fatalf("numChildren = %d after absent replace, want 3", n.numChildren)
+	}
+}
+
+// TestRangeEmptyAndReversedBounds covers the Range top-level guard for
+// equal, reversed, and mixed-nil bounds. Equal and reversed bounds
+// must yield nothing; fully-nil bounds must yield every key; half-nil
+// bounds must still enumerate the open side.
+func TestRangeEmptyAndReversedBounds(t *testing.T) {
+	tree := New()
+	keys := [][]byte{[]byte("alpha"), []byte("beta"), []byte("gamma"), []byte("zeta")}
+	for i, k := range keys {
+		tree.Put(k, i)
+	}
+
+	collect := func(start, end []byte) [][]byte {
+		var got [][]byte
+		for k := range tree.Range(start, end) {
+			got = append(got, bytes.Clone(k))
+		}
+		return got
+	}
+
+	if got := collect([]byte("beta"), []byte("beta")); len(got) != 0 {
+		t.Fatalf("Range(beta,beta) = %v, want empty", got)
+	}
+	if got := collect([]byte("z"), []byte("a")); len(got) != 0 {
+		t.Fatalf("Range(z,a) = %v, want empty (reversed bounds)", got)
+	}
+	if got := collect(nil, nil); len(got) != len(keys) {
+		t.Fatalf("Range(nil,nil) yielded %d keys, want %d", len(got), len(keys))
+	}
+	if got := collect([]byte("beta"), nil); len(got) != 3 {
+		t.Fatalf("Range(beta,nil) = %v, want 3 keys", got)
+	}
+	if got := collect(nil, []byte("gamma")); len(got) != 2 {
+		t.Fatalf("Range(nil,gamma) = %v, want 2 keys", got)
+	}
+}
+
+// TestRangeThroughNode48WithEdgeZeroChild builds a tree whose root is a
+// node48 with a child under edge byte 0, then asserts Range(nil, nil)
+// yields every key exactly once. The iterateRange :176 boundary mutant
+// (edge < 256 -> <=) would, at edge == 256, wrap byte(edge) back to 0
+// and re-yield the edge-0 subtree.
+func TestRangeThroughNode48WithEdgeZeroChild(t *testing.T) {
+	tree := New()
+	keys := [][]byte{{0, 'x'}}
+	for i := 0; i < 16; i++ {
+		keys = append(keys, []byte{byte(1 + i), 'y'})
+	}
+	for i, k := range keys {
+		tree.Put(k, i)
+	}
+	if got := rootKindOf(tree); got != "node48" {
+		t.Fatalf("root = %q, want node48 (setup failed)", got)
+	}
+
+	seen := make(map[string]int)
+	total := 0
+	for k := range tree.Range(nil, nil) {
+		seen[string(k)]++
+		total++
+	}
+	if total != len(keys) {
+		t.Fatalf("total yields = %d, want %d", total, len(keys))
+	}
+	for _, k := range keys {
+		if seen[string(k)] != 1 {
+			t.Fatalf("key %v yielded %d times, want exactly 1", k, seen[string(k)])
+		}
+	}
+}
