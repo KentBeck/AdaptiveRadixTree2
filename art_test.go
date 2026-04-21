@@ -1254,3 +1254,171 @@ func TestPutOverwriteTerminalAcrossInnerNodeTypes(t *testing.T) {
 		})
 	}
 }
+
+func TestDeleteNonLastChildFromNode16AndNode48(t *testing.T) {
+	prefix := []byte("p/")
+	shapes := []struct {
+		name       string
+		childCount int
+	}{
+		{"node16", 16},
+		{"node48", 48},
+	}
+	assertSorted := func(t *testing.T, tree *Tree, want [][]byte) {
+		t.Helper()
+		var got [][]byte
+		for k := range tree.All() {
+			got = append(got, bytes.Clone(k))
+		}
+		if len(got) != len(want) {
+			t.Fatalf("All() yielded %d keys, want %d", len(got), len(want))
+		}
+		for i := range got {
+			if !bytes.Equal(got[i], want[i]) {
+				t.Fatalf("All()[%d] = %v, want %v", i, got[i], want[i])
+			}
+			if i > 0 && bytes.Compare(got[i-1], got[i]) >= 0 {
+				t.Fatalf("All() not sorted at %d: %v then %v", i, got[i-1], got[i])
+			}
+		}
+	}
+	remove := func(keys [][]byte, idx int) [][]byte {
+		out := make([][]byte, 0, len(keys)-1)
+		out = append(out, keys[:idx]...)
+		out = append(out, keys[idx+1:]...)
+		return out
+	}
+	for _, sh := range shapes {
+		t.Run(sh.name, func(t *testing.T) {
+			t.Run("delete_middle", func(t *testing.T) {
+				tree, keys := buildInnerNode(t, prefix, sh.childCount, false)
+				mid := len(keys) / 2
+				if ok := tree.Delete(keys[mid]); !ok {
+					t.Fatalf("Delete(middle) = false, want true")
+				}
+				assertSorted(t, tree, remove(keys, mid))
+			})
+			t.Run("delete_first", func(t *testing.T) {
+				tree, keys := buildInnerNode(t, prefix, sh.childCount, false)
+				if ok := tree.Delete(keys[0]); !ok {
+					t.Fatalf("Delete(first) = false, want true")
+				}
+				assertSorted(t, tree, remove(keys, 0))
+			})
+			t.Run("delete_last", func(t *testing.T) {
+				tree, keys := buildInnerNode(t, prefix, sh.childCount, false)
+				last := len(keys) - 1
+				if ok := tree.Delete(keys[last]); !ok {
+					t.Fatalf("Delete(last) = false, want true")
+				}
+				assertSorted(t, tree, remove(keys, last))
+			})
+		})
+	}
+}
+
+func TestPutInsertMiddleKeyIntoNode16(t *testing.T) {
+	prefix := []byte("p/")
+	tree := New()
+	edges := []byte{0x10, 0x30, 0x50, 0x70}
+	var keys [][]byte
+	for _, e := range edges {
+		k := append(bytes.Clone(prefix), e)
+		tree.Put(k, int(e))
+		keys = append(keys, k)
+	}
+	if got := rootKindOf(tree); got != "node4" {
+		t.Fatalf("rootKindOf after 4 puts = %q, want %q", got, "node4")
+	}
+
+	middle := append(bytes.Clone(prefix), byte(0x40))
+	tree.Put(middle, int(0x40))
+	keys = append(keys, middle)
+	if got := rootKindOf(tree); got != "node16" {
+		t.Fatalf("rootKindOf after 5th put = %q, want %q", got, "node16")
+	}
+
+	for _, k := range keys {
+		want := int(k[len(prefix)])
+		got, ok := tree.Get(k)
+		if !ok {
+			t.Fatalf("Get(%v) ok=false, want true", k)
+		}
+		if gi, _ := got.(int); gi != want {
+			t.Fatalf("Get(%v) = %v, want %d", k, got, want)
+		}
+	}
+
+	wantSorted := make([][]byte, len(keys))
+	copy(wantSorted, keys)
+	sort.Slice(wantSorted, func(i, j int) bool {
+		return bytes.Compare(wantSorted[i], wantSorted[j]) < 0
+	})
+	var iterated [][]byte
+	for k := range tree.All() {
+		iterated = append(iterated, bytes.Clone(k))
+	}
+	if len(iterated) != len(wantSorted) {
+		t.Fatalf("All() yielded %d keys, want %d", len(iterated), len(wantSorted))
+	}
+	for i := range iterated {
+		if !bytes.Equal(iterated[i], wantSorted[i]) {
+			t.Fatalf("All()[%d] = %v, want %v", i, iterated[i], wantSorted[i])
+		}
+	}
+}
+
+func TestGrowAndShrinkBoundaryStructure(t *testing.T) {
+	prefix := []byte("p/")
+	tree := New()
+
+	putEdge := func(e int) {
+		k := append(bytes.Clone(prefix), byte(e))
+		tree.Put(k, e)
+	}
+	deleteEdge := func(e int) {
+		k := append(bytes.Clone(prefix), byte(e))
+		if ok := tree.Delete(k); !ok {
+			t.Fatalf("Delete(edge=%d) = false, want true", e)
+		}
+	}
+	checkKindAfterCount := func(count int, want string) {
+		t.Helper()
+		if got := rootKindOf(tree); got != want {
+			t.Fatalf("rootKindOf at count=%d = %q, want %q", count, got, want)
+		}
+	}
+
+	growBoundaries := []struct {
+		afterPut int
+		want     string
+	}{
+		{1, "leaf"},
+		{2, "node4"},
+		{4, "node4"},
+		{5, "node16"},
+		{16, "node16"},
+		{17, "node48"},
+		{48, "node48"},
+		{49, "node256"},
+	}
+	next := 0
+	for _, b := range growBoundaries {
+		for next < b.afterPut {
+			putEdge(next)
+			next++
+		}
+		checkKindAfterCount(b.afterPut, b.want)
+	}
+
+	deleteEdge(48)
+	checkKindAfterCount(48, "node48")
+	for e := 47; e >= 16; e-- {
+		deleteEdge(e)
+	}
+	checkKindAfterCount(16, "node16")
+	for e := 15; e >= 4; e-- {
+		deleteEdge(e)
+	}
+	checkKindAfterCount(4, "node4")
+}
