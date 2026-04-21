@@ -2,6 +2,11 @@
 
 A sorted map implementation using an Adaptive Radix Tree (ART). Fast lookups, path compression, and sorted iteration with Go 1.23 range-over-func.
 
+The ulterior goals of this project are to get the genie to write code that is:
+- Fast
+- Reliable
+- Readable (by humans & genies)
+
 ## What is an Adaptive Radix Tree?
 
 An Adaptive Radix Tree is a trie in which every inner node uses a variable-size container sized to its actual fanout. Instead of reserving 256 child slots at every level, ART picks among four node types — holding up to 4, 16, 48, or 256 children — and promotes or demotes a node as children are added and removed. Memory stays proportional to the branching that actually occurs in the data, not to the alphabet size.
