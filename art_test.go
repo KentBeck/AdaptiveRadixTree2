@@ -2155,3 +2155,148 @@ func TestPutTerminalOnNode256(t *testing.T) {
 		}
 	}
 }
+
+func TestLenEmpty(t *testing.T) {
+	tree := New()
+	if got := tree.Len(); got != 0 {
+		t.Fatalf("Len() on empty tree = %d, want 0", got)
+	}
+}
+
+func TestLenAfterDistinctPuts(t *testing.T) {
+	tree := New()
+	keys := [][]byte{
+		[]byte("a"), []byte("b"), []byte("c"),
+		[]byte("ab"), []byte("abc"),
+	}
+	for i, k := range keys {
+		tree.Put(k, i)
+		if got, want := tree.Len(), i+1; got != want {
+			t.Fatalf("Len() after Put(%q) = %d, want %d", k, got, want)
+		}
+	}
+}
+
+func TestLenOverwriteUnchanged(t *testing.T) {
+	tree := New()
+	tree.Put([]byte("k"), 1)
+	tree.Put([]byte("k"), 2)
+	tree.Put([]byte("k"), 3)
+	if got := tree.Len(); got != 1 {
+		t.Fatalf("Len() after overwrites = %d, want 1", got)
+	}
+}
+
+func TestLenDeleteExisting(t *testing.T) {
+	tree := New()
+	tree.Put([]byte("a"), 1)
+	tree.Put([]byte("b"), 2)
+	if !tree.Delete([]byte("a")) {
+		t.Fatalf("Delete(a) returned false, want true")
+	}
+	if got := tree.Len(); got != 1 {
+		t.Fatalf("Len() after Delete(a) = %d, want 1", got)
+	}
+	if !tree.Delete([]byte("b")) {
+		t.Fatalf("Delete(b) returned false, want true")
+	}
+	if got := tree.Len(); got != 0 {
+		t.Fatalf("Len() after Delete(b) = %d, want 0", got)
+	}
+}
+
+func TestLenDeleteMissingUnchanged(t *testing.T) {
+	tree := New()
+	tree.Put([]byte("a"), 1)
+	if tree.Delete([]byte("zz")) {
+		t.Fatalf("Delete(zz) returned true on missing key")
+	}
+	if got := tree.Len(); got != 1 {
+		t.Fatalf("Len() after missing Delete = %d, want 1", got)
+	}
+	if tree.Delete([]byte("zz")) {
+		t.Fatalf("Delete(zz) returned true on missing key (second call)")
+	}
+	if got := tree.Len(); got != 1 {
+		t.Fatalf("Len() after second missing Delete = %d, want 1", got)
+	}
+}
+
+func TestLenMixedSequenceAgainstOracle(t *testing.T) {
+	type op struct {
+		kind string
+		key  string
+		val  int
+	}
+	ops := []op{
+		{"put", "a", 1},
+		{"put", "b", 2},
+		{"put", "a", 99},
+		{"put", "ab", 3},
+		{"put", "abc", 4},
+		{"del", "a", 0},
+		{"del", "zz", 0},
+		{"put", "a", 5},
+		{"del", "abc", 0},
+		{"put", "ab", 77},
+	}
+	tree := New()
+	oracle := map[string]int{}
+	for _, o := range ops {
+		switch o.kind {
+		case "put":
+			tree.Put([]byte(o.key), o.val)
+			oracle[o.key] = o.val
+		case "del":
+			tree.Delete([]byte(o.key))
+			delete(oracle, o.key)
+		}
+		if got, want := tree.Len(), len(oracle); got != want {
+			t.Fatalf("after %s(%q): Len()=%d want=%d", o.kind, o.key, got, want)
+		}
+	}
+}
+
+func TestLenAcrossNodePromotionsAndDemotions(t *testing.T) {
+	// Use a shared prefix so all keys live under one inner node and
+	// force the node to promote node4 -> node16 -> node48 -> node256 as
+	// children are added, and demote back as children are removed.
+	tree := New()
+	const n = 260
+	keys := make([][]byte, n)
+	for i := 0; i < n; i++ {
+		// 2-byte keys sharing byte 0 so the branch fans out by byte 1.
+		// Distinct byte-1 values require node256 once n > 48.
+		keys[i] = []byte{0, byte(i)}
+	}
+	// Insert each distinct key; Len must equal the number inserted. For
+	// i >= 256 byte(i) wraps and overwrites an earlier entry, so Len
+	// must stop growing.
+	seen := map[string]struct{}{}
+	for i, k := range keys {
+		tree.Put(k, i)
+		seen[string(k)] = struct{}{}
+		if got, want := tree.Len(), len(seen); got != want {
+			t.Fatalf("after Put #%d (%v): Len()=%d want=%d", i, k, got, want)
+		}
+	}
+	// Now delete every distinct key and watch Len walk back down
+	// through every demotion path.
+	distinct := make([][]byte, 0, len(seen))
+	for s := range seen {
+		distinct = append(distinct, []byte(s))
+	}
+	expected := len(seen)
+	for _, k := range distinct {
+		if !tree.Delete(k) {
+			t.Fatalf("Delete(%v) returned false", k)
+		}
+		expected--
+		if got := tree.Len(); got != expected {
+			t.Fatalf("after Delete(%v): Len()=%d want=%d", k, got, expected)
+		}
+	}
+	if got := tree.Len(); got != 0 {
+		t.Fatalf("Len() after deleting all = %d, want 0", got)
+	}
+}

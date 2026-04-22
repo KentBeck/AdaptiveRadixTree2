@@ -1,27 +1,28 @@
-# Dependencies
-node_modules/
-.pnpm-store/
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 
-# Build outputs
-dist/
-build/
-out/
+# Test / coverage output
+*.test
+*.out
+*.prof
+coverage.out
+coverage.html
 
-# IDE
+# Go workspace file
+go.work
+go.work.sum
+
+# Build output
+/bin/
+/dist/
+
+# Editor / OS
 .idea/
 .vscode/
 *.swp
 *.swo
-
-# OS
 .DS_Store
-Thumbs.db
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# Logs
-*.log
-npm-debug.log*

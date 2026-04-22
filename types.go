@@ -1,9 +1,3 @@
-// Package art is an Adaptive Radix Tree implementation.
-//
-// Keys are currently assumed to differ at byte 0. Path compression
-// and lazy expansion will arrive in later slices.
-//
-// This file contains type definitions and node lifecycle (grow/shrink/addChild).
 package art
 
 type nodeKind uint8
@@ -390,11 +384,20 @@ func shrinkToNode48(n *node256) *node48 {
 }
 
 // Tree is a sorted map backed by an Adaptive Radix Tree.
+//
+// A Tree is not safe for concurrent use by multiple goroutines when
+// any goroutine is writing. Callers that need concurrent access should
+// guard a Tree with their own sync.RWMutex.
 type Tree struct {
 	root node
+	size int
 }
 
 // New returns an empty Tree.
 func New() *Tree {
 	return &Tree{}
 }
+
+// Len returns the number of key-value pairs in the tree. It runs in
+// O(1).
+func (t *Tree) Len() int { return t.size }

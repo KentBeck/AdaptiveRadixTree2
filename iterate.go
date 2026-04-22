@@ -1,4 +1,3 @@
-// This file contains All and Range iteration logic across all node types.
 package art
 
 import (

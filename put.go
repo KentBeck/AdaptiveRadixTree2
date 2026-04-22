@@ -1,4 +1,3 @@
-// This file contains Put operation logic across all node types.
 package art
 
 import "bytes"
@@ -8,27 +7,34 @@ import "bytes"
 // keys that end at such a node's exact path are stored in its terminal
 // slot.
 func (t *Tree) Put(key []byte, value any) {
-	t.root = putInto(t.root, key, value, 0)
+	newRoot, inserted := putInto(t.root, key, value, 0)
+	t.root = newRoot
+	if inserted {
+		t.size++
+	}
 }
 
-func putInto(current node, key []byte, value any, depth int) node {
+// putInto returns the (possibly replaced) subtree root and whether a
+// brand-new key was inserted (as opposed to an existing key's value
+// being overwritten).
+func putInto(current node, key []byte, value any, depth int) (node, bool) {
 	if current == nil {
-		return newLeaf(key, value)
+		return newLeaf(key, value), true
 	}
 	switch r := current.(type) {
 	case *leaf:
 		if bytes.Equal(r.key, key) {
 			r.value = value
-			return r
+			return r, false
 		}
-		return newNode4With(r, key, value, depth)
+		return newNode4With(r, key, value, depth), true
 	case *node4:
 		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
 		if splitPoint < len(r.prefix) {
 			shared := r.prefix[:splitPoint]
 			oldBranch := r.prefix[splitPoint]
 			r.prefix = r.prefix[splitPoint+1:]
-			return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint)
+			return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint), true
 		}
 		return putIntoNode4(r, key, value, depth+len(r.prefix))
 	case *node16:
@@ -37,7 +43,7 @@ func putInto(current node, key []byte, value any, depth int) node {
 			shared := r.prefix[:splitPoint]
 			oldBranch := r.prefix[splitPoint]
 			r.prefix = r.prefix[splitPoint+1:]
-			return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint)
+			return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint), true
 		}
 		return putIntoNode16(r, key, value, depth+len(r.prefix))
 	case *node48:
@@ -46,7 +52,7 @@ func putInto(current node, key []byte, value any, depth int) node {
 			shared := r.prefix[:splitPoint]
 			oldBranch := r.prefix[splitPoint]
 			r.prefix = r.prefix[splitPoint+1:]
-			return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint)
+			return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint), true
 		}
 		return putIntoNode48(r, key, value, depth+len(r.prefix))
 	case *node256:
@@ -55,11 +61,11 @@ func putInto(current node, key []byte, value any, depth int) node {
 			shared := r.prefix[:splitPoint]
 			oldBranch := r.prefix[splitPoint]
 			r.prefix = r.prefix[splitPoint+1:]
-			return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint)
+			return splitPrefixedInner(r, oldBranch, shared, key, value, depth, splitPoint), true
 		}
 		return putIntoNode256(r, key, value, depth+len(r.prefix))
 	}
-	return current
+	return current, false
 }
 
 // putIntoNode4 writes (key, value) into r given that r.prefix has
@@ -68,57 +74,59 @@ func putInto(current node, key []byte, value any, depth int) node {
 // switch on the child at key[depth]: absent → add/grow; leaf same
 // key → overwrite; leaf different key → nested node4; inner node →
 // recurse.
-func putIntoNode4(r *node4, key []byte, value any, depth int) node {
+func putIntoNode4(r *node4, key []byte, value any, depth int) (node, bool) {
 	if depth == len(key) {
 		if r.terminal != nil {
 			r.terminal.value = value
-		} else {
-			r.terminal = newLeaf(key, value)
+			return r, false
 		}
-		return r
+		r.terminal = newLeaf(key, value)
+		return r, true
 	}
 	branch := key[depth]
 	switch c := r.findChild(branch).(type) {
 	case nil:
-		return node4AddOrGrow(r, branch, newLeaf(key, value))
+		return node4AddOrGrow(r, branch, newLeaf(key, value)), true
 	case *leaf:
 		if bytes.Equal(c.key, key) {
 			c.value = value
-			return r
+			return r, false
 		}
 		r.replaceChild(branch, newNode4With(c, key, value, depth+1))
-		return r
+		return r, true
 	default:
-		r.replaceChild(branch, putInto(c, key, value, depth+1))
-		return r
+		newChild, inserted := putInto(c, key, value, depth+1)
+		r.replaceChild(branch, newChild)
+		return r, inserted
 	}
 }
 
 // putIntoNode16 mirrors putIntoNode4 at node16 capacity. r.prefix has
 // already been consumed from key by the caller.
-func putIntoNode16(r *node16, key []byte, value any, depth int) node {
+func putIntoNode16(r *node16, key []byte, value any, depth int) (node, bool) {
 	if depth == len(key) {
 		if r.terminal != nil {
 			r.terminal.value = value
-		} else {
-			r.terminal = newLeaf(key, value)
+			return r, false
 		}
-		return r
+		r.terminal = newLeaf(key, value)
+		return r, true
 	}
 	branch := key[depth]
 	switch c := r.findChild(branch).(type) {
 	case nil:
-		return node16AddOrGrow(r, branch, newLeaf(key, value))
+		return node16AddOrGrow(r, branch, newLeaf(key, value)), true
 	case *leaf:
 		if bytes.Equal(c.key, key) {
 			c.value = value
-			return r
+			return r, false
 		}
 		r.replaceChild(branch, newNode4With(c, key, value, depth+1))
-		return r
+		return r, true
 	default:
-		r.replaceChild(branch, putInto(c, key, value, depth+1))
-		return r
+		newChild, inserted := putInto(c, key, value, depth+1)
+		r.replaceChild(branch, newChild)
+		return r, inserted
 	}
 }
 
@@ -150,58 +158,60 @@ func node16AddOrGrow(r *node16, b byte, child node) node {
 
 // putIntoNode48 mirrors putIntoNode4 at node48 capacity. r.prefix has
 // already been consumed from key by the caller.
-func putIntoNode48(r *node48, key []byte, value any, depth int) node {
+func putIntoNode48(r *node48, key []byte, value any, depth int) (node, bool) {
 	if depth == len(key) {
 		if r.terminal != nil {
 			r.terminal.value = value
-		} else {
-			r.terminal = newLeaf(key, value)
+			return r, false
 		}
-		return r
+		r.terminal = newLeaf(key, value)
+		return r, true
 	}
 	branch := key[depth]
 	switch c := r.findChild(branch).(type) {
 	case nil:
-		return node48AddOrGrow(r, branch, newLeaf(key, value))
+		return node48AddOrGrow(r, branch, newLeaf(key, value)), true
 	case *leaf:
 		if bytes.Equal(c.key, key) {
 			c.value = value
-			return r
+			return r, false
 		}
 		r.replaceChild(branch, newNode4With(c, key, value, depth+1))
-		return r
+		return r, true
 	default:
-		r.replaceChild(branch, putInto(c, key, value, depth+1))
-		return r
+		newChild, inserted := putInto(c, key, value, depth+1)
+		r.replaceChild(branch, newChild)
+		return r, inserted
 	}
 }
 
 // putIntoNode256 mirrors putIntoNode4 at node256 capacity. r.prefix has
 // already been consumed from key by the caller.
-func putIntoNode256(r *node256, key []byte, value any, depth int) node {
+func putIntoNode256(r *node256, key []byte, value any, depth int) (node, bool) {
 	if depth == len(key) {
 		if r.terminal != nil {
 			r.terminal.value = value
-		} else {
-			r.terminal = newLeaf(key, value)
+			return r, false
 		}
-		return r
+		r.terminal = newLeaf(key, value)
+		return r, true
 	}
 	branch := key[depth]
 	switch c := r.findChild(branch).(type) {
 	case nil:
 		r.addChild(branch, newLeaf(key, value))
-		return r
+		return r, true
 	case *leaf:
 		if bytes.Equal(c.key, key) {
 			c.value = value
-			return r
+			return r, false
 		}
 		r.replaceChild(branch, newNode4With(c, key, value, depth+1))
-		return r
+		return r, true
 	default:
-		r.replaceChild(branch, putInto(c, key, value, depth+1))
-		return r
+		newChild, inserted := putInto(c, key, value, depth+1)
+		r.replaceChild(branch, newChild)
+		return r, inserted
 	}
 }
 

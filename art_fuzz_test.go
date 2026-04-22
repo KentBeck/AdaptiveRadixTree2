@@ -167,6 +167,7 @@ func runFuzzOps(t *testing.T, data []byte) {
 			log = append(log, opRecord{code: code, key: key, val: v})
 			tree.Put(key, v)
 			oracle[string(key)] = v
+			assertLen(t, tree, oracle, log)
 		case fuzzOpGet:
 			key, ok := cur.readKey()
 			if !ok {
@@ -196,6 +197,7 @@ func runFuzzOps(t *testing.T, data []byte) {
 				t.Fatalf("Delete(%x) return: got=%v want=%v\nops:\n%s", key, gotDeleted, wantPresent, formatOpLog(log))
 			}
 			delete(oracle, string(key))
+			assertLen(t, tree, oracle, log)
 		case fuzzOpAll:
 			log = append(log, opRecord{code: code})
 			checkDrainAll(t, tree, oracle, log)
@@ -221,10 +223,21 @@ func runFuzzOps(t *testing.T, data []byte) {
 	}
 }
 
+// assertLen asserts tree.Len() matches the oracle's size. This is
+// called after every Put/Delete and at each iteration checkpoint so a
+// miscounted insertion or deletion fails fast with the full op log.
+func assertLen(t *testing.T, tree *Tree, oracle map[string]byte, log []opRecord) {
+	t.Helper()
+	if got, want := tree.Len(), len(oracle); got != want {
+		t.Fatalf("Len(): got=%d want=%d\nops:\n%s", got, want, formatOpLog(log))
+	}
+}
+
 // checkDrainAll asserts Tree.All yields exactly the oracle's keys in
 // byte-wise ascending order, with matching values.
 func checkDrainAll(t *testing.T, tree *Tree, oracle map[string]byte, log []opRecord) {
 	t.Helper()
+	assertLen(t, tree, oracle, log)
 	want := oracleSortedKeys(oracle)
 	var got []string
 	var gotVals []byte
@@ -240,6 +253,7 @@ func checkDrainAll(t *testing.T, tree *Tree, oracle map[string]byte, log []opRec
 // values.
 func checkRange(t *testing.T, tree *Tree, oracle map[string]byte, start, end []byte, log []opRecord) {
 	t.Helper()
+	assertLen(t, tree, oracle, log)
 	want := oracleRange(oracle, start, end)
 	var got []string
 	var gotVals []byte

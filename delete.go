@@ -1,4 +1,3 @@
-// This file contains Delete operation logic across all node types.
 package art
 
 import "bytes"
@@ -13,6 +12,7 @@ func (t *Tree) Delete(key []byte) bool {
 	newRoot, deleted := deleteFrom(t.root, key, 0)
 	if deleted {
 		t.root = newRoot
+		t.size--
 	}
 	return deleted
 }

@@ -1,4 +1,3 @@
-// This file contains Get operation logic across all node types.
 package art
 
 import "bytes"

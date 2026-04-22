@@ -1,4 +1,3 @@
-// This file contains pure helper functions shared across operations.
 package art
 
 func newLeaf(key []byte, value any) *leaf {
