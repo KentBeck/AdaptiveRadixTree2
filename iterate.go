@@ -9,6 +9,12 @@ import (
 // All returns an iterator over every (key, value) pair in the tree in
 // ascending byte-wise key order. Breaking out of the range stops the
 // traversal immediately.
+//
+// The yielded key slice aliases the tree's internal storage. It is
+// safe to retain while the corresponding entry remains in the tree,
+// and must be treated as read-only; mutating it corrupts the tree.
+// If the entry may be deleted (including by the caller during
+// iteration) while a retained reference is in use, copy the key.
 func (t *Tree) All() iter.Seq2[[]byte, any] {
 	return func(yield func([]byte, any) bool) {
 		iterate(t.root, yield)
@@ -81,6 +87,11 @@ func iterate(n node, yield func([]byte, any) bool) bool {
 // key order. A nil bound is treated as unbounded on that side, so
 // Range(nil, nil) is equivalent to All. Breaking out of the range
 // stops the traversal immediately.
+//
+// The yielded key slice aliases the tree's internal storage under the
+// same contract as [Tree.All]: safe to retain while the entry remains
+// in the tree, must be treated as read-only, and must be copied if
+// retained past a possible deletion of the entry.
 func (t *Tree) Range(start, end []byte) iter.Seq2[[]byte, any] {
 	return func(yield func([]byte, any) bool) {
 		if start != nil && end != nil && bytes.Compare(start, end) >= 0 {

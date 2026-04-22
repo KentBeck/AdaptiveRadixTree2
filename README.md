@@ -22,7 +22,7 @@ The data structure was introduced by Leis, Kemper, and Neumann in ["The Adaptive
 ## Installation
 
 ```sh
-go get github.com/kentbeck/art
+go get github.com/KentBeck/AdaptiveRadixTree2
 ```
 
 Requires Go 1.23 or later (for `iter.Seq2` / range-over-func).
@@ -35,7 +35,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/kentbeck/art"
+	"github.com/KentBeck/AdaptiveRadixTree2"
 )
 
 func main() {

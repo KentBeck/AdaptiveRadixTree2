@@ -18,7 +18,7 @@
 | Delete (bulk) | 70.0 ns/key | 772.3 ns/key | 0.09× | ART 11.0× |
 | Range (1 %, 100K) | 17.75 ns/key | 9.6 ns/key | 1.85× | B-tree 1.8× |
 
-*Put measured with `-benchtime=1x` (one 10M-key pass, `b.N=1`). Delete measured with `-benchtime=3s` (setup excluded via `b.StopTimer()`/`b.StartTimer()`, so ~3 clean delete iterations per run; median of 5). Get / GetMiss / Range measured with `-benchtime=3s`: 35.5M ops for ART Get, 307M ops for ART GetMiss, 1212 range passes for ART Range.*
+*Put measured with *`-benchtime=1x`* (one 10M-key pass, *`b.N=1`*). Delete measured with *`-benchtime=3s`* (setup excluded via *`b.StopTimer()`*/*`b.StartTimer()`*, so ~3 clean delete iterations per run; median of 5). Get / GetMiss / Range measured with *`-benchtime=3s`*: 35.5M ops for ART Get, 307M ops for ART GetMiss, 1212 range passes for ART Range.*
 
 ## Memory (one 10M-element tree, from Put benchmark)
 
@@ -34,7 +34,7 @@ One 1 %-range scan (100K entries yielded):
 | ART | 32 B | 1 |
 | B-tree | 0 B | 0 |
 
-B-tree uses ~27 % less memory overall and ~29× fewer allocations at build time (items packed into node slices). On range scans B-tree allocates nothing. ART now allocates a single reusable key buffer per scan: the `[]byte` yielded for each pair is a view into that buffer and is only valid until the next iteration step, so callers that retain the key must copy it.
+B-tree uses ~27 % less memory overall and ~29× fewer allocations at build time (items packed into node slices). On range scans B-tree allocates nothing. On range scans ART allocates a single small internal path buffer used for pruning; the yielded `[]byte` keys reference the tree's own stable storage and may be retained by callers without copying, as long as the entry stays in the tree.
 
 ## Verdict
 
@@ -60,7 +60,7 @@ The 1 % range (100 K entries) is the common "pagination / windowed scan" shape, 
 2. **No concurrent access.** Both impls are single-goroutine; neither library ships a tested RW-safe wrapper.
 3. **Steady-state vs. cold.** Get / Range run on a warm cache; first-hit latency is not isolated.
 4. **B-tree degree.** Left at library default (32). Tuning could shift B-tree numbers by 10–30 % on any single op.
-5. **Yield-buffer sharing.** `Tree.Range` yields a `[]byte` view into a single reusable key buffer; callers that need to retain keys across iteration steps must copy them.
+5. **Key aliasing.** `Tree.Range` yields `[]byte` keys that alias the tree's internal storage. They are safe to retain while the entry is in the tree and must be treated as read-only; mutating a yielded key corrupts the tree.
 
 ## Reproducing
 
