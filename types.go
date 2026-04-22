@@ -17,45 +17,45 @@ const (
 	node256Capacity = 256
 )
 
-type node interface {
+type node[V any] interface {
 	kind() nodeKind
 }
 
 // innerNode is the interface satisfied by every non-leaf node. It
 // exposes the subset of operations used by Tree.Delete so the caller
 // can act uniformly across node4/16/48/256.
-type innerNode interface {
-	node
-	findChild(b byte) node
+type innerNode[V any] interface {
+	node[V]
+	findChild(b byte) node[V]
 	removeChild(b byte)
 	isEmpty() bool
 }
 
 const inlineKeyMax = 24
 
-type leaf struct {
+type leaf[V any] struct {
 	key    []byte
-	value  any
+	value  V
 	inline [inlineKeyMax]byte
 }
 
-func (*leaf) kind() nodeKind { return kindLeaf }
+func (*leaf[V]) kind() nodeKind { return kindLeaf }
 
 // node4 keeps keys[:numChildren] sorted ascending by edge byte. The
 // prefix is consumed from the search key before branching. terminal,
 // when non-nil, holds the value stored at this node's exact path (a
 // key that ends after the prefix and does not branch further).
-type node4 struct {
+type node4[V any] struct {
 	prefix      []byte
 	keys        [4]byte
-	children    [4]node
-	terminal    *leaf
+	children    [4]node[V]
+	terminal    *leaf[V]
 	numChildren uint8
 }
 
-func (*node4) kind() nodeKind { return kindNode4 }
+func (*node4[V]) kind() nodeKind { return kindNode4 }
 
-func (n *node4) findChild(b byte) node {
+func (n *node4[V]) findChild(b byte) node[V] {
 	for i := uint8(0); i < n.numChildren; i++ {
 		if n.keys[i] == b {
 			return n.children[i]
@@ -64,7 +64,7 @@ func (n *node4) findChild(b byte) node {
 	return nil
 }
 
-func (n *node4) addChild(b byte, child node) {
+func (n *node4[V]) addChild(b byte, child node[V]) {
 	i := uint8(0)
 	for i < n.numChildren && n.keys[i] < b {
 		i++
@@ -78,7 +78,7 @@ func (n *node4) addChild(b byte, child node) {
 
 // replaceChild swaps the child stored under edge byte b. Caller
 // guarantees b is already present.
-func (n *node4) replaceChild(b byte, child node) {
+func (n *node4[V]) replaceChild(b byte, child node[V]) {
 	for i := uint8(0); i < n.numChildren; i++ {
 		if n.keys[i] == b {
 			n.children[i] = child
@@ -89,7 +89,7 @@ func (n *node4) replaceChild(b byte, child node) {
 
 // removeChild removes the child stored under edge byte b, preserving
 // the sorted order of the remaining keys. A no-op if b is absent.
-func (n *node4) removeChild(b byte) {
+func (n *node4[V]) removeChild(b byte) {
 	for i := uint8(0); i < n.numChildren; i++ {
 		if n.keys[i] == b {
 			copy(n.keys[i:], n.keys[i+1:n.numChildren])
@@ -102,23 +102,23 @@ func (n *node4) removeChild(b byte) {
 	}
 }
 
-func (n *node4) isEmpty() bool { return n.numChildren == 0 }
+func (n *node4[V]) isEmpty() bool { return n.numChildren == 0 }
 
 // node16 keeps keys[:numChildren] sorted ascending by edge byte. Like
 // node4, prefix is consumed from the search key before branching and
 // terminal (when non-nil) holds the value stored at this node's exact
 // path.
-type node16 struct {
+type node16[V any] struct {
 	prefix      []byte
 	keys        [node16Capacity]byte
-	children    [node16Capacity]node
-	terminal    *leaf
+	children    [node16Capacity]node[V]
+	terminal    *leaf[V]
 	numChildren uint8
 }
 
-func (*node16) kind() nodeKind { return kindNode16 }
+func (*node16[V]) kind() nodeKind { return kindNode16 }
 
-func (n *node16) findChild(b byte) node {
+func (n *node16[V]) findChild(b byte) node[V] {
 	for i := uint8(0); i < n.numChildren; i++ {
 		if n.keys[i] == b {
 			return n.children[i]
@@ -129,7 +129,7 @@ func (n *node16) findChild(b byte) node {
 
 // insertChild inserts child under edge byte b. Caller guarantees b is
 // not already present and that the node is not yet full.
-func (n *node16) insertChild(b byte, child node) {
+func (n *node16[V]) insertChild(b byte, child node[V]) {
 	i := uint8(0)
 	for i < n.numChildren && n.keys[i] < b {
 		i++
@@ -143,7 +143,7 @@ func (n *node16) insertChild(b byte, child node) {
 
 // replaceChild swaps the child stored under edge byte b. Caller
 // guarantees b is already present.
-func (n *node16) replaceChild(b byte, child node) {
+func (n *node16[V]) replaceChild(b byte, child node[V]) {
 	for i := uint8(0); i < n.numChildren; i++ {
 		if n.keys[i] == b {
 			n.children[i] = child
@@ -154,7 +154,7 @@ func (n *node16) replaceChild(b byte, child node) {
 
 // removeChild removes the child stored under edge byte b, preserving
 // the sorted order of the remaining keys. A no-op if b is absent.
-func (n *node16) removeChild(b byte) {
+func (n *node16[V]) removeChild(b byte) {
 	for i := uint8(0); i < n.numChildren; i++ {
 		if n.keys[i] == b {
 			copy(n.keys[i:], n.keys[i+1:n.numChildren])
@@ -167,12 +167,12 @@ func (n *node16) removeChild(b byte) {
 	}
 }
 
-func (n *node16) isEmpty() bool { return n.numChildren == 0 }
+func (n *node16[V]) isEmpty() bool { return n.numChildren == 0 }
 
 // growToNode16 returns a node16 holding the same sorted children,
 // prefix, and terminal as n.
-func growToNode16(n *node4) *node16 {
-	grown := &node16{
+func growToNode16[V any](n *node4[V]) *node16[V] {
+	grown := &node16[V]{
 		prefix:      n.prefix,
 		terminal:    n.terminal,
 		numChildren: n.numChildren,
@@ -185,8 +185,8 @@ func growToNode16(n *node4) *node16 {
 // shrinkToNode4 returns a node4 holding the same sorted children,
 // prefix, and terminal as n. Caller guarantees n.numChildren <=
 // node4Capacity.
-func shrinkToNode4(n *node16) *node4 {
-	shrunk := &node4{
+func shrinkToNode4[V any](n *node16[V]) *node4[V] {
+	shrunk := &node4[V]{
 		prefix:      n.prefix,
 		terminal:    n.terminal,
 		numChildren: n.numChildren,
@@ -201,18 +201,18 @@ func shrinkToNode4(n *node16) *node4 {
 // slot into children. Like the smaller inner nodes, prefix is consumed
 // from the search key before branching and terminal (when non-nil)
 // holds the value stored at this node's exact path.
-type node48 struct {
+type node48[V any] struct {
 	prefix      []byte
 	childIndex  [256]byte
-	children    [node48Capacity]node
+	children    [node48Capacity]node[V]
 	childEdge   [node48Capacity]byte
-	terminal    *leaf
+	terminal    *leaf[V]
 	numChildren uint8
 }
 
-func (*node48) kind() nodeKind { return kindNode48 }
+func (*node48[V]) kind() nodeKind { return kindNode48 }
 
-func (n *node48) findChild(b byte) node {
+func (n *node48[V]) findChild(b byte) node[V] {
 	slot := n.childIndex[b]
 	if slot == 0 {
 		return nil
@@ -220,7 +220,7 @@ func (n *node48) findChild(b byte) node {
 	return n.children[slot-1]
 }
 
-func (n *node48) addChild(newEdge byte, child node) {
+func (n *node48[V]) addChild(newEdge byte, child node[V]) {
 	n.children[n.numChildren] = child
 	n.childEdge[n.numChildren] = newEdge
 	n.childIndex[newEdge] = n.numChildren + 1
@@ -229,7 +229,7 @@ func (n *node48) addChild(newEdge byte, child node) {
 
 // replaceChild swaps the child stored under edge byte b. Caller
 // guarantees b is already present.
-func (n *node48) replaceChild(b byte, child node) {
+func (n *node48[V]) replaceChild(b byte, child node[V]) {
 	slot := n.childIndex[b]
 	if slot == 0 {
 		return
@@ -241,7 +241,7 @@ func (n *node48) replaceChild(b byte, child node) {
 // children[:numChildren] dense (which addChild relies on), the last
 // live child is swapped into the vacated slot and its index entry is
 // updated. A no-op if b is absent.
-func (n *node48) removeChild(b byte) {
+func (n *node48[V]) removeChild(b byte) {
 	slot := n.childIndex[b]
 	if slot == 0 {
 		return
@@ -259,12 +259,12 @@ func (n *node48) removeChild(b byte) {
 	n.numChildren--
 }
 
-func (n *node48) isEmpty() bool { return n.numChildren == 0 }
+func (n *node48[V]) isEmpty() bool { return n.numChildren == 0 }
 
 // growToNode48 returns a node48 holding the same children, prefix, and
 // terminal as n, with childIndex populated from n's sorted edge bytes.
-func growToNode48(n *node16) *node48 {
-	grown := &node48{
+func growToNode48[V any](n *node16[V]) *node48[V] {
+	grown := &node48[V]{
 		prefix:      n.prefix,
 		terminal:    n.terminal,
 		numChildren: n.numChildren,
@@ -281,8 +281,8 @@ func growToNode48(n *node16) *node48 {
 // and terminal as n, with keys populated in ascending edge-byte order
 // so node16's sort invariant is preserved. Caller guarantees
 // n.numChildren <= node16Capacity.
-func shrinkToNode16(n *node48) *node16 {
-	shrunk := &node16{
+func shrinkToNode16[V any](n *node48[V]) *node16[V] {
+	shrunk := &node16[V]{
 		prefix:      n.prefix,
 		terminal:    n.terminal,
 		numChildren: n.numChildren,
@@ -305,27 +305,27 @@ func shrinkToNode16(n *node48) *node16 {
 // Like the smaller inner nodes, prefix is consumed from the search key
 // before branching and terminal (when non-nil) holds the value stored
 // at this node's exact path.
-type node256 struct {
+type node256[V any] struct {
 	prefix      []byte
-	children    [node256Capacity]node
-	terminal    *leaf
+	children    [node256Capacity]node[V]
+	terminal    *leaf[V]
 	numChildren uint16
 }
 
-func (*node256) kind() nodeKind { return kindNode256 }
+func (*node256[V]) kind() nodeKind { return kindNode256 }
 
-func (n *node256) findChild(b byte) node {
+func (n *node256[V]) findChild(b byte) node[V] {
 	return n.children[b]
 }
 
-func (n *node256) addChild(b byte, child node) {
+func (n *node256[V]) addChild(b byte, child node[V]) {
 	n.children[b] = child
 	n.numChildren++
 }
 
 // replaceChild swaps the child stored under edge byte b. Caller
 // guarantees b is already present.
-func (n *node256) replaceChild(b byte, child node) {
+func (n *node256[V]) replaceChild(b byte, child node[V]) {
 	if n.children[b] == nil {
 		return
 	}
@@ -334,7 +334,7 @@ func (n *node256) replaceChild(b byte, child node) {
 
 // removeChild removes the child stored under edge byte b. A no-op if
 // b is absent.
-func (n *node256) removeChild(b byte) {
+func (n *node256[V]) removeChild(b byte) {
 	if n.children[b] == nil {
 		return
 	}
@@ -342,12 +342,12 @@ func (n *node256) removeChild(b byte) {
 	n.numChildren--
 }
 
-func (n *node256) isEmpty() bool { return n.numChildren == 0 }
+func (n *node256[V]) isEmpty() bool { return n.numChildren == 0 }
 
 // growToNode256 returns a node256 holding the same children, prefix,
 // and terminal as n, indexed directly by edge byte.
-func growToNode256(n *node48) *node256 {
-	grown := &node256{
+func growToNode256[V any](n *node48[V]) *node256[V] {
+	grown := &node256[V]{
 		prefix:      n.prefix,
 		terminal:    n.terminal,
 		numChildren: uint16(n.numChildren),
@@ -364,8 +364,8 @@ func growToNode256(n *node48) *node256 {
 // shrinkToNode48 returns a node48 holding the same children, prefix,
 // and terminal as n, with childIndex populated from the occupied slots
 // in n. Caller guarantees n.numChildren <= node48Capacity.
-func shrinkToNode48(n *node256) *node48 {
-	shrunk := &node48{
+func shrinkToNode48[V any](n *node256[V]) *node48[V] {
+	shrunk := &node48[V]{
 		prefix:      n.prefix,
 		terminal:    n.terminal,
 		numChildren: uint8(n.numChildren),
@@ -383,21 +383,22 @@ func shrinkToNode48(n *node256) *node48 {
 	return shrunk
 }
 
-// Tree is a sorted map backed by an Adaptive Radix Tree.
+// Tree is a sorted map from []byte keys to V values, backed by an
+// Adaptive Radix Tree.
 //
 // A Tree is not safe for concurrent use by multiple goroutines when
 // any goroutine is writing. Callers that need concurrent access should
 // guard a Tree with their own sync.RWMutex.
-type Tree struct {
-	root node
+type Tree[V any] struct {
+	root node[V]
 	size int
 }
 
 // New returns an empty Tree.
-func New() *Tree {
-	return &Tree{}
+func New[V any]() *Tree[V] {
+	return &Tree[V]{}
 }
 
 // Len returns the number of key-value pairs in the tree. It runs in
 // O(1).
-func (t *Tree) Len() int { return t.size }
+func (t *Tree[V]) Len() int { return t.size }

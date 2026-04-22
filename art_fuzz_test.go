@@ -143,7 +143,7 @@ func FuzzSortedMap(f *testing.F) {
 // runFuzzOps replays the op stream against tree + oracle in lockstep
 // and t.Fatalfs (with the full op log) on the first disagreement.
 func runFuzzOps(t *testing.T, data []byte) {
-	tree := New()
+	tree := New[byte]()
 	oracle := make(map[string]byte)
 	cur := &fuzzCursor{data: data}
 	var log []opRecord
@@ -179,11 +179,8 @@ func runFuzzOps(t *testing.T, data []byte) {
 			if gotOK != wantOK {
 				t.Fatalf("Get(%x) presence: got=%v want=%v\nops:\n%s", key, gotOK, wantOK, formatOpLog(log))
 			}
-			if gotOK {
-				gb, isB := got.(byte)
-				if !isB || gb != wantV {
-					t.Fatalf("Get(%x) value: got=%v want=%d\nops:\n%s", key, got, wantV, formatOpLog(log))
-				}
+			if gotOK && got != wantV {
+				t.Fatalf("Get(%x) value: got=%v want=%d\nops:\n%s", key, got, wantV, formatOpLog(log))
 			}
 		case fuzzOpDelete:
 			key, ok := cur.readKey()
@@ -226,7 +223,7 @@ func runFuzzOps(t *testing.T, data []byte) {
 // assertLen asserts tree.Len() matches the oracle's size. This is
 // called after every Put/Delete and at each iteration checkpoint so a
 // miscounted insertion or deletion fails fast with the full op log.
-func assertLen(t *testing.T, tree *Tree, oracle map[string]byte, log []opRecord) {
+func assertLen(t *testing.T, tree *Tree[byte], oracle map[string]byte, log []opRecord) {
 	t.Helper()
 	if got, want := tree.Len(), len(oracle); got != want {
 		t.Fatalf("Len(): got=%d want=%d\nops:\n%s", got, want, formatOpLog(log))
@@ -235,7 +232,7 @@ func assertLen(t *testing.T, tree *Tree, oracle map[string]byte, log []opRecord)
 
 // checkDrainAll asserts Tree.All yields exactly the oracle's keys in
 // byte-wise ascending order, with matching values.
-func checkDrainAll(t *testing.T, tree *Tree, oracle map[string]byte, log []opRecord) {
+func checkDrainAll(t *testing.T, tree *Tree[byte], oracle map[string]byte, log []opRecord) {
 	t.Helper()
 	assertLen(t, tree, oracle, log)
 	want := oracleSortedKeys(oracle)
@@ -243,7 +240,7 @@ func checkDrainAll(t *testing.T, tree *Tree, oracle map[string]byte, log []opRec
 	var gotVals []byte
 	for k, v := range tree.All() {
 		got = append(got, string(k))
-		gotVals = append(gotVals, v.(byte))
+		gotVals = append(gotVals, v)
 	}
 	assertSortedKV(t, "All()", got, gotVals, want, oracle, log)
 }
@@ -251,7 +248,7 @@ func checkDrainAll(t *testing.T, tree *Tree, oracle map[string]byte, log []opRec
 // checkRange asserts Tree.Range(start, end) yields exactly the oracle
 // keys in [start, end) in byte-wise ascending order, with matching
 // values.
-func checkRange(t *testing.T, tree *Tree, oracle map[string]byte, start, end []byte, log []opRecord) {
+func checkRange(t *testing.T, tree *Tree[byte], oracle map[string]byte, start, end []byte, log []opRecord) {
 	t.Helper()
 	assertLen(t, tree, oracle, log)
 	want := oracleRange(oracle, start, end)
@@ -259,7 +256,7 @@ func checkRange(t *testing.T, tree *Tree, oracle map[string]byte, start, end []b
 	var gotVals []byte
 	for k, v := range tree.Range(start, end) {
 		got = append(got, string(k))
-		gotVals = append(gotVals, v.(byte))
+		gotVals = append(gotVals, v)
 	}
 	label := fmt.Sprintf("Range(%s, %s)", fuzzBoundString(start, start == nil), fuzzBoundString(end, end == nil))
 	assertSortedKV(t, label, got, gotVals, want, oracle, log)

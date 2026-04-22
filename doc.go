@@ -1,7 +1,7 @@
 // Package art implements an Adaptive Radix Tree: a variable-fanout
 // trie that stores []byte keys in byte-wise sorted order.
 //
-// A Tree is a sorted map from []byte to any. Point operations (Put,
+// A Tree[V] is a sorted map from []byte to V. Point operations (Put,
 // Get, Delete) are O(k) in the key length, and in-order traversal is
 // exposed via Go 1.23 range-over-func iterators.
 //
@@ -22,7 +22,7 @@
 //
 // Minimal usage:
 //
-//	t := art.New()
+//	t := art.New[int]()
 //	t.Put([]byte("apple"), 1)
 //	t.Put([]byte("apricot"), 2)
 //	t.Put([]byte("banana"), 3)

@@ -1,10 +1,10 @@
 package art
 
-func newLeaf(key []byte, value any) *leaf {
+func newLeaf[V any](key []byte, value V) *leaf[V] {
 	// Copy the key so callers may safely reuse their slice. Keys up to
 	// inlineKeyMax bytes go into the leaf's inline buffer to avoid a
 	// second allocation; longer keys are heap-copied.
-	l := &leaf{value: value}
+	l := &leaf[V]{value: value}
 	if len(key) <= inlineKeyMax {
 		n := copy(l.inline[:], key)
 		l.key = l.inline[:n]
@@ -34,7 +34,7 @@ func longestCommonPrefix(a, b []byte) []byte {
 // the other is attached as a branching child. If neither is exhausted
 // both are attached as branching children on their first divergent
 // byte. Caller guarantees the two keys are not equal.
-func newNode4With(existing *leaf, newKey []byte, newValue any, depth int) *node4 {
+func newNode4With[V any](existing *leaf[V], newKey []byte, newValue V, depth int) *node4[V] {
 	shared := longestCommonPrefix(existing.key[depth:], newKey[depth:])
 	diverge := depth + len(shared)
 	existingExhausted := diverge == len(existing.key)
@@ -42,7 +42,7 @@ func newNode4With(existing *leaf, newKey []byte, newValue any, depth int) *node4
 	if existingExhausted && newExhausted {
 		panic("art: newNode4With called with equal keys - invariant violation")
 	}
-	n := &node4{prefix: append([]byte(nil), shared...)}
+	n := &node4[V]{prefix: append([]byte(nil), shared...)}
 	switch {
 	case existingExhausted:
 		n.terminal = existing
@@ -64,8 +64,8 @@ func newNode4With(existing *leaf, newKey []byte, newValue any, depth int) *node4
 // parent's terminal holds (key, value); otherwise a new leaf is
 // attached as the second branching child. Caller guarantees adoptee's
 // own prefix has already been shortened past oldBranch.
-func splitPrefixedInner(adoptee innerNode, oldBranch byte, shared, key []byte, value any, depth, splitPoint int) *node4 {
-	parent := &node4{prefix: append([]byte(nil), shared...)}
+func splitPrefixedInner[V any](adoptee innerNode[V], oldBranch byte, shared, key []byte, value V, depth, splitPoint int) *node4[V] {
+	parent := &node4[V]{prefix: append([]byte(nil), shared...)}
 	parent.addChild(oldBranch, adoptee)
 	if depth+splitPoint == len(key) {
 		parent.terminal = newLeaf(key, value)

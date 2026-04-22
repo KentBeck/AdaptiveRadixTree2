@@ -8,9 +8,9 @@ import (
 )
 
 func TestPutThenGet(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 
-	if got, ok := tree.Get([]byte("missing")); ok || got != nil {
+	if got, ok := tree.Get([]byte("missing")); ok || got != 0 {
 		t.Fatalf("Get on empty tree = (%v, %v), want (nil, false)", got, ok)
 	}
 
@@ -26,7 +26,7 @@ func TestPutThenGet(t *testing.T) {
 }
 
 func TestPutTwoKeysNoCommonPrefix(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("apple"), 1)
 	tree.Put([]byte("banana"), 2)
 
@@ -42,7 +42,7 @@ func TestPutTwoKeysNoCommonPrefix(t *testing.T) {
 }
 
 func TestOverwriteExistingKey(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 
 	tree.Put([]byte("hello"), 1)
 	tree.Put([]byte("hello"), 2)
@@ -62,7 +62,7 @@ func TestOverwriteExistingKey(t *testing.T) {
 }
 
 func TestPutMoreThanFourKeys(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	keys := []string{"a", "b", "c", "d", "e"}
 	for i, k := range keys {
 		tree.Put([]byte(k), i)
@@ -75,7 +75,7 @@ func TestPutMoreThanFourKeys(t *testing.T) {
 }
 
 func TestPutMoreThanSixteenKeys(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	// 17 distinct first bytes forces node16 -> node48 promotion.
 	const n = 17
 	for i := 0; i < n; i++ {
@@ -98,7 +98,7 @@ func TestPutMoreThanSixteenKeys(t *testing.T) {
 }
 
 func TestPutMoreThanFortyEightKeys(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	const n = 49
 	for i := 0; i < n; i++ {
 		tree.Put([]byte{byte(i)}, i)
@@ -115,7 +115,7 @@ func TestPutMoreThanFortyEightKeys(t *testing.T) {
 }
 
 func TestDeleteKey(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 
 	// Delete on empty tree.
 	if tree.Delete([]byte("nope")) {
@@ -158,7 +158,7 @@ func TestDeleteKey(t *testing.T) {
 }
 
 func TestDeleteShrinksThroughAllNodeTypes(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 
 	// Fill to node256 (49+ distinct first bytes).
 	const n = 49
@@ -190,7 +190,7 @@ func TestDeleteShrinksThroughAllNodeTypes(t *testing.T) {
 }
 
 func TestTwoKeysSharingPrefix(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("apple"), 1)
 	tree.Put([]byte("apricot"), 2)
 
@@ -238,14 +238,14 @@ func TestSplitPrefixAtRoot(t *testing.T) {
 	// Slice 8 creates node4(prefix="ap") for "apple" + "apricot".
 	// Inserting "banana" diverges at depth 0 → split at position 0.
 	// New root: node4(prefix="") with children 'a' (the old node4, now prefix="p") and 'b' (leaf).
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("apple"), 1)
 	tree.Put([]byte("apricot"), 2)
 	tree.Put([]byte("banana"), 3)
 
 	for _, c := range []struct {
 		key   string
-		value any
+		value int
 	}{{"apple", 1}, {"apricot", 2}, {"banana", 3}} {
 		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
 			t.Fatalf("Get(%q) = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
@@ -263,14 +263,14 @@ func TestSplitPrefixInMiddle(t *testing.T) {
 	// node4(prefix="ap") for "apple" + "apricot".
 	// Insert "aardvark": LCP with prefix "ap" is "a" (length 1). Split at position 1.
 	// New root: node4(prefix="a") with children 'p' (old node4, now prefix="") and 'a' (leaf).
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("apple"), 1)
 	tree.Put([]byte("apricot"), 2)
 	tree.Put([]byte("aardvark"), 3)
 
 	for _, c := range []struct {
 		key   string
-		value any
+		value int
 	}{{"apple", 1}, {"apricot", 2}, {"aardvark", 3}} {
 		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
 			t.Fatalf("Get(%q) = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
@@ -288,7 +288,7 @@ func TestSplitPrefixInMiddle(t *testing.T) {
 	tree.Put([]byte("cherry"), 4)
 	for _, c := range []struct {
 		key   string
-		value any
+		value int
 	}{{"apple", 1}, {"apricot", 2}, {"aardvark", 3}, {"cherry", 4}} {
 		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
 			t.Fatalf("Get(%q) = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
@@ -297,7 +297,7 @@ func TestSplitPrefixInMiddle(t *testing.T) {
 }
 
 func TestPutShorterKeyAfterLonger(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("apple"), 1)
 	tree.Put([]byte("applepie"), 2)
 	if v, ok := tree.Get([]byte("apple")); !ok || v != 1 {
@@ -315,7 +315,7 @@ func TestPutShorterKeyAfterLonger(t *testing.T) {
 }
 
 func TestPutLongerKeyAfterShorter(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("applepie"), 1)
 	tree.Put([]byte("apple"), 2)
 	if v, ok := tree.Get([]byte("applepie")); !ok || v != 1 {
@@ -327,7 +327,7 @@ func TestPutLongerKeyAfterShorter(t *testing.T) {
 }
 
 func TestOverwriteTerminalValue(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("apple"), 1)
 	tree.Put([]byte("applepie"), 2)
 	tree.Put([]byte("apple"), 99)
@@ -343,13 +343,13 @@ func TestSplitWithExhaustedKey(t *testing.T) {
 	// Slice 9 built node4(prefix="ap") for "apple"+"apricot".
 	// Inserting "a" splits at position 1, and "a" is exhausted at the split point.
 	// New root: node4(prefix="a") with terminal="a" and one branching child 'p' = old node4 (prefix="").
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("apple"), 1)
 	tree.Put([]byte("apricot"), 2)
 	tree.Put([]byte("a"), 3)
 	for _, c := range []struct {
 		key   string
-		value any
+		value int
 	}{{"apple", 1}, {"apricot", 2}, {"a", 3}} {
 		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
 			t.Fatalf("Get(%q) = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
@@ -365,7 +365,7 @@ func TestSplitWithExhaustedKey(t *testing.T) {
 
 func TestGrowToNode16PreservesPrefixAndTerminal(t *testing.T) {
 	// Build a node4(prefix="ap", terminal="ap", children 'p','r','o','e') with 4 children:
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("ap"), 0)
 	tree.Put([]byte("apple"), 1)
 	tree.Put([]byte("apricot"), 2)
@@ -376,7 +376,7 @@ func TestGrowToNode16PreservesPrefixAndTerminal(t *testing.T) {
 
 	cases := []struct {
 		key   string
-		value any
+		value int
 	}{
 		{"ap", 0}, {"apple", 1}, {"apricot", 2},
 		{"apology", 3}, {"apex", 4}, {"apt", 5},
@@ -425,13 +425,13 @@ func TestNestedNode4FromDivergentLeaves(t *testing.T) {
 	// Inserting "apricot" makes the 'a' slot need a nested node4 with prefix "p"
 	// (LCP of "pple" and "pricot" below depth 1 is "p", diverging at 'p'/'r').
 	// Wait: keys from depth 1 are "pple" and "pricot". LCP is "p", diverging at position 2 ('p' vs 'r').
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("apple"), 1)
 	tree.Put([]byte("banana"), 2)
 	tree.Put([]byte("apricot"), 3)
 	for _, c := range []struct {
 		key   string
-		value any
+		value int
 	}{{"apple", 1}, {"banana", 2}, {"apricot", 3}} {
 		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
 			t.Fatalf("Get(%q) = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
@@ -445,7 +445,7 @@ func TestNestedNode4FromDivergentLeaves(t *testing.T) {
 func TestSplitPrefixedNode16(t *testing.T) {
 	// Build a node16 whose prefix is "comm" by inserting keys that share "comm".
 	// Five keys with distinct bytes after "comm" promote node4 → node16.
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("commit"), 1)
 	tree.Put([]byte("common"), 2)
 	tree.Put([]byte("compare"), 3)
@@ -455,7 +455,7 @@ func TestSplitPrefixedNode16(t *testing.T) {
 	// All five read back.
 	for _, c := range []struct {
 		key   string
-		value any
+		value int
 	}{{"commit", 1}, {"common", 2}, {"compare", 3}, {"compute", 4}, {"company", 5}} {
 		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
 			t.Fatalf("Get(%q) = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
@@ -466,7 +466,7 @@ func TestSplitPrefixedNode16(t *testing.T) {
 	tree.Put([]byte("copper"), 6)
 	for _, c := range []struct {
 		key   string
-		value any
+		value int
 	}{{"commit", 1}, {"common", 2}, {"compare", 3}, {"compute", 4}, {"company", 5}, {"copper", 6}} {
 		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
 			t.Fatalf("Get(%q) after split = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
@@ -484,7 +484,7 @@ func TestSplitPrefixedNode16(t *testing.T) {
 func TestSplitPrefixedNode16WithExhaustedKey(t *testing.T) {
 	// Same node16 with prefix "comm" as above, but the splitting key is
 	// exhausted exactly at the split point → parent node4 gets a terminal.
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("commit"), 1)
 	tree.Put([]byte("common"), 2)
 	tree.Put([]byte("compare"), 3)
@@ -498,7 +498,7 @@ func TestSplitPrefixedNode16WithExhaustedKey(t *testing.T) {
 	}
 	for _, c := range []struct {
 		key   string
-		value any
+		value int
 	}{{"commit", 1}, {"common", 2}, {"compare", 3}, {"compute", 4}, {"company", 5}} {
 		if v, ok := tree.Get([]byte(c.key)); !ok || v != c.value {
 			t.Fatalf("Get(%q) after exhausted split = (%v, %v), want (%v, true)", c.key, v, ok, c.value)
@@ -514,7 +514,7 @@ func TestSplitPrefixedNode16WithExhaustedKey(t *testing.T) {
 func TestGrowToNode48PreservesPrefixAndTerminal(t *testing.T) {
 	// Build a node16 with prefix "k" and terminal set to ("k", 0).
 	// Then push it to 17 branching bytes to force node16 → node48.
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("k"), 0)
 	for i := 0; i < 17; i++ {
 		key := []byte{'k', byte('a' + i)}
@@ -539,7 +539,7 @@ func TestGrowToNode48PreservesPrefixAndTerminal(t *testing.T) {
 }
 
 func TestGrowToNode256PreservesPrefixAndTerminal(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("k"), 0)
 	for i := 0; i < 49; i++ {
 		key := []byte{'k', byte('a' + i)}
@@ -564,7 +564,7 @@ func TestGrowToNode256PreservesPrefixAndTerminal(t *testing.T) {
 
 func TestSplitPrefixedNode48(t *testing.T) {
 	// Promote to a node48 with prefix "comm" by using 17 distinct bytes after "comm".
-	tree := New()
+	tree := New[int]()
 	for i := 0; i < 17; i++ {
 		key := append([]byte("comm"), byte('a'+i))
 		tree.Put(key, i)
@@ -587,7 +587,7 @@ func TestSplitPrefixedNode48(t *testing.T) {
 }
 
 func TestSplitPrefixedNode256(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	for i := 0; i < 49; i++ {
 		key := append([]byte("comm"), byte('a'+i))
 		tree.Put(key, i)
@@ -606,7 +606,7 @@ func TestSplitPrefixedNode256(t *testing.T) {
 }
 
 func TestDeleteTerminalLeavesChildren(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("ap"), 0)
 	tree.Put([]byte("apple"), 1)
 	tree.Put([]byte("apricot"), 2)
@@ -626,7 +626,7 @@ func TestDeleteTerminalLeavesChildren(t *testing.T) {
 }
 
 func TestDeleteMissOnPrefixMismatch(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("apple"), 1)
 	tree.Put([]byte("apricot"), 2)
 
@@ -642,7 +642,7 @@ func TestDeleteMissOnPrefixMismatch(t *testing.T) {
 }
 
 func TestDeleteDemotesPrefixedNode256(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("k"), 0)
 	for i := 0; i < 49; i++ {
 		key := []byte{'k', byte(i)}
@@ -666,7 +666,7 @@ func TestDeleteDemotesPrefixedNode256(t *testing.T) {
 func TestDeleteCollapsesToTerminalAtRoot(t *testing.T) {
 	// Root is a node4 with prefix "ap", terminal ("ap", 1), one leaf child at 'p' ("apple", 2).
 	// Wait — that's 1 child + terminal. Insert three keys so root ends up with terminal + multiple children.
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("ap"), 1)
 	tree.Put([]byte("apple"), 2)
 	tree.Put([]byte("apricot"), 3)
@@ -700,7 +700,7 @@ func TestDeleteCollapsesToTerminalAtRoot(t *testing.T) {
 func TestDeleteCollapsesToTerminalAtInnerNode(t *testing.T) {
 	// Root node4 has no prefix, branches 'a' (subtree) and 'b' (leaf "banana").
 	// 'a' subtree has prefix "p", terminal ("ap", 1), and child 'p' leaf "apple".
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("ap"), 1)
 	tree.Put([]byte("apple"), 2)
 	tree.Put([]byte("banana"), 3)
@@ -724,7 +724,7 @@ func TestDeleteCollapsesToTerminalAtInnerNode(t *testing.T) {
 func TestDeletePrefixMergeCollapse(t *testing.T) {
 	// Root node4 has prefix "", branches 'a' (subtree) and 'b' (leaf "banana").
 	// 'a' subtree has prefix "p", branches 'p' (leaf "apple") and 'r' (leaf "apricot").
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("apple"), 1)
 	tree.Put([]byte("apricot"), 2)
 	tree.Put([]byte("banana"), 3)
@@ -756,7 +756,7 @@ func TestDeletePrefixMergeAtInnerNode(t *testing.T) {
 	// Root branches 'a' (subtree) and 'z' (leaf "zoo").
 	// 'a' subtree has prefix "p", branches 'p' (subtree "pl"/apple/application) and 'r' (leaf apricot).
 	// The 'p' subtree has prefix "pl", branches 'e' (leaf apple) and 'i' (leaf application).
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("apple"), 1)
 	tree.Put([]byte("application"), 2)
 	tree.Put([]byte("apricot"), 3)
@@ -783,7 +783,7 @@ func TestDeletePrefixMergeAtInnerNode(t *testing.T) {
 }
 
 func TestAllEmptyTreeYieldsNothing(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	count := 0
 	for range tree.All() {
 		count++
@@ -794,10 +794,10 @@ func TestAllEmptyTreeYieldsNothing(t *testing.T) {
 }
 
 func TestAllYieldsSingleKey(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("apple"), 1)
 	var gotKeys [][]byte
-	var gotVals []any
+	var gotVals []int
 	for k, v := range tree.All() {
 		gotKeys = append(gotKeys, append([]byte(nil), k...))
 		gotVals = append(gotVals, v)
@@ -808,15 +808,15 @@ func TestAllYieldsSingleKey(t *testing.T) {
 }
 
 func TestAllYieldsSortedOrderAcrossNodeTypes(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	want := [][]byte{}
 	for _, s := range []string{"", "a", "ap", "apple", "application", "apricot", "banana", "z", "zoo"} {
-		tree.Put([]byte(s), s)
+		tree.Put([]byte(s), 0)
 		want = append(want, []byte(s))
 	}
 	for i := 0; i < 260; i++ {
 		key := []byte{'k', byte(i % 256), byte(i / 256)}
-		tree.Put(key, string(key))
+		tree.Put(key, 0)
 		want = append(want, append([]byte(nil), key...))
 	}
 	sort.Slice(want, func(i, j int) bool { return bytes.Compare(want[i], want[j]) < 0 })
@@ -836,7 +836,7 @@ func TestAllYieldsSortedOrderAcrossNodeTypes(t *testing.T) {
 }
 
 func TestAllYieldsTerminalBeforeChildren(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("ap"), 1)
 	tree.Put([]byte("apple"), 2)
 	tree.Put([]byte("apricot"), 3)
@@ -851,9 +851,9 @@ func TestAllYieldsTerminalBeforeChildren(t *testing.T) {
 }
 
 func TestAllEarlyTermination(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	for _, s := range []string{"a", "b", "c", "d", "e"} {
-		tree.Put([]byte(s), s)
+		tree.Put([]byte(s), 0)
 	}
 	var keys []string
 	for k := range tree.All() {
@@ -869,9 +869,9 @@ func TestAllEarlyTermination(t *testing.T) {
 }
 
 func TestRangeInclusiveStartExclusiveEnd(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	for _, s := range []string{"apple", "apricot", "banana", "blueberry", "cherry"} {
-		tree.Put([]byte(s), s)
+		tree.Put([]byte(s), 0)
 	}
 	var got []string
 	for k := range tree.Range([]byte("apricot"), []byte("cherry")) {
@@ -884,9 +884,9 @@ func TestRangeInclusiveStartExclusiveEnd(t *testing.T) {
 }
 
 func TestRangeNilStartMeansUnbounded(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	for _, s := range []string{"a", "b", "c", "d"} {
-		tree.Put([]byte(s), s)
+		tree.Put([]byte(s), 0)
 	}
 	var got []string
 	for k := range tree.Range(nil, []byte("c")) {
@@ -899,9 +899,9 @@ func TestRangeNilStartMeansUnbounded(t *testing.T) {
 }
 
 func TestRangeNilEndMeansUnbounded(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	for _, s := range []string{"a", "b", "c", "d"} {
-		tree.Put([]byte(s), s)
+		tree.Put([]byte(s), 0)
 	}
 	var got []string
 	for k := range tree.Range([]byte("b"), nil) {
@@ -914,10 +914,10 @@ func TestRangeNilEndMeansUnbounded(t *testing.T) {
 }
 
 func TestRangeBothNilEqualsAll(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	inserted := []string{"", "a", "ap", "apple", "application", "apricot", "banana", "z"}
 	for _, s := range inserted {
-		tree.Put([]byte(s), s)
+		tree.Put([]byte(s), 0)
 	}
 	var all, ranged []string
 	for k := range tree.All() {
@@ -932,9 +932,9 @@ func TestRangeBothNilEqualsAll(t *testing.T) {
 }
 
 func TestRangeStartEqualsEndIsEmpty(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	for _, s := range []string{"a", "b", "c"} {
-		tree.Put([]byte(s), s)
+		tree.Put([]byte(s), 0)
 	}
 	count := 0
 	for range tree.Range([]byte("b"), []byte("b")) {
@@ -946,9 +946,9 @@ func TestRangeStartEqualsEndIsEmpty(t *testing.T) {
 }
 
 func TestRangeStartAfterEndIsEmpty(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	for _, s := range []string{"a", "b", "c"} {
-		tree.Put([]byte(s), s)
+		tree.Put([]byte(s), 0)
 	}
 	count := 0
 	for range tree.Range([]byte("c"), []byte("a")) {
@@ -960,9 +960,9 @@ func TestRangeStartAfterEndIsEmpty(t *testing.T) {
 }
 
 func TestRangeHandlesPrefixAndTerminal(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	for _, s := range []string{"ap", "apple", "application", "apricot", "banana"} {
-		tree.Put([]byte(s), s)
+		tree.Put([]byte(s), 0)
 	}
 	var got []string
 	for k := range tree.Range([]byte("ap"), []byte("apricot")) {
@@ -975,7 +975,7 @@ func TestRangeHandlesPrefixAndTerminal(t *testing.T) {
 }
 
 func TestRangeAcrossLargeTree(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	var keys [][]byte
 	for i := 0; i < 300; i++ {
 		k := []byte{byte(i % 256), byte(i / 256)}
@@ -1008,9 +1008,9 @@ func TestRangeAcrossLargeTree(t *testing.T) {
 }
 
 func TestRangeEarlyTermination(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	for _, s := range []string{"a", "b", "c", "d", "e"} {
-		tree.Put([]byte(s), s)
+		tree.Put([]byte(s), 0)
 	}
 	var got []string
 	for k := range tree.Range([]byte("a"), []byte("e")) {
@@ -1038,12 +1038,12 @@ func TestRangeEarlyTermination(t *testing.T) {
 //	5..16   → node16
 //	17..48  → node48
 //	49..256 → node256
-func buildInnerNode(t *testing.T, prefix []byte, childCount int, withTerminal bool) (*Tree, [][]byte) {
+func buildInnerNode(t *testing.T, prefix []byte, childCount int, withTerminal bool) (*Tree[any], [][]byte) {
 	t.Helper()
 	if childCount < 1 || childCount > 256 {
 		t.Fatalf("buildInnerNode: childCount must be 1..256, got %d", childCount)
 	}
-	tree := New()
+	tree := New[any]()
 	var keys [][]byte
 	if withTerminal {
 		tp := bytes.Clone(prefix)
@@ -1061,20 +1061,20 @@ func buildInnerNode(t *testing.T, prefix []byte, childCount int, withTerminal bo
 
 // rootKindOf returns a short name for the root node's type.
 // Permitted because this file is in package art.
-func rootKindOf(tree *Tree) string {
+func rootKindOf[V any](tree *Tree[V]) string {
 	if tree.root == nil {
 		return "nil"
 	}
 	switch tree.root.(type) {
-	case *leaf:
+	case *leaf[V]:
 		return "leaf"
-	case *node4:
+	case *node4[V]:
 		return "node4"
-	case *node16:
+	case *node16[V]:
 		return "node16"
-	case *node48:
+	case *node48[V]:
 		return "node48"
-	case *node256:
+	case *node256[V]:
 		return "node256"
 	default:
 		return "unknown"
@@ -1264,7 +1264,7 @@ func TestDeleteNonLastChildFromNode16AndNode48(t *testing.T) {
 		{"node16", 16},
 		{"node48", 48},
 	}
-	assertSorted := func(t *testing.T, tree *Tree, want [][]byte) {
+	assertSorted := func(t *testing.T, tree *Tree[any], want [][]byte) {
 		t.Helper()
 		var got [][]byte
 		for k := range tree.All() {
@@ -1319,7 +1319,7 @@ func TestDeleteNonLastChildFromNode16AndNode48(t *testing.T) {
 
 func TestPutInsertMiddleKeyIntoNode16(t *testing.T) {
 	prefix := []byte("p/")
-	tree := New()
+	tree := New[int]()
 	edges := []byte{0x10, 0x30, 0x50, 0x70}
 	var keys [][]byte
 	for _, e := range edges {
@@ -1344,7 +1344,7 @@ func TestPutInsertMiddleKeyIntoNode16(t *testing.T) {
 		if !ok {
 			t.Fatalf("Get(%v) ok=false, want true", k)
 		}
-		if gi, _ := got.(int); gi != want {
+		if got != want {
 			t.Fatalf("Get(%v) = %v, want %d", k, got, want)
 		}
 	}
@@ -1370,7 +1370,7 @@ func TestPutInsertMiddleKeyIntoNode16(t *testing.T) {
 
 func TestGrowAndShrinkBoundaryStructure(t *testing.T) {
 	prefix := []byte("p/")
-	tree := New()
+	tree := New[int]()
 
 	putEdge := func(e int) {
 		k := append(bytes.Clone(prefix), byte(e))
@@ -1563,7 +1563,7 @@ func TestNode256RemoveUpdatesNumChildren(t *testing.T) {
 // the requested kind and whose edge byte 'A' leads to another inner
 // node with a non-empty prefix and two branching leaves. Returns the
 // tree and the deep key that traverses root -> inner-node -> leaf.
-func buildRootWithInnerChild(t *testing.T, rootKind string) (*Tree, []byte) {
+func buildRootWithInnerChild(t *testing.T, rootKind string) (*Tree[any], []byte) {
 	t.Helper()
 	var fillers [][]byte
 	switch rootKind {
@@ -1582,7 +1582,7 @@ func buildRootWithInnerChild(t *testing.T, rootKind string) (*Tree, []byte) {
 	default:
 		t.Fatalf("buildRootWithInnerChild: unsupported rootKind %q", rootKind)
 	}
-	tree := New()
+	tree := New[any]()
 	for i, k := range fillers {
 		tree.Put(k, i)
 	}
@@ -1658,10 +1658,10 @@ func TestInlineLeafBoundaryAndLongKey(t *testing.T) {
 			for i := range key {
 				key[i] = byte('a' + (i % 26))
 			}
-			tree := New()
+			tree := New[int]()
 			tree.Put(key, tc.size)
 
-			l, isLeaf := tree.root.(*leaf)
+			l, isLeaf := tree.root.(*leaf[int])
 			if !isLeaf {
 				t.Fatalf("root kind = %q, want leaf", rootKindOf(tree))
 			}
@@ -1680,7 +1680,7 @@ func TestInlineLeafBoundaryAndLongKey(t *testing.T) {
 			}
 
 			var seenKeys [][]byte
-			var seenVals []any
+			var seenVals []int
 			for k, v := range tree.All() {
 				seenKeys = append(seenKeys, bytes.Clone(k))
 				seenVals = append(seenVals, v)
@@ -1701,8 +1701,8 @@ func TestInlineLeafBoundaryAndLongKey(t *testing.T) {
 
 // newSentinelLeaf returns a leaf carrying a unique tag used for pointer
 // identity checks in structural tests of node child-list operations.
-func newSentinelLeaf(tag string) *leaf {
-	l := &leaf{value: tag}
+func newSentinelLeaf[V any](tag string) *leaf[V] {
+	l := &leaf[V]{}
 	l.key = []byte(tag)
 	return l
 }
@@ -1715,15 +1715,15 @@ func newSentinelLeaf(tag string) *leaf {
 // the bad slot writes produced by these mutations.
 func TestNode4ChildListOps(t *testing.T) {
 	t.Run("replaceChildAtMiddleIndex", func(t *testing.T) {
-		c0 := newSentinelLeaf("c0")
-		c1 := newSentinelLeaf("c1")
-		c2 := newSentinelLeaf("c2")
-		n := &node4{
+		c0 := newSentinelLeaf[int]("c0")
+		c1 := newSentinelLeaf[int]("c1")
+		c2 := newSentinelLeaf[int]("c2")
+		n := &node4[int]{
 			keys:        [4]byte{10, 20, 30, 0},
-			children:    [4]node{c0, c1, c2, nil},
+			children:    [4]node[int]{c0, c1, c2, nil},
 			numChildren: 3,
 		}
-		nc := newSentinelLeaf("new")
+		nc := newSentinelLeaf[int]("new")
 		n.replaceChild(20, nc)
 		if n.children[0] != c0 {
 			t.Fatalf("children[0] = %v, want c0", n.children[0])
@@ -1739,12 +1739,12 @@ func TestNode4ChildListOps(t *testing.T) {
 		}
 	})
 	t.Run("replaceChildOnAbsentZeroEdge", func(t *testing.T) {
-		c1 := newSentinelLeaf("c1")
-		c2 := newSentinelLeaf("c2")
-		nc := newSentinelLeaf("new")
-		n := &node4{
+		c1 := newSentinelLeaf[int]("c1")
+		c2 := newSentinelLeaf[int]("c2")
+		nc := newSentinelLeaf[int]("new")
+		n := &node4[int]{
 			keys:        [4]byte{1, 2, 0, 0},
-			children:    [4]node{c1, c2, nil, nil},
+			children:    [4]node[int]{c1, c2, nil, nil},
 			numChildren: 2,
 		}
 		n.replaceChild(0, nc)
@@ -1759,11 +1759,11 @@ func TestNode4ChildListOps(t *testing.T) {
 		}
 	})
 	t.Run("removeChildOnAbsentZeroEdge", func(t *testing.T) {
-		c1 := newSentinelLeaf("c1")
-		c2 := newSentinelLeaf("c2")
-		n := &node4{
+		c1 := newSentinelLeaf[int]("c1")
+		c2 := newSentinelLeaf[int]("c2")
+		n := &node4[int]{
 			keys:        [4]byte{1, 2, 0, 0},
-			children:    [4]node{c1, c2, nil, nil},
+			children:    [4]node[int]{c1, c2, nil, nil},
 			numChildren: 2,
 		}
 		n.removeChild(0)
@@ -1783,13 +1783,13 @@ func TestNode4ChildListOps(t *testing.T) {
 // targeting the same mutation classes on the larger inner node.
 func TestNode16ChildListOps(t *testing.T) {
 	t.Run("replaceChildAtMiddleIndex", func(t *testing.T) {
-		c0 := newSentinelLeaf("c0")
-		c1 := newSentinelLeaf("c1")
-		c2 := newSentinelLeaf("c2")
-		n := &node16{numChildren: 3}
+		c0 := newSentinelLeaf[int]("c0")
+		c1 := newSentinelLeaf[int]("c1")
+		c2 := newSentinelLeaf[int]("c2")
+		n := &node16[int]{numChildren: 3}
 		n.keys[0], n.keys[1], n.keys[2] = 10, 20, 30
 		n.children[0], n.children[1], n.children[2] = c0, c1, c2
-		nc := newSentinelLeaf("new")
+		nc := newSentinelLeaf[int]("new")
 		n.replaceChild(20, nc)
 		if n.children[0] != c0 {
 			t.Fatalf("children[0] = %v, want c0", n.children[0])
@@ -1805,10 +1805,10 @@ func TestNode16ChildListOps(t *testing.T) {
 		}
 	})
 	t.Run("replaceChildOnAbsentZeroEdge", func(t *testing.T) {
-		c1 := newSentinelLeaf("c1")
-		c2 := newSentinelLeaf("c2")
-		nc := newSentinelLeaf("new")
-		n := &node16{numChildren: 2}
+		c1 := newSentinelLeaf[int]("c1")
+		c2 := newSentinelLeaf[int]("c2")
+		nc := newSentinelLeaf[int]("new")
+		n := &node16[int]{numChildren: 2}
 		n.keys[0], n.keys[1] = 1, 2
 		n.children[0], n.children[1] = c1, c2
 		n.replaceChild(0, nc)
@@ -1825,9 +1825,9 @@ func TestNode16ChildListOps(t *testing.T) {
 		}
 	})
 	t.Run("removeChildOnAbsentZeroEdge", func(t *testing.T) {
-		c1 := newSentinelLeaf("c1")
-		c2 := newSentinelLeaf("c2")
-		n := &node16{numChildren: 2}
+		c1 := newSentinelLeaf[int]("c1")
+		c2 := newSentinelLeaf[int]("c2")
+		n := &node16[int]{numChildren: 2}
 		n.keys[0], n.keys[1] = 1, 2
 		n.children[0], n.children[1] = c1, c2
 		n.removeChild(0)
@@ -1848,10 +1848,10 @@ func TestNode16ChildListOps(t *testing.T) {
 // slot-1 index sign inversion, and the slot-1 -> slot+1 arithmetic
 // mutation. All require direct observation of which slot is written.
 func TestNode48ReplaceChildSlot(t *testing.T) {
-	c5 := newSentinelLeaf("c5")
-	c50 := newSentinelLeaf("c50")
-	c200 := newSentinelLeaf("c200")
-	n := &node48{}
+	c5 := newSentinelLeaf[int]("c5")
+	c50 := newSentinelLeaf[int]("c50")
+	c200 := newSentinelLeaf[int]("c200")
+	n := &node48[int]{}
 	n.addChild(5, c5)
 	n.addChild(50, c50)
 	n.addChild(200, c200)
@@ -1863,7 +1863,7 @@ func TestNode48ReplaceChildSlot(t *testing.T) {
 		t.Fatalf("setup: childIndex not populated: %d %d %d", slot5, slot50, slot200)
 	}
 
-	new50 := newSentinelLeaf("new50")
+	new50 := newSentinelLeaf[int]("new50")
 	n.replaceChild(50, new50)
 
 	if n.children[slot50-1] != new50 {
@@ -1883,11 +1883,11 @@ func TestNode48ReplaceChildSlot(t *testing.T) {
 		t.Fatalf("numChildren = %d, want 3", n.numChildren)
 	}
 
-	var snapshot [node48Capacity]node
+	var snapshot [node48Capacity]node[int]
 	for i := 0; i < node48Capacity; i++ {
 		snapshot[i] = n.children[i]
 	}
-	nc := newSentinelLeaf("absent")
+	nc := newSentinelLeaf[int]("absent")
 	n.replaceChild(99, nc)
 	for i := 0; i < node48Capacity; i++ {
 		if n.children[i] != snapshot[i] {
@@ -1905,7 +1905,7 @@ func TestNode48ReplaceChildSlot(t *testing.T) {
 // must yield nothing; fully-nil bounds must yield every key; half-nil
 // bounds must still enumerate the open side.
 func TestRangeEmptyAndReversedBounds(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	keys := [][]byte{[]byte("alpha"), []byte("beta"), []byte("gamma"), []byte("zeta")}
 	for i, k := range keys {
 		tree.Put(k, i)
@@ -1942,7 +1942,7 @@ func TestRangeEmptyAndReversedBounds(t *testing.T) {
 // (edge < 256 -> <=) would, at edge == 256, wrap byte(edge) back to 0
 // and re-yield the edge-0 subtree.
 func TestRangeThroughNode48WithEdgeZeroChild(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	keys := [][]byte{{0, 'x'}}
 	for i := 0; i < 16; i++ {
 		keys = append(keys, []byte{byte(1 + i), 'y'})
@@ -2043,7 +2043,7 @@ func TestDeleteThroughNode256ThenInnerNode(t *testing.T) {
 // for completeness (Get alone cannot distinguish it, per design notes).
 func TestPutTerminalOnNode16(t *testing.T) {
 	prefix := []byte{0xAB, 0xCD}
-	tree := New()
+	tree := New[any]()
 	for i := 0; i < 5; i++ {
 		key := append(bytes.Clone(prefix), byte(0x01+i))
 		tree.Put(key, int(key[2]))
@@ -2051,7 +2051,7 @@ func TestPutTerminalOnNode16(t *testing.T) {
 	if got := rootKindOf(tree); got != "node16" {
 		t.Fatalf("rootKindOf = %q, want %q", got, "node16")
 	}
-	r := tree.root.(*node16)
+	r := tree.root.(*node16[any])
 	if !bytes.Equal(r.prefix, prefix) {
 		t.Fatalf("root prefix = %v, want %v", r.prefix, prefix)
 	}
@@ -2082,7 +2082,7 @@ func TestPutTerminalOnNode16(t *testing.T) {
 // TestPutTerminalOnNode16.
 func TestPutTerminalOnNode48(t *testing.T) {
 	prefix := []byte{0xAB, 0xCD}
-	tree := New()
+	tree := New[any]()
 	for i := 0; i < 17; i++ {
 		key := append(bytes.Clone(prefix), byte(0x01+i))
 		tree.Put(key, int(key[2]))
@@ -2090,7 +2090,7 @@ func TestPutTerminalOnNode48(t *testing.T) {
 	if got := rootKindOf(tree); got != "node48" {
 		t.Fatalf("rootKindOf = %q, want %q", got, "node48")
 	}
-	r := tree.root.(*node48)
+	r := tree.root.(*node48[any])
 	if !bytes.Equal(r.prefix, prefix) {
 		t.Fatalf("root prefix = %v, want %v", r.prefix, prefix)
 	}
@@ -2121,7 +2121,7 @@ func TestPutTerminalOnNode48(t *testing.T) {
 // TestPutTerminalOnNode16.
 func TestPutTerminalOnNode256(t *testing.T) {
 	prefix := []byte{0xAB, 0xCD}
-	tree := New()
+	tree := New[any]()
 	for i := 0; i < 49; i++ {
 		key := append(bytes.Clone(prefix), byte(0x01+i))
 		tree.Put(key, int(key[2]))
@@ -2129,7 +2129,7 @@ func TestPutTerminalOnNode256(t *testing.T) {
 	if got := rootKindOf(tree); got != "node256" {
 		t.Fatalf("rootKindOf = %q, want %q", got, "node256")
 	}
-	r := tree.root.(*node256)
+	r := tree.root.(*node256[any])
 	if !bytes.Equal(r.prefix, prefix) {
 		t.Fatalf("root prefix = %v, want %v", r.prefix, prefix)
 	}
@@ -2157,14 +2157,14 @@ func TestPutTerminalOnNode256(t *testing.T) {
 }
 
 func TestLenEmpty(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	if got := tree.Len(); got != 0 {
 		t.Fatalf("Len() on empty tree = %d, want 0", got)
 	}
 }
 
 func TestLenAfterDistinctPuts(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	keys := [][]byte{
 		[]byte("a"), []byte("b"), []byte("c"),
 		[]byte("ab"), []byte("abc"),
@@ -2178,7 +2178,7 @@ func TestLenAfterDistinctPuts(t *testing.T) {
 }
 
 func TestLenOverwriteUnchanged(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("k"), 1)
 	tree.Put([]byte("k"), 2)
 	tree.Put([]byte("k"), 3)
@@ -2188,7 +2188,7 @@ func TestLenOverwriteUnchanged(t *testing.T) {
 }
 
 func TestLenDeleteExisting(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("a"), 1)
 	tree.Put([]byte("b"), 2)
 	if !tree.Delete([]byte("a")) {
@@ -2206,7 +2206,7 @@ func TestLenDeleteExisting(t *testing.T) {
 }
 
 func TestLenDeleteMissingUnchanged(t *testing.T) {
-	tree := New()
+	tree := New[int]()
 	tree.Put([]byte("a"), 1)
 	if tree.Delete([]byte("zz")) {
 		t.Fatalf("Delete(zz) returned true on missing key")
@@ -2240,7 +2240,7 @@ func TestLenMixedSequenceAgainstOracle(t *testing.T) {
 		{"del", "abc", 0},
 		{"put", "ab", 77},
 	}
-	tree := New()
+	tree := New[int]()
 	oracle := map[string]int{}
 	for _, o := range ops {
 		switch o.kind {
@@ -2261,7 +2261,7 @@ func TestLenAcrossNodePromotionsAndDemotions(t *testing.T) {
 	// Use a shared prefix so all keys live under one inner node and
 	// force the node to promote node4 -> node16 -> node48 -> node256 as
 	// children are added, and demote back as children are removed.
-	tree := New()
+	tree := New[int]()
 	const n = 260
 	keys := make([][]byte, n)
 	for i := 0; i < n; i++ {

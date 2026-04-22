@@ -14,8 +14,8 @@ import (
 // and must be treated as read-only; mutating it corrupts the tree.
 // If the entry may be deleted (including by the caller during
 // iteration) while a retained reference is in use, copy the key.
-func (t *Tree) All() iter.Seq2[[]byte, any] {
-	return func(yield func([]byte, any) bool) {
+func (t *Tree[V]) All() iter.Seq2[[]byte, V] {
+	return func(yield func([]byte, V) bool) {
 		iterate(t.root, yield)
 	}
 }
@@ -23,13 +23,13 @@ func (t *Tree) All() iter.Seq2[[]byte, any] {
 // iterate visits every (key, value) pair reachable from n in sorted
 // key order, returning false as soon as yield does so the caller can
 // short-circuit all the way up.
-func iterate(n node, yield func([]byte, any) bool) bool {
+func iterate[V any](n node[V], yield func([]byte, V) bool) bool {
 	switch r := n.(type) {
 	case nil:
 		return true
-	case *leaf:
+	case *leaf[V]:
 		return yield(r.key, r.value)
-	case *node4:
+	case *node4[V]:
 		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
 			return false
 		}
@@ -39,7 +39,7 @@ func iterate(n node, yield func([]byte, any) bool) bool {
 			}
 		}
 		return true
-	case *node16:
+	case *node16[V]:
 		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
 			return false
 		}
@@ -49,7 +49,7 @@ func iterate(n node, yield func([]byte, any) bool) bool {
 			}
 		}
 		return true
-	case *node48:
+	case *node48[V]:
 		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
 			return false
 		}
@@ -63,7 +63,7 @@ func iterate(n node, yield func([]byte, any) bool) bool {
 			}
 		}
 		return true
-	case *node256:
+	case *node256[V]:
 		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
 			return false
 		}
@@ -91,8 +91,8 @@ func iterate(n node, yield func([]byte, any) bool) bool {
 // same contract as [Tree.All]: safe to retain while the entry remains
 // in the tree, must be treated as read-only, and must be copied if
 // retained past a possible deletion of the entry.
-func (t *Tree) Range(start, end []byte) iter.Seq2[[]byte, any] {
-	return func(yield func([]byte, any) bool) {
+func (t *Tree[V]) Range(start, end []byte) iter.Seq2[[]byte, V] {
+	return func(yield func([]byte, V) bool) {
 		if start != nil && end != nil && bytes.Compare(start, end) >= 0 {
 			return
 		}
@@ -110,16 +110,16 @@ func (t *Tree) Range(start, end []byte) iter.Seq2[[]byte, any] {
 // is skipped without materializing its path, and because edges are
 // sorted, the first edge whose subtree is at-or-after end ends the
 // walk of this node.
-func iterateRange(n node, path *[]byte, start, end []byte, yield func([]byte, any) bool) bool {
+func iterateRange[V any](n node[V], path *[]byte, start, end []byte, yield func([]byte, V) bool) bool {
 	switch r := n.(type) {
 	case nil:
 		return true
-	case *leaf:
+	case *leaf[V]:
 		if keyInRange(r.key, start, end) {
 			return yield(r.key, r.value)
 		}
 		return true
-	case *node4:
+	case *node4[V]:
 		before := len(*path)
 		*path = append(*path, r.prefix...)
 		nodeLen := len(*path)
@@ -146,7 +146,7 @@ func iterateRange(n node, path *[]byte, start, end []byte, yield func([]byte, an
 		}
 		*path = (*path)[:before]
 		return true
-	case *node16:
+	case *node16[V]:
 		before := len(*path)
 		*path = append(*path, r.prefix...)
 		nodeLen := len(*path)
@@ -173,7 +173,7 @@ func iterateRange(n node, path *[]byte, start, end []byte, yield func([]byte, an
 		}
 		*path = (*path)[:before]
 		return true
-	case *node48:
+	case *node48[V]:
 		before := len(*path)
 		*path = append(*path, r.prefix...)
 		nodeLen := len(*path)
@@ -204,7 +204,7 @@ func iterateRange(n node, path *[]byte, start, end []byte, yield func([]byte, an
 		}
 		*path = (*path)[:before]
 		return true
-	case *node256:
+	case *node256[V]:
 		before := len(*path)
 		*path = append(*path, r.prefix...)
 		nodeLen := len(*path)
