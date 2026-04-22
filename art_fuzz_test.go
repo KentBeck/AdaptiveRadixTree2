@@ -20,12 +20,18 @@ import (
 // tests cannot exhaust by hand.
 
 const (
-	fuzzOpPut    byte = 0
-	fuzzOpGet    byte = 1
-	fuzzOpDelete byte = 2
-	fuzzOpAll    byte = 3
-	fuzzOpRange  byte = 4
-	fuzzOpCount       = 5
+	fuzzOpPut     byte = 0
+	fuzzOpGet     byte = 1
+	fuzzOpDelete  byte = 2
+	fuzzOpAll     byte = 3
+	fuzzOpRange   byte = 4
+	fuzzOpMin     byte = 5
+	fuzzOpMax     byte = 6
+	fuzzOpCeiling byte = 7
+	fuzzOpFloor   byte = 8
+	fuzzOpClone   byte = 9
+	fuzzOpClear   byte = 10
+	fuzzOpCount        = 11
 
 	fuzzMaxOps      = 1000
 	fuzzKeyLenMask  = 0x07 // keys are 0..7 bytes long
@@ -57,6 +63,18 @@ func (r opRecord) String() string {
 		return "All()"
 	case fuzzOpRange:
 		return fmt.Sprintf("Range(%s, %s)", fuzzBoundString(r.start, r.startNil), fuzzBoundString(r.end, r.endNil))
+	case fuzzOpMin:
+		return "Min()"
+	case fuzzOpMax:
+		return "Max()"
+	case fuzzOpCeiling:
+		return fmt.Sprintf("Ceiling(%s)", fuzzBoundString(r.key, r.startNil))
+	case fuzzOpFloor:
+		return fmt.Sprintf("Floor(%s)", fuzzBoundString(r.key, r.startNil))
+	case fuzzOpClone:
+		return "Clone()"
+	case fuzzOpClear:
+		return "Clear()"
 	}
 	return fmt.Sprintf("unknown(%d)", r.code)
 }
@@ -216,6 +234,45 @@ func runFuzzOps(t *testing.T, data []byte) {
 				e = end
 			}
 			checkRange(t, tree, oracle, s, e, log)
+		case fuzzOpMin:
+			log = append(log, opRecord{code: code})
+			checkMin(t, tree, oracle, log)
+		case fuzzOpMax:
+			log = append(log, opRecord{code: code})
+			checkMax(t, tree, oracle, log)
+		case fuzzOpCeiling:
+			key, isNil, ok := cur.readBound()
+			if !ok {
+				return
+			}
+			log = append(log, opRecord{code: code, key: key, startNil: isNil})
+			var probe []byte
+			if !isNil {
+				probe = key
+			}
+			checkCeiling(t, tree, oracle, probe, log)
+		case fuzzOpFloor:
+			key, isNil, ok := cur.readBound()
+			if !ok {
+				return
+			}
+			log = append(log, opRecord{code: code, key: key, startNil: isNil})
+			var probe []byte
+			if !isNil {
+				probe = key
+			}
+			checkFloor(t, tree, oracle, probe, log)
+		case fuzzOpClone:
+			log = append(log, opRecord{code: code})
+			checkClone(t, tree, oracle, log)
+		case fuzzOpClear:
+			log = append(log, opRecord{code: code})
+			tree.Clear()
+			for k := range oracle {
+				delete(oracle, k)
+			}
+			assertLen(t, tree, oracle, log)
+			checkDrainAll(t, tree, oracle, log)
 		}
 	}
 }
@@ -260,6 +317,127 @@ func checkRange(t *testing.T, tree *Tree[byte], oracle map[string]byte, start, e
 	}
 	label := fmt.Sprintf("Range(%s, %s)", fuzzBoundString(start, start == nil), fuzzBoundString(end, end == nil))
 	assertSortedKV(t, label, got, gotVals, want, oracle, log)
+}
+
+// checkMin asserts Tree.Min agrees with the oracle's smallest key.
+func checkMin(t *testing.T, tree *Tree[byte], oracle map[string]byte, log []opRecord) {
+	t.Helper()
+	gotK, gotV, gotOK := tree.Min()
+	wantKeys := oracleSortedKeys(oracle)
+	if len(wantKeys) == 0 {
+		if gotOK {
+			t.Fatalf("Min() on empty: got=(%x, %d, true), want (nil, 0, false)\nops:\n%s", gotK, gotV, formatOpLog(log))
+		}
+		return
+	}
+	wantK := wantKeys[0]
+	if !gotOK || string(gotK) != wantK || gotV != oracle[wantK] {
+		t.Fatalf("Min(): got=(%x, %d, %v), want (%x, %d, true)\nops:\n%s",
+			gotK, gotV, gotOK, wantK, oracle[wantK], formatOpLog(log))
+	}
+}
+
+// checkMax asserts Tree.Max agrees with the oracle's largest key.
+func checkMax(t *testing.T, tree *Tree[byte], oracle map[string]byte, log []opRecord) {
+	t.Helper()
+	gotK, gotV, gotOK := tree.Max()
+	wantKeys := oracleSortedKeys(oracle)
+	if len(wantKeys) == 0 {
+		if gotOK {
+			t.Fatalf("Max() on empty: got=(%x, %d, true), want (nil, 0, false)\nops:\n%s", gotK, gotV, formatOpLog(log))
+		}
+		return
+	}
+	wantK := wantKeys[len(wantKeys)-1]
+	if !gotOK || string(gotK) != wantK || gotV != oracle[wantK] {
+		t.Fatalf("Max(): got=(%x, %d, %v), want (%x, %d, true)\nops:\n%s",
+			gotK, gotV, gotOK, wantK, oracle[wantK], formatOpLog(log))
+	}
+}
+
+// checkCeiling asserts Tree.Ceiling(target) matches the oracle: the
+// smallest oracle key >= target, or ok=false if none.
+func checkCeiling(t *testing.T, tree *Tree[byte], oracle map[string]byte, target []byte, log []opRecord) {
+	t.Helper()
+	gotK, gotV, gotOK := tree.Ceiling(target)
+	wantK, wantOK := oracleCeiling(oracle, target)
+	if gotOK != wantOK {
+		t.Fatalf("Ceiling(%x) presence: got=%v want=%v\nops:\n%s", target, gotOK, wantOK, formatOpLog(log))
+	}
+	if wantOK && (string(gotK) != wantK || gotV != oracle[wantK]) {
+		t.Fatalf("Ceiling(%x): got=(%x, %d), want (%x, %d)\nops:\n%s",
+			target, gotK, gotV, wantK, oracle[wantK], formatOpLog(log))
+	}
+}
+
+// checkFloor asserts Tree.Floor(target) matches the oracle: the
+// largest oracle key <= target, or ok=false if none.
+func checkFloor(t *testing.T, tree *Tree[byte], oracle map[string]byte, target []byte, log []opRecord) {
+	t.Helper()
+	gotK, gotV, gotOK := tree.Floor(target)
+	wantK, wantOK := oracleFloor(oracle, target)
+	if gotOK != wantOK {
+		t.Fatalf("Floor(%x) presence: got=%v want=%v\nops:\n%s", target, gotOK, wantOK, formatOpLog(log))
+	}
+	if wantOK && (string(gotK) != wantK || gotV != oracle[wantK]) {
+		t.Fatalf("Floor(%x): got=(%x, %d), want (%x, %d)\nops:\n%s",
+			target, gotK, gotV, wantK, oracle[wantK], formatOpLog(log))
+	}
+}
+
+// checkClone asserts Clone produces an independent tree with identical
+// contents. After cross-checking full iteration it mutates the clone
+// and confirms the original is unaffected.
+func checkClone(t *testing.T, tree *Tree[byte], oracle map[string]byte, log []opRecord) {
+	t.Helper()
+	cp := tree.Clone()
+	if cp == tree {
+		t.Fatalf("Clone() returned same pointer\nops:\n%s", formatOpLog(log))
+	}
+	if got, want := cp.Len(), len(oracle); got != want {
+		t.Fatalf("Clone().Len(): got=%d want=%d\nops:\n%s", got, want, formatOpLog(log))
+	}
+	want := oracleSortedKeys(oracle)
+	var got []string
+	var gotVals []byte
+	for k, v := range cp.All() {
+		got = append(got, string(k))
+		gotVals = append(gotVals, v)
+	}
+	assertSortedKV(t, "Clone().All()", got, gotVals, want, oracle, log)
+	// Mutate clone; original must remain in lockstep with oracle.
+	probe := []byte{0xFF, 0xFE}
+	cp.Put(probe, 0xAA)
+	if _, ok := tree.Get(probe); ok {
+		t.Fatalf("original observed clone's Put(%x)\nops:\n%s", probe, formatOpLog(log))
+	}
+	if got, want := tree.Len(), len(oracle); got != want {
+		t.Fatalf("original Len after clone mutation: got=%d want=%d\nops:\n%s", got, want, formatOpLog(log))
+	}
+}
+
+// oracleCeiling returns the smallest oracle key byte-wise >= target.
+func oracleCeiling(oracle map[string]byte, target []byte) (string, bool) {
+	for _, k := range oracleSortedKeys(oracle) {
+		if bytes.Compare([]byte(k), target) >= 0 {
+			return k, true
+		}
+	}
+	return "", false
+}
+
+// oracleFloor returns the largest oracle key byte-wise <= target.
+func oracleFloor(oracle map[string]byte, target []byte) (string, bool) {
+	keys := oracleSortedKeys(oracle)
+	var out string
+	var ok bool
+	for _, k := range keys {
+		if bytes.Compare([]byte(k), target) <= 0 {
+			out = k
+			ok = true
+		}
+	}
+	return out, ok
 }
 
 func assertSortedKV(t *testing.T, label string, gotKeys []string, gotVals []byte, wantKeys []string, oracle map[string]byte, log []opRecord) {
@@ -334,6 +512,8 @@ func addFuzzSeeds(f *testing.F) {
 	f.Add(seedPromoteToNode48())
 	f.Add(seedDeleteToEmpty())
 	f.Add(seedRangeBounds())
+	f.Add(seedSortedNav())
+	f.Add(seedCloneClear())
 }
 
 // --- seed builders ---
@@ -353,7 +533,19 @@ func (s *seedBuf) del(key []byte) {
 	s.b = append(s.b, fuzzOpDelete, byte(len(key)))
 	s.b = append(s.b, key...)
 }
-func (s *seedBuf) all() { s.b = append(s.b, fuzzOpAll) }
+func (s *seedBuf) all()   { s.b = append(s.b, fuzzOpAll) }
+func (s *seedBuf) min()   { s.b = append(s.b, fuzzOpMin) }
+func (s *seedBuf) max()   { s.b = append(s.b, fuzzOpMax) }
+func (s *seedBuf) clone() { s.b = append(s.b, fuzzOpClone) }
+func (s *seedBuf) clear() { s.b = append(s.b, fuzzOpClear) }
+func (s *seedBuf) ceiling(key []byte, isNil bool) {
+	s.b = append(s.b, fuzzOpCeiling)
+	s.appendBound(key, isNil)
+}
+func (s *seedBuf) floor(key []byte, isNil bool) {
+	s.b = append(s.b, fuzzOpFloor)
+	s.appendBound(key, isNil)
+}
 func (s *seedBuf) rangeOp(start, end []byte, startNil, endNil bool) {
 	s.b = append(s.b, fuzzOpRange)
 	s.appendBound(start, startNil)
@@ -437,5 +629,54 @@ func seedRangeBounds() []byte {
 	s.rangeOp([]byte{3}, nil, false, true)
 	s.rangeOp([]byte{5}, []byte{5}, false, false)
 	s.rangeOp([]byte{6}, []byte{2}, false, false)
+	return s.b
+}
+
+// seedSortedNav exercises Min/Max/Ceiling/Floor over a mix of
+// terminal and descended keys so the fuzzer has concrete examples of
+// every sorted-map query before it starts mutating.
+func seedSortedNav() []byte {
+	var s seedBuf
+	s.min()
+	s.max()
+	s.ceiling(nil, true)
+	s.floor(nil, true)
+	s.put([]byte{1, 2}, 12)
+	s.put([]byte{1, 2, 3}, 123)
+	s.put([]byte{1, 2, 4}, 124)
+	s.put([]byte{1, 7}, 17)
+	s.put([]byte{3}, 30)
+	s.min()
+	s.max()
+	s.ceiling([]byte{1, 2}, false)
+	s.ceiling([]byte{1, 2, 0}, false)
+	s.ceiling([]byte{2}, false)
+	s.ceiling([]byte{9}, false)
+	s.floor([]byte{1, 2}, false)
+	s.floor([]byte{1, 2, 0}, false)
+	s.floor([]byte{0}, false)
+	s.floor([]byte{9}, false)
+	s.ceiling(nil, true)
+	s.floor(nil, true)
+	return s.b
+}
+
+// seedCloneClear exercises Clone/Clear so the fuzzer begins with
+// concrete coverage of tree copying and bulk erasure.
+func seedCloneClear() []byte {
+	var s seedBuf
+	s.put([]byte{1, 2}, 1)
+	s.put([]byte{1, 3}, 2)
+	s.put([]byte{1, 2, 4}, 3)
+	s.clone()
+	s.all()
+	s.clear()
+	s.all()
+	s.min()
+	s.max()
+	s.put([]byte{9}, 9)
+	s.clone()
+	s.clear()
+	s.clear()
 	return s.b
 }

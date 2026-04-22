@@ -77,3 +77,73 @@ func ExampleTree_Range() {
 	// apple=1
 	// apricot=2
 }
+
+func ExampleTree_Min() {
+	t := art.New[int]()
+	t.Put([]byte("banana"), 3)
+	t.Put([]byte("apple"), 1)
+	t.Put([]byte("apricot"), 2)
+	k, v, ok := t.Min()
+	fmt.Printf("%s=%d ok=%v\n", k, v, ok)
+	// Output:
+	// apple=1 ok=true
+}
+
+func ExampleTree_Max() {
+	t := art.New[int]()
+	t.Put([]byte("banana"), 3)
+	t.Put([]byte("apple"), 1)
+	t.Put([]byte("apricot"), 2)
+	k, v, ok := t.Max()
+	fmt.Printf("%s=%d ok=%v\n", k, v, ok)
+	// Output:
+	// banana=3 ok=true
+}
+
+func ExampleTree_Ceiling() {
+	t := art.New[int]()
+	t.Put([]byte("apple"), 1)
+	t.Put([]byte("apricot"), 2)
+	t.Put([]byte("banana"), 3)
+	k, v, ok := t.Ceiling([]byte("apq"))
+	fmt.Printf("%s=%d ok=%v\n", k, v, ok)
+	_, _, ok = t.Ceiling([]byte("z"))
+	fmt.Println(ok)
+	// Output:
+	// apricot=2 ok=true
+	// false
+}
+
+func ExampleTree_Floor() {
+	t := art.New[int]()
+	t.Put([]byte("apple"), 1)
+	t.Put([]byte("apricot"), 2)
+	t.Put([]byte("banana"), 3)
+	k, v, ok := t.Floor([]byte("apq"))
+	fmt.Printf("%s=%d ok=%v\n", k, v, ok)
+	_, _, ok = t.Floor([]byte(""))
+	fmt.Println(ok)
+	// Output:
+	// apple=1 ok=true
+	// false
+}
+
+func ExampleTree_Clone() {
+	t := art.New[int]()
+	t.Put([]byte("apple"), 1)
+	cp := t.Clone()
+	cp.Put([]byte("banana"), 2)
+	fmt.Println(t.Len(), cp.Len())
+	// Output:
+	// 1 2
+}
+
+func ExampleTree_Clear() {
+	t := art.New[int]()
+	t.Put([]byte("apple"), 1)
+	t.Put([]byte("banana"), 2)
+	t.Clear()
+	fmt.Println(t.Len())
+	// Output:
+	// 0
+}

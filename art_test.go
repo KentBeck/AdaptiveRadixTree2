@@ -2300,3 +2300,418 @@ func TestLenAcrossNodePromotionsAndDemotions(t *testing.T) {
 		t.Fatalf("Len() after deleting all = %d, want 0", got)
 	}
 }
+
+func TestMinMaxOnEmptyTree(t *testing.T) {
+	tree := New[int]()
+	if k, v, ok := tree.Min(); ok || k != nil || v != 0 {
+		t.Fatalf("Min on empty = (%v, %v, %v), want (nil, 0, false)", k, v, ok)
+	}
+	if k, v, ok := tree.Max(); ok || k != nil || v != 0 {
+		t.Fatalf("Max on empty = (%v, %v, %v), want (nil, 0, false)", k, v, ok)
+	}
+}
+
+func TestMinMaxSingleKey(t *testing.T) {
+	tree := New[int]()
+	tree.Put([]byte("only"), 7)
+	if k, v, ok := tree.Min(); !ok || string(k) != "only" || v != 7 {
+		t.Fatalf("Min = (%q, %d, %v), want (only, 7, true)", k, v, ok)
+	}
+	if k, v, ok := tree.Max(); !ok || string(k) != "only" || v != 7 {
+		t.Fatalf("Max = (%q, %d, %v), want (only, 7, true)", k, v, ok)
+	}
+}
+
+func TestMinMaxAcrossNodeTypes(t *testing.T) {
+	cases := []struct {
+		name       string
+		childCount int
+	}{
+		{"node4", 3},
+		{"node16", 5},
+		{"node48", 17},
+		{"node256", 49},
+	}
+	prefix := []byte("common-prefix/")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tree, keys := buildInnerNode(t, prefix, tc.childCount, true)
+			wantMin := keys[0]
+			wantMax := keys[0]
+			for _, k := range keys {
+				if bytes.Compare(k, wantMin) < 0 {
+					wantMin = k
+				}
+				if bytes.Compare(k, wantMax) > 0 {
+					wantMax = k
+				}
+			}
+			gotMinK, _, ok := tree.Min()
+			if !ok || !bytes.Equal(gotMinK, wantMin) {
+				t.Fatalf("Min = (%v, %v), want %v", gotMinK, ok, wantMin)
+			}
+			gotMaxK, _, ok := tree.Max()
+			if !ok || !bytes.Equal(gotMaxK, wantMax) {
+				t.Fatalf("Max = (%v, %v), want %v", gotMaxK, ok, wantMax)
+			}
+		})
+	}
+}
+
+func TestMinTerminalBeforeChildren(t *testing.T) {
+	tree := New[int]()
+	tree.Put([]byte("ap"), 0)
+	tree.Put([]byte("apple"), 1)
+	tree.Put([]byte("apricot"), 2)
+	if k, v, ok := tree.Min(); !ok || string(k) != "ap" || v != 0 {
+		t.Fatalf("Min = (%q, %d, %v), want (ap, 0, true)", k, v, ok)
+	}
+	if k, v, ok := tree.Max(); !ok || string(k) != "apricot" || v != 2 {
+		t.Fatalf("Max = (%q, %d, %v), want (apricot, 2, true)", k, v, ok)
+	}
+}
+
+func TestCeilingFloorOnEmptyTree(t *testing.T) {
+	tree := New[int]()
+	if k, v, ok := tree.Ceiling([]byte("x")); ok || k != nil || v != 0 {
+		t.Fatalf("Ceiling on empty = (%v, %v, %v), want (nil, 0, false)", k, v, ok)
+	}
+	if k, v, ok := tree.Floor([]byte("x")); ok || k != nil || v != 0 {
+		t.Fatalf("Floor on empty = (%v, %v, %v), want (nil, 0, false)", k, v, ok)
+	}
+}
+
+func TestCeilingFloorSingleKey(t *testing.T) {
+	tree := New[int]()
+	tree.Put([]byte("m"), 1)
+	if k, _, ok := tree.Ceiling([]byte("a")); !ok || string(k) != "m" {
+		t.Fatalf("Ceiling(a) = (%q, %v), want (m, true)", k, ok)
+	}
+	if k, _, ok := tree.Ceiling([]byte("m")); !ok || string(k) != "m" {
+		t.Fatalf("Ceiling(m) = (%q, %v), want (m, true)", k, ok)
+	}
+	if _, _, ok := tree.Ceiling([]byte("z")); ok {
+		t.Fatalf("Ceiling(z) ok=true, want false")
+	}
+	if _, _, ok := tree.Floor([]byte("a")); ok {
+		t.Fatalf("Floor(a) ok=true, want false")
+	}
+	if k, _, ok := tree.Floor([]byte("m")); !ok || string(k) != "m" {
+		t.Fatalf("Floor(m) = (%q, %v), want (m, true)", k, ok)
+	}
+	if k, _, ok := tree.Floor([]byte("z")); !ok || string(k) != "m" {
+		t.Fatalf("Floor(z) = (%q, %v), want (m, true)", k, ok)
+	}
+}
+
+// oracleCeilingFloor returns the byte-wise ceiling and floor of
+// target over the oracle's keys, each with an ok flag. Used to
+// cross-check Tree.Ceiling/Floor against an independent reference.
+func oracleCeilingFloor(oracle [][]byte, target []byte) (ceilKey []byte, ceilOK bool, floorKey []byte, floorOK bool) {
+	sorted := make([][]byte, len(oracle))
+	copy(sorted, oracle)
+	sort.Slice(sorted, func(i, j int) bool { return bytes.Compare(sorted[i], sorted[j]) < 0 })
+	for _, k := range sorted {
+		if !ceilOK && bytes.Compare(k, target) >= 0 {
+			ceilKey = k
+			ceilOK = true
+		}
+		if bytes.Compare(k, target) <= 0 {
+			floorKey = k
+			floorOK = true
+		}
+	}
+	return
+}
+
+func TestCeilingFloorAcrossNodeTypes(t *testing.T) {
+	cases := []struct {
+		name       string
+		childCount int
+	}{
+		{"node4", 3},
+		{"node16", 7},
+		{"node48", 17},
+		{"node256", 49},
+	}
+	prefix := []byte("p/")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tree, keys := buildInnerNode(t, prefix, tc.childCount, true)
+			probes := [][]byte{
+				nil,
+				{},
+				bytes.Clone(prefix),
+				append(bytes.Clone(prefix), 0x00),
+				append(bytes.Clone(prefix), 0xFF),
+				append(bytes.Clone(prefix), 0x7F, 0x7F),
+				{0x00},
+				{0xFF, 0xFF, 0xFF},
+			}
+			for _, k := range keys {
+				probes = append(probes, bytes.Clone(k))
+				gap := bytes.Clone(k)
+				gap = append(gap, 0x01)
+				probes = append(probes, gap)
+			}
+			for _, target := range probes {
+				wantCK, wantCOK, wantFK, wantFOK := oracleCeilingFloor(keys, target)
+				gotCK, _, gotCOK := tree.Ceiling(target)
+				if gotCOK != wantCOK || (wantCOK && !bytes.Equal(gotCK, wantCK)) {
+					t.Fatalf("Ceiling(%v) = (%v, %v), want (%v, %v)", target, gotCK, gotCOK, wantCK, wantCOK)
+				}
+				gotFK, _, gotFOK := tree.Floor(target)
+				if gotFOK != wantFOK || (wantFOK && !bytes.Equal(gotFK, wantFK)) {
+					t.Fatalf("Floor(%v) = (%v, %v), want (%v, %v)", target, gotFK, gotFOK, wantFK, wantFOK)
+				}
+			}
+		})
+	}
+}
+
+func TestCeilingFloorDivergeMidPrefix(t *testing.T) {
+	// Root node4 has prefix "comm", children under compare/compute/common.
+	// Targets that diverge inside "comm" must be answered from a single
+	// subtree (all keys here have the same 4-byte prefix).
+	tree := New[int]()
+	tree.Put([]byte("commit"), 1)
+	tree.Put([]byte("common"), 2)
+	tree.Put([]byte("compare"), 3)
+	tree.Put([]byte("compute"), 4)
+	tree.Put([]byte("company"), 5)
+
+	// "coaster" diverges at index 2 ('a' < 'm') → all keys > target.
+	if k, _, ok := tree.Ceiling([]byte("coaster")); !ok || string(k) != "commit" {
+		t.Fatalf("Ceiling(coaster) = (%q, %v), want (commit, true)", k, ok)
+	}
+	if _, _, ok := tree.Floor([]byte("coaster")); ok {
+		t.Fatalf("Floor(coaster) ok=true, want false")
+	}
+	// "coz" diverges at index 2 ('z' > 'm') → all keys < target.
+	if _, _, ok := tree.Ceiling([]byte("coz")); ok {
+		t.Fatalf("Ceiling(coz) ok=true, want false")
+	}
+	if k, _, ok := tree.Floor([]byte("coz")); !ok || string(k) != "compute" {
+		t.Fatalf("Floor(coz) = (%q, %v), want (compute, true)", k, ok)
+	}
+}
+
+func TestCeilingFloorWithTerminal(t *testing.T) {
+	// Root node4 with prefix "ap", terminal "ap", children for apple/apricot.
+	tree := New[int]()
+	tree.Put([]byte("ap"), 1)
+	tree.Put([]byte("apple"), 2)
+	tree.Put([]byte("apricot"), 3)
+	// Target exactly the terminal.
+	if k, _, ok := tree.Ceiling([]byte("ap")); !ok || string(k) != "ap" {
+		t.Fatalf("Ceiling(ap) = (%q, %v), want (ap, true)", k, ok)
+	}
+	if k, _, ok := tree.Floor([]byte("ap")); !ok || string(k) != "ap" {
+		t.Fatalf("Floor(ap) = (%q, %v), want (ap, true)", k, ok)
+	}
+	// Target just after the terminal ("ap\x00"): ceiling is apple, floor is "ap".
+	if k, _, ok := tree.Ceiling([]byte("ap\x00")); !ok || string(k) != "apple" {
+		t.Fatalf("Ceiling(ap\\0) = (%q, %v), want (apple, true)", k, ok)
+	}
+	if k, _, ok := tree.Floor([]byte("ap\x00")); !ok || string(k) != "ap" {
+		t.Fatalf("Floor(ap\\0) = (%q, %v), want (ap, true)", k, ok)
+	}
+	// Target "apq" (between apple and apricot, diverge at index 2 p vs p, then index 2 in siblings).
+	// "apq" ascii: 'q'=113 > 'p'=112 > 'r'=114? No: 'p'=0x70, 'q'=0x71, 'r'=0x72.
+	// So "apq" sorts between "apple" (starts with "app...") and "apricot" (starts with "apr...").
+	if k, _, ok := tree.Ceiling([]byte("apq")); !ok || string(k) != "apricot" {
+		t.Fatalf("Ceiling(apq) = (%q, %v), want (apricot, true)", k, ok)
+	}
+	if k, _, ok := tree.Floor([]byte("apq")); !ok || string(k) != "apple" {
+		t.Fatalf("Floor(apq) = (%q, %v), want (apple, true)", k, ok)
+	}
+}
+
+func TestCloneEmpty(t *testing.T) {
+	tree := New[int]()
+	cp := tree.Clone()
+	if cp == tree {
+		t.Fatal("Clone returned same pointer")
+	}
+	if cp.Len() != 0 {
+		t.Fatalf("Clone.Len() = %d, want 0", cp.Len())
+	}
+	cp.Put([]byte("a"), 1)
+	if tree.Len() != 0 {
+		t.Fatalf("original mutated: Len() = %d, want 0", tree.Len())
+	}
+}
+
+func TestCloneOriginalMutationDoesNotAffectClone(t *testing.T) {
+	tree := New[int]()
+	for _, k := range []string{"apple", "apricot", "banana", "cherry"} {
+		tree.Put([]byte(k), len(k))
+	}
+	cp := tree.Clone()
+	tree.Put([]byte("date"), 4)
+	tree.Put([]byte("apple"), 999)
+	tree.Delete([]byte("banana"))
+
+	if _, ok := cp.Get([]byte("date")); ok {
+		t.Fatal("clone saw date inserted after Clone")
+	}
+	if v, ok := cp.Get([]byte("apple")); !ok || v != 5 {
+		t.Fatalf("clone apple = (%v, %v), want (5, true)", v, ok)
+	}
+	if _, ok := cp.Get([]byte("banana")); !ok {
+		t.Fatal("clone lost banana after original Delete")
+	}
+	if cp.Len() != 4 {
+		t.Fatalf("clone Len = %d, want 4", cp.Len())
+	}
+}
+
+func TestCloneCloneMutationDoesNotAffectOriginal(t *testing.T) {
+	tree := New[int]()
+	for _, k := range []string{"apple", "apricot", "banana", "cherry"} {
+		tree.Put([]byte(k), len(k))
+	}
+	cp := tree.Clone()
+	cp.Put([]byte("date"), 4)
+	cp.Put([]byte("apple"), 999)
+	cp.Delete([]byte("banana"))
+
+	if _, ok := tree.Get([]byte("date")); ok {
+		t.Fatal("original saw date inserted into clone")
+	}
+	if v, ok := tree.Get([]byte("apple")); !ok || v != 5 {
+		t.Fatalf("original apple = (%v, %v), want (5, true)", v, ok)
+	}
+	if _, ok := tree.Get([]byte("banana")); !ok {
+		t.Fatal("original lost banana after clone Delete")
+	}
+	if tree.Len() != 4 {
+		t.Fatalf("original Len = %d, want 4", tree.Len())
+	}
+}
+
+func TestCloneAcrossNodeTypes(t *testing.T) {
+	cases := []struct {
+		name       string
+		childCount int
+	}{
+		{"node4", 3},
+		{"node16", 7},
+		{"node48", 17},
+		{"node256", 49},
+	}
+	prefix := []byte("p/")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tree, keys := buildInnerNode(t, prefix, tc.childCount, true)
+			cp := tree.Clone()
+			if cp.Len() != tree.Len() {
+				t.Fatalf("Len mismatch: clone=%d orig=%d", cp.Len(), tree.Len())
+			}
+			for _, k := range keys {
+				if _, ok := cp.Get(k); !ok {
+					t.Fatalf("clone missing key %v", k)
+				}
+			}
+			extra := append(bytes.Clone(prefix), 0xFE)
+			cp.Put(extra, "extra")
+			if _, ok := tree.Get(extra); ok {
+				t.Fatalf("original saw clone's new key %v", extra)
+			}
+		})
+	}
+}
+
+func TestCloneAfterClear(t *testing.T) {
+	tree := New[int]()
+	tree.Put([]byte("a"), 1)
+	tree.Put([]byte("b"), 2)
+	tree.Clear()
+	cp := tree.Clone()
+	if cp.Len() != 0 {
+		t.Fatalf("Clone after Clear Len = %d, want 0", cp.Len())
+	}
+	cp.Put([]byte("x"), 10)
+	if _, ok := tree.Get([]byte("x")); ok {
+		t.Fatal("original saw clone mutation after Clear")
+	}
+}
+
+func TestClearEmptiesTree(t *testing.T) {
+	tree := New[int]()
+	keys := []string{"a", "ab", "abc", "xyz"}
+	for _, k := range keys {
+		tree.Put([]byte(k), len(k))
+	}
+	tree.Clear()
+	if tree.Len() != 0 {
+		t.Fatalf("Len after Clear = %d, want 0", tree.Len())
+	}
+	for _, k := range keys {
+		if _, ok := tree.Get([]byte(k)); ok {
+			t.Fatalf("Get(%q) after Clear ok=true, want false", k)
+		}
+	}
+	count := 0
+	for range tree.All() {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("All() after Clear yielded %d, want 0", count)
+	}
+	tree.Put([]byte("reborn"), 42)
+	if v, ok := tree.Get([]byte("reborn")); !ok || v != 42 {
+		t.Fatalf("Get(reborn) after Clear+Put = (%v, %v), want (42, true)", v, ok)
+	}
+	if tree.Len() != 1 {
+		t.Fatalf("Len after Clear+Put = %d, want 1", tree.Len())
+	}
+}
+
+func TestClearOnEmptyIsNoop(t *testing.T) {
+	tree := New[int]()
+	tree.Clear()
+	if tree.Len() != 0 {
+		t.Fatalf("Len after Clear on empty = %d, want 0", tree.Len())
+	}
+	tree.Put([]byte("a"), 1)
+	if v, ok := tree.Get([]byte("a")); !ok || v != 1 {
+		t.Fatalf("Get(a) after Clear-then-Put on empty = (%v, %v), want (1, true)", v, ok)
+	}
+}
+
+func TestNilAndEmptyKeyAreSameEntry(t *testing.T) {
+	tree := New[int]()
+	tree.Put(nil, 1)
+	if tree.Len() != 1 {
+		t.Fatalf("Len after Put(nil) = %d, want 1", tree.Len())
+	}
+	// Put([]byte{}) must overwrite the same entry, not add a new one.
+	tree.Put([]byte{}, 2)
+	if tree.Len() != 1 {
+		t.Fatalf("Len after Put([]byte{}) = %d, want 1", tree.Len())
+	}
+	if v, ok := tree.Get(nil); !ok || v != 2 {
+		t.Fatalf("Get(nil) = (%v, %v), want (2, true)", v, ok)
+	}
+	if v, ok := tree.Get([]byte{}); !ok || v != 2 {
+		t.Fatalf("Get([]byte{}) = (%v, %v), want (2, true)", v, ok)
+	}
+	// Ceiling/Floor treat nil and [] as the empty key.
+	if k, v, ok := tree.Ceiling(nil); !ok || len(k) != 0 || v != 2 {
+		t.Fatalf("Ceiling(nil) = (%v, %v, %v), want (empty, 2, true)", k, v, ok)
+	}
+	if k, v, ok := tree.Floor([]byte{}); !ok || len(k) != 0 || v != 2 {
+		t.Fatalf("Floor([]byte{}) = (%v, %v, %v), want (empty, 2, true)", k, v, ok)
+	}
+	// Delete via either form empties the entry.
+	if !tree.Delete([]byte{}) {
+		t.Fatal("Delete([]byte{}) returned false")
+	}
+	if tree.Delete(nil) {
+		t.Fatal("Delete(nil) returned true after first delete")
+	}
+	if _, ok := tree.Get(nil); ok {
+		t.Fatal("Get(nil) after Delete should miss")
+	}
+}

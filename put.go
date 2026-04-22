@@ -5,7 +5,9 @@ import "bytes"
 // Put associates value with key, replacing any previous value. An
 // inner node's prefix is consumed from the key as traversal descends;
 // keys that end at such a node's exact path are stored in its terminal
-// slot.
+// slot. A nil key and an empty-slice key are equivalent (both
+// represent the empty key); the tree can hold at most one entry at
+// the empty key.
 func (t *Tree[V]) Put(key []byte, value V) {
 	newRoot, inserted := putInto(t.root, key, value, 0)
 	t.root = newRoot

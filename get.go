@@ -3,7 +3,9 @@ package art
 import "bytes"
 
 // Get returns the value previously stored under key, if any. If the
-// key is absent the returned value is the zero value of V.
+// key is absent the returned value is the zero value of V. A nil key
+// and an empty-slice key are equivalent (both represent the empty
+// key).
 func (t *Tree[V]) Get(key []byte) (value V, ok bool) {
 	var zero V
 	current := t.root

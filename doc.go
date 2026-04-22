@@ -8,12 +8,21 @@
 // Keys are ordered lexicographically by their raw bytes; shorter keys
 // sort before longer keys that share the shorter key as a prefix. Keys
 // passed to Put are copied, so callers may reuse their slices freely.
+// A nil key and an empty-slice key are equivalent (both represent the
+// empty key); the tree can hold at most one entry at the empty key.
 //
 // Iteration:
 //   - All yields every (key, value) pair in ascending key order.
 //   - Range yields every (key, value) pair whose key lies in the
 //     half-open interval [start, end). A nil bound is unbounded on
 //     that side.
+//
+// Sorted-map surface:
+//   - Min and Max return the smallest and largest entry.
+//   - Ceiling and Floor return the successor and predecessor of a
+//     target key (inclusive at equality).
+//   - Clone returns an independent structural copy of the tree.
+//   - Clear removes every entry in O(1).
 //
 // Goroutine safety: a Tree is not safe for concurrent use by multiple
 // goroutines when any goroutine is writing. Callers that need

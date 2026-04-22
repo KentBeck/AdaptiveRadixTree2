@@ -7,7 +7,8 @@ import "bytes"
 // exhausted at a node, targets that node's terminal value. After a
 // successful remove the affected node is demoted to a smaller node
 // type (or collapsed to its only child) whenever its child count
-// crosses the next-smaller capacity.
+// crosses the next-smaller capacity. A nil key and an empty-slice key
+// are equivalent (both represent the empty key).
 func (t *Tree[V]) Delete(key []byte) bool {
 	newRoot, deleted := deleteFrom[V](t.root, key, 0)
 	if deleted {
