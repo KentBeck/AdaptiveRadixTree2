@@ -12,10 +12,10 @@
 
 | Operation | ART | B-tree | Ratio | Faster |
 | --- | --- | --- | --- | --- |
-| Put (bulk) | 165.5 ns/key | 897.8 ns/key | 0.18× | ART 5.4× |
-| Get (hit) | 72.84 ns/op | 1081 ns/op | 0.07× | ART 14.8× |
-| Get (miss) | 9.36 ns/op | 126.9 ns/op | 0.07× | ART 13.6× |
-| Delete (bulk) | 105.6 ns/key | 772.3 ns/key | 0.14× | ART 7.3× |
+| Put (bulk) | 162.2 ns/key | 897.8 ns/key | 0.18× | ART 5.5× |
+| Get (hit) | 43.22 ns/op | 1081 ns/op | 0.04× | ART 25.0× |
+| Get (miss) | 8.34 ns/op | 126.9 ns/op | 0.07× | ART 15.2× |
+| Delete (bulk) | 70.0 ns/key | 772.3 ns/key | 0.09× | ART 11.0× |
 | Range (1 %, 100K) | 17.75 ns/key | 9.6 ns/key | 1.85× | B-tree 1.8× |
 
 *Put measured with `-benchtime=1x` (one 10M-key pass, `b.N=1`). Delete measured with `-benchtime=3s` (setup excluded via `b.StopTimer()`/`b.StartTimer()`, so ~3 clean delete iterations per run; median of 5). Get / GetMiss / Range measured with `-benchtime=3s`: 35.5M ops for ART Get, 307M ops for ART GetMiss, 1212 range passes for ART Range.*
@@ -40,7 +40,7 @@ B-tree uses ~27 % less memory overall and ~29× fewer allocations at build time 
 
 **Supports production use for point-operation-heavy workloads.**
 
-At 10M entries with 8-byte random keys, ART is 5–15× faster than the most popular Go B-tree on Put, Get (hit), Get (miss), and Delete. Get-miss is particularly strong (9.36 ns/op) because mismatches can be resolved after one or two node visits.
+At 10M entries with 8-byte random keys, ART is 5–25× faster than the most popular Go B-tree on Put, Get (hit), Get (miss), and Delete. Get (hit) at 43.22 ns/op is ~25× faster, and Get (miss) at 8.34 ns/op is ~15× faster because mismatches can be resolved after one or two node visits.
 
 **Still slower on short-range scans, though no longer catastrophically so.**
 
