@@ -1,5 +1,7 @@
 # ART vs google/btree — 10M-element benchmark
 
+*Last measured at commit `b73719f` (v0.3.0).*
+
 **Comparator:** `github.com/google/btree` v1.1.3 (4.1k stars, most-imported B-tree in Go; used by etcd/k8s-adjacent tooling), degree 32 (library default), generics form `BTreeG[kv]`.
 
 **Workload.** 10,000,000 entries. Keys are a deterministic random permutation of `uint64` in `[0, 10M)`, big-endian encoded to 8 bytes (seed = 42). Values are `int`. Both implementations store key + value; btree holds them in a `kv` struct and orders by `bytes.Compare`.
@@ -12,19 +14,19 @@
 
 | Operation | ART | B-tree | Ratio | Faster |
 | --- | --- | --- | --- | --- |
-| Put (bulk) | 162.2 ns/key | 897.8 ns/key | 0.18× | ART 5.5× |
-| Get (hit) | 43.22 ns/op | 1081 ns/op | 0.04× | ART 25.0× |
-| Get (miss) | 8.34 ns/op | 126.9 ns/op | 0.07× | ART 15.2× |
-| Delete (bulk) | 70.0 ns/key | 772.3 ns/key | 0.09× | ART 11.0× |
-| Range (1 %, 100K) | 17.75 ns/key | 9.6 ns/key | 1.85× | B-tree 1.8× |
+| Put (bulk) | 150.8 ns/key | 752.6 ns/key (−16% vs pre-generics; likely monomorphisation benefit) | 0.20× | ART 5.0× |
+| Get (hit) | 57.57 ns/op (+33% regression vs pre-generics; investigation deferred) | 861.9 ns/op (−20% vs pre-generics) | 0.067× | ART 15.0× |
+| Get (miss) | 9.36 ns/op | 118.5 ns/op | 0.079× | ART 12.7× |
+| Delete (bulk) | 124.5 ns/key (+78% regression vs pre-generics; investigation deferred) | 796.3 ns/key | 0.156× | ART 6.4× |
+| Range (1 %, 100K) | 19.21 ns/key | 10.73 ns/key | 1.79× | B-tree 1.8× |
 
-*Put measured with *`-benchtime=1x`* (one 10M-key pass, *`b.N=1`*). Delete measured with *`-benchtime=3s`* (setup excluded via *`b.StopTimer()`*/*`b.StartTimer()`*, so ~3 clean delete iterations per run; median of 5). Get / GetMiss / Range measured with *`-benchtime=3s`*: 35.5M ops for ART Get, 307M ops for ART GetMiss, 1212 range passes for ART Range.*
+*All rows measured with *`-benchtime=3s -count=5`* (median of 5 reps). Put's 10M-key inner loop runs 2–3 times per rep at this benchtime. Delete's setup is excluded via *`b.StopTimer()`*/*`b.StartTimer()`*, so ~3 clean delete iterations per rep for ART and 1 for B-tree. At 3s benchtime Get / GetMiss / Range converged to ~67M ops for ART Get, ~376M ops for ART GetMiss, and ~1886 range passes for ART Range.*
 
 ## Memory (one 10M-element tree, from Put benchmark)
 
 | Impl | Total bytes | Allocs | Bytes/entry | Allocs/entry |
 | --- | --- | --- | --- | --- |
-| ART | 973 MB | 20.2M | ~97 | 2.02 |
+| ART | 893 MB | 10.16M (−50% vs pre-generics; likely monomorphisation reducing boxed-value allocs) | ~89 | 1.02 |
 | B-tree | 714 MB | 692K | ~71 | 0.07 |
 
 One 1 %-range scan (100K entries yielded):
@@ -34,19 +36,19 @@ One 1 %-range scan (100K entries yielded):
 | ART | 32 B | 1 |
 | B-tree | 0 B | 0 |
 
-B-tree uses ~27 % less memory overall and ~29× fewer allocations at build time (items packed into node slices). On range scans B-tree allocates nothing. On range scans ART allocates a single small internal path buffer used for pruning; the yielded `[]byte` keys reference the tree's own stable storage and may be retained by callers without copying, as long as the entry stays in the tree.
+B-tree uses ~20 % less memory overall and ~15× fewer allocations at build time (items packed into node slices). On range scans B-tree allocates nothing. On range scans ART allocates a single small internal path buffer used for pruning; the yielded `[]byte` keys reference the tree's own stable storage and may be retained by callers without copying, as long as the entry stays in the tree.
 
 ## Verdict
 
 **Supports production use for point-operation-heavy workloads.**
 
-At 10M entries with 8-byte random keys, ART is 5–25× faster than the most popular Go B-tree on Put, Get (hit), Get (miss), and Delete. Get (hit) at 43.22 ns/op is ~25× faster, and Get (miss) at 8.34 ns/op is ~15× faster because mismatches can be resolved after one or two node visits.
+At 10M entries with 8-byte random keys, ART is 5–15× faster than the most popular Go B-tree on Put, Get (hit), Get (miss), and Delete. Get (hit) at 57.57 ns/op is ~15× faster, and Get (miss) at 9.36 ns/op is ~13× faster because mismatches can be resolved after one or two node visits. The Get (hit) and Delete margins narrowed vs the pre-generics baseline (ART Get regressed ~33% and ART Delete regressed ~78%; both flagged above, investigation deferred).
 
 **Still slower on short-range scans, though no longer catastrophically so.**
 
 The 1 % range (100 K entries) is the common "pagination / windowed scan" shape, and B-tree is **~1.8× faster** there. Both implementations are now essentially zero-alloc on the scan, so the gap is pure traversal cost: a small range pays ART's tree-descent cost to locate the start, and then walks through mostly-empty inner structure relative to the span it yields.
 
-**Memory trade-off is modest but real.** ART is ~36 % larger in bytes and allocates ~29× more objects during build. Under heavy GC pressure or on memory-tight hosts the allocation count matters more than the byte total.
+**Memory trade-off is modest but real.** ART is ~25 % larger in bytes and allocates ~15× more objects during build (down from ~29× pre-generics). Under heavy GC pressure or on memory-tight hosts the allocation count matters more than the byte total.
 
 **Net production guidance.**
 
@@ -64,11 +66,14 @@ The 1 % range (100 K entries) is the common "pagination / windowed scan" shape, 
 
 ## Reproducing
 
+The numbers in this document come from a single invocation of the full bench suite, from the nested `bench/` module:
+
 ```
-go test -run=^$ -bench='^BenchmarkPut_' \
-  -benchmem -benchtime=1x -timeout=30m ./...
-go test -run=^$ -bench='^BenchmarkDelete_' \
-  -benchmem -benchtime=3s -timeout=30m -count=5 ./...
-go test -run=^$ -bench='^BenchmarkGet_|^BenchmarkGetMiss_|^BenchmarkRange_' \
-  -benchmem -benchtime=3s -timeout=30m ./...
+(cd bench && go test -bench=. -benchmem -benchtime=3s -count=5 -timeout=30m ./...)
 ```
+
+Each benchmark is run 5 times; the tables above report the median of the 5 reps per row.
+
+## Environment (as measured)
+
+Measured on macOS 26.3.1 (darwin) on an Apple M4 Max laptop with 16 logical CPUs, on AC power (100% charged). The Go toolchain is `go version go1.24.2 darwin/amd64` — i.e. the Go binary targets `darwin/amd64` and runs under Rosetta 2 on Apple Silicon, which is why `go test` reports the CPU as `VirtualApple @ 2.50GHz`. `GOMAXPROCS` was left unset (Go default = 16, one per logical CPU). Command: `(cd bench && go test -bench=. -benchmem -benchtime=3s -count=5 -timeout=30m ./...)`. No machine-quiescing steps beyond closing foreground apps and letting the laptop idle on AC; the run took ~6.5 minutes wall time.
