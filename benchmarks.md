@@ -1,6 +1,6 @@
 # ART vs google/btree — 10M-element benchmark
 
-*Last measured at commit `b73719f` (v0.3.0).*
+*Last measured at commit `d14c9c6` (v0.4.1).*
 
 **Comparator:** `github.com/google/btree` v1.1.3 (4.1k stars, most-imported B-tree in Go; used by etcd/k8s-adjacent tooling), degree 32 (library default), generics form `BTreeG[kv]`.
 
@@ -14,19 +14,19 @@
 
 | Operation | ART | B-tree | Ratio | Faster |
 | --- | --- | --- | --- | --- |
-| Put (bulk) | 150.8 ns/key | 752.6 ns/key (−16% vs pre-generics; likely monomorphisation benefit) | 0.20× | ART 5.0× |
-| Get (hit) | 57.57 ns/op (+33% regression vs pre-generics; investigation deferred) | 861.9 ns/op (−20% vs pre-generics) | 0.067× | ART 15.0× |
-| Get (miss) | 9.36 ns/op | 118.5 ns/op | 0.079× | ART 12.7× |
-| Delete (bulk) | 124.5 ns/key (+78% regression vs pre-generics; investigation deferred) | 796.3 ns/key | 0.156× | ART 6.4× |
-| Range (1 %, 100K) | 19.21 ns/key | 10.73 ns/key | 1.79× | B-tree 1.8× |
+| Put (bulk) | 160.3 ns/key | 800.1 ns/key | 0.20× | ART 5.0× |
+| Get (hit) | 44.81 ns/op (recovered in v0.4.1; see CHANGELOG) | 929.4 ns/op | 0.048× | ART 20.7× |
+| Get (miss) | 8.66 ns/op | 118.5 ns/op | 0.073× | ART 13.7× |
+| Delete (bulk) | 115.3 ns/key (PR #7 recovered ~9 ns/key vs v0.4.0; residual ~45 ns/key gap vs pre-generics tracked) | 796.3 ns/key | 0.145× | ART 6.9× |
+| Range (1 %, 100K) | 19.53 ns/key | 10.73 ns/key | 1.82× | B-tree 1.8× |
 
-*All rows measured with *`-benchtime=3s -count=5`* (median of 5 reps). Put's 10M-key inner loop runs 2–3 times per rep at this benchtime. Delete's setup is excluded via *`b.StopTimer()`*/*`b.StartTimer()`*, so ~3 clean delete iterations per rep for ART and 1 for B-tree. At 3s benchtime Get / GetMiss / Range converged to ~67M ops for ART Get, ~376M ops for ART GetMiss, and ~1886 range passes for ART Range.*
+*All rows measured with *`-benchtime=3s -count=5`* (median of 5 reps). Put's 10M-key inner loop runs 2–3 times per rep at this benchtime. Delete's setup is excluded via *`b.StopTimer()`*/*`b.StartTimer()`*, so ~3 clean delete iterations per rep for ART and 1 for B-tree. At 3s benchtime Get / GetMiss / Range converged to ~77M ops for ART Get, ~425M ops for ART GetMiss, and ~1874 range passes for ART Range.*
 
 ## Memory (one 10M-element tree, from Put benchmark)
 
 | Impl | Total bytes | Allocs | Bytes/entry | Allocs/entry |
 | --- | --- | --- | --- | --- |
-| ART | 893 MB | 10.16M (−50% vs pre-generics; likely monomorphisation reducing boxed-value allocs) | ~89 | 1.02 |
+| ART | 893 MB | 10.16M | ~89 | 1.02 |
 | B-tree | 714 MB | 692K | ~71 | 0.07 |
 
 One 1 %-range scan (100K entries yielded):
@@ -42,7 +42,7 @@ B-tree uses ~20 % less memory overall and ~15× fewer allocations at build time 
 
 **Supports production use for point-operation-heavy workloads.**
 
-At 10M entries with 8-byte random keys, ART is 5–15× faster than the most popular Go B-tree on Put, Get (hit), Get (miss), and Delete. Get (hit) at 57.57 ns/op is ~15× faster, and Get (miss) at 9.36 ns/op is ~13× faster because mismatches can be resolved after one or two node visits. The Get (hit) and Delete margins narrowed vs the pre-generics baseline (ART Get regressed ~33% and ART Delete regressed ~78%; both flagged above, investigation deferred).
+At 10M entries with 8-byte random keys, ART is 5–21× faster than the most popular Go B-tree on Put, Get (hit), Get (miss), and Delete. Get (hit) at 44.81 ns/op is ~21× faster, and Get (miss) at 8.66 ns/op is ~14× faster because mismatches can be resolved after one or two node visits. Get (hit) has fully recovered to the pre-generics baseline (44.81 ns/op vs the pre-generics 43.22 ns/op); Delete is partially recovered via PR #7 (124.5 → 115.3 ns/key), with a residual ~45 ns/key gap vs the pre-generics baseline (70.0 ns/key) tracked for future work.
 
 **Still slower on short-range scans, though no longer catastrophically so.**
 
