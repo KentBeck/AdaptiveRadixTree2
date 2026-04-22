@@ -10,151 +10,146 @@ import "bytes"
 // crosses the next-smaller capacity. A nil key and an empty-slice key
 // are equivalent (both represent the empty key).
 func (t *Tree[V]) Delete(key []byte) bool {
-	newRoot, deleted := deleteFrom[V](t.root, key, 0)
-	if deleted {
-		t.root = newRoot
-		t.size--
-	}
-	return deleted
+	before := t.size
+	t.root = deleteFrom[V](t, t.root, key, 0)
+	return t.size != before
 }
 
 // deleteFrom removes key from the subtree rooted at current, returning
-// the (possibly replaced) root and whether the key was present. A nil
-// return means the caller should drop its reference to this subtree.
-// The structure mirrors Get: consume the node's prefix, then either
-// clear the terminal (key exhausted) or recurse through the branching
-// child at key[depth].
-func deleteFrom[V any](current node[V], key []byte, depth int) (node[V], bool) {
+// the (possibly replaced) root. A nil return means the caller should
+// drop its reference to this subtree. Size accounting lives at the
+// leaf-removal chokepoints ([clearTerminalIfMatches] for terminals and
+// the *leaf case here for branching leaves); a "nothing changed"
+// signal is communicated by returning the same pointer that was
+// passed in.
+func deleteFrom[V any](t *Tree[V], current node[V], key []byte, depth int) node[V] {
 	switch r := current.(type) {
 	case nil:
-		return nil, false
+		return nil
 	case *leaf[V]:
 		if bytes.Equal(r.key, key) {
-			return nil, true
+			t.size--
+			return nil
 		}
-		return r, false
+		return r
 	case *node4[V]:
 		if pl := len(r.prefix); pl != 0 {
 			end := depth + pl
 			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-				return r, false
+				return r
 			}
 			depth = end
 		}
 		if depth == len(key) {
-			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
-				return r, false
+			if !clearTerminalIfMatches(t, &r.terminal, key) {
+				return r
 			}
-			r.terminal = nil
-			return postDeleteReshape[V](r), true
+			return postDeleteReshape[V](r)
 		}
 		branch := key[depth]
 		child := r.findChild(branch)
 		if child == nil {
-			return r, false
+			return r
 		}
-		newChild, deleted := deleteFrom[V](child, key, depth+1)
-		if !deleted {
-			return r, false
+		newChild := deleteFrom[V](t, child, key, depth+1)
+		if newChild == child {
+			return r
 		}
 		if newChild == nil {
 			r.removeChild(branch)
 		} else {
 			r.replaceChild(branch, newChild)
 		}
-		return postDeleteReshape[V](r), true
+		return postDeleteReshape[V](r)
 	case *node16[V]:
 		if pl := len(r.prefix); pl != 0 {
 			end := depth + pl
 			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-				return r, false
+				return r
 			}
 			depth = end
 		}
 		if depth == len(key) {
-			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
-				return r, false
+			if !clearTerminalIfMatches(t, &r.terminal, key) {
+				return r
 			}
-			r.terminal = nil
-			return postDeleteReshape[V](r), true
+			return postDeleteReshape[V](r)
 		}
 		branch := key[depth]
 		child := r.findChild(branch)
 		if child == nil {
-			return r, false
+			return r
 		}
-		newChild, deleted := deleteFrom[V](child, key, depth+1)
-		if !deleted {
-			return r, false
+		newChild := deleteFrom[V](t, child, key, depth+1)
+		if newChild == child {
+			return r
 		}
 		if newChild == nil {
 			r.removeChild(branch)
 		} else {
 			r.replaceChild(branch, newChild)
 		}
-		return postDeleteReshape[V](r), true
+		return postDeleteReshape[V](r)
 	case *node48[V]:
 		if pl := len(r.prefix); pl != 0 {
 			end := depth + pl
 			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-				return r, false
+				return r
 			}
 			depth = end
 		}
 		if depth == len(key) {
-			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
-				return r, false
+			if !clearTerminalIfMatches(t, &r.terminal, key) {
+				return r
 			}
-			r.terminal = nil
-			return postDeleteReshape[V](r), true
+			return postDeleteReshape[V](r)
 		}
 		branch := key[depth]
 		child := r.findChild(branch)
 		if child == nil {
-			return r, false
+			return r
 		}
-		newChild, deleted := deleteFrom[V](child, key, depth+1)
-		if !deleted {
-			return r, false
+		newChild := deleteFrom[V](t, child, key, depth+1)
+		if newChild == child {
+			return r
 		}
 		if newChild == nil {
 			r.removeChild(branch)
 		} else {
 			r.replaceChild(branch, newChild)
 		}
-		return postDeleteReshape[V](r), true
+		return postDeleteReshape[V](r)
 	case *node256[V]:
 		if pl := len(r.prefix); pl != 0 {
 			end := depth + pl
 			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-				return r, false
+				return r
 			}
 			depth = end
 		}
 		if depth == len(key) {
-			if r.terminal == nil || !bytes.Equal(r.terminal.key, key) {
-				return r, false
+			if !clearTerminalIfMatches(t, &r.terminal, key) {
+				return r
 			}
-			r.terminal = nil
-			return postDeleteReshape[V](r), true
+			return postDeleteReshape[V](r)
 		}
 		branch := key[depth]
 		child := r.findChild(branch)
 		if child == nil {
-			return r, false
+			return r
 		}
-		newChild, deleted := deleteFrom[V](child, key, depth+1)
-		if !deleted {
-			return r, false
+		newChild := deleteFrom[V](t, child, key, depth+1)
+		if newChild == child {
+			return r
 		}
 		if newChild == nil {
 			r.removeChild(branch)
 		} else {
 			r.replaceChild(branch, newChild)
 		}
-		return postDeleteReshape[V](r), true
+		return postDeleteReshape[V](r)
 	}
-	return current, false
+	return current
 }
 
 // postDeleteReshape inspects n after a child removal or terminal clear

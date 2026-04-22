@@ -1,5 +1,7 @@
 package art
 
+import "bytes"
+
 func newLeaf[V any](key []byte, value V) *leaf[V] {
 	// Copy the key so callers may safely reuse their slice. Keys up to
 	// inlineKeyMax bytes go into the leaf's inline buffer to avoid a
@@ -12,6 +14,28 @@ func newLeaf[V any](key []byte, value V) *leaf[V] {
 		l.key = append([]byte(nil), key...)
 	}
 	return l
+}
+
+// insertLeaf constructs a freshly allocated leaf for a brand-new key
+// and bumps t.size. It is the single chokepoint for size accounting on
+// the Put path: every caller below putInto that would allocate a leaf
+// for a new key routes through here. Replace-value paths do not call
+// it.
+func (t *Tree[V]) insertLeaf(key []byte, value V) *leaf[V] {
+	t.size++
+	return newLeaf(key, value)
+}
+
+// clearTerminalIfMatches clears *term when it holds key, bumping
+// t.size down. It is the single chokepoint for terminal-leaf removal
+// during Delete; leaf-subtree removal decrements inline in deleteFrom.
+func clearTerminalIfMatches[V any](t *Tree[V], term **leaf[V], key []byte) bool {
+	if *term == nil || !bytes.Equal((*term).key, key) {
+		return false
+	}
+	*term = nil
+	t.size--
+	return true
 }
 
 // longestCommonPrefix returns the leading slice of a that also
@@ -34,7 +58,7 @@ func longestCommonPrefix(a, b []byte) []byte {
 // the other is attached as a branching child. If neither is exhausted
 // both are attached as branching children on their first divergent
 // byte. Caller guarantees the two keys are not equal.
-func newNode4With[V any](existing *leaf[V], newKey []byte, newValue V, depth int) *node4[V] {
+func newNode4With[V any](t *Tree[V], existing *leaf[V], newKey []byte, newValue V, depth int) *node4[V] {
 	shared := longestCommonPrefix(existing.key[depth:], newKey[depth:])
 	diverge := depth + len(shared)
 	existingExhausted := diverge == len(existing.key)
@@ -46,13 +70,13 @@ func newNode4With[V any](existing *leaf[V], newKey []byte, newValue V, depth int
 	switch {
 	case existingExhausted:
 		n.terminal = existing
-		n.addChild(newKey[diverge], newLeaf(newKey, newValue))
+		n.addChild(newKey[diverge], t.insertLeaf(newKey, newValue))
 	case newExhausted:
-		n.terminal = newLeaf(newKey, newValue)
+		n.terminal = t.insertLeaf(newKey, newValue)
 		n.addChild(existing.key[diverge], existing)
 	default:
 		n.addChild(existing.key[diverge], existing)
-		n.addChild(newKey[diverge], newLeaf(newKey, newValue))
+		n.addChild(newKey[diverge], t.insertLeaf(newKey, newValue))
 	}
 	return n
 }
@@ -64,13 +88,13 @@ func newNode4With[V any](existing *leaf[V], newKey []byte, newValue V, depth int
 // parent's terminal holds (key, value); otherwise a new leaf is
 // attached as the second branching child. Caller guarantees adoptee's
 // own prefix has already been shortened past oldBranch.
-func splitPrefixedInner[V any](adoptee innerNode[V], oldBranch byte, shared, key []byte, value V, depth, splitPoint int) *node4[V] {
+func splitPrefixedInner[V any](t *Tree[V], adoptee innerNode[V], oldBranch byte, shared, key []byte, value V, depth, splitPoint int) *node4[V] {
 	parent := &node4[V]{prefix: append([]byte(nil), shared...)}
 	parent.addChild(oldBranch, adoptee)
 	if depth+splitPoint == len(key) {
-		parent.terminal = newLeaf(key, value)
+		parent.terminal = t.insertLeaf(key, value)
 	} else {
-		parent.addChild(key[depth+splitPoint], newLeaf(key, value))
+		parent.addChild(key[depth+splitPoint], t.insertLeaf(key, value))
 	}
 	return parent
 }
