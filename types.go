@@ -28,7 +28,6 @@ type innerNode[V any] interface {
 	node[V]
 	findChild(b byte) node[V]
 	removeChild(b byte)
-	isEmpty() bool
 }
 
 const inlineKeyMax = 24
@@ -102,8 +101,6 @@ func (n *node4[V]) removeChild(b byte) {
 	}
 }
 
-func (n *node4[V]) isEmpty() bool { return n.numChildren == 0 }
-
 // node16 keeps keys[:numChildren] sorted ascending by edge byte. Like
 // node4, prefix is consumed from the search key before branching and
 // terminal (when non-nil) holds the value stored at this node's exact
@@ -166,8 +163,6 @@ func (n *node16[V]) removeChild(b byte) {
 		}
 	}
 }
-
-func (n *node16[V]) isEmpty() bool { return n.numChildren == 0 }
 
 // growToNode16 returns a node16 holding the same sorted children,
 // prefix, and terminal as n.
@@ -259,8 +254,6 @@ func (n *node48[V]) removeChild(b byte) {
 	n.numChildren--
 }
 
-func (n *node48[V]) isEmpty() bool { return n.numChildren == 0 }
-
 // growToNode48 returns a node48 holding the same children, prefix, and
 // terminal as n, with childIndex populated from n's sorted edge bytes.
 func growToNode48[V any](n *node16[V]) *node48[V] {
@@ -341,8 +334,6 @@ func (n *node256[V]) removeChild(b byte) {
 	n.children[b] = nil
 	n.numChildren--
 }
-
-func (n *node256[V]) isEmpty() bool { return n.numChildren == 0 }
 
 // growToNode256 returns a node256 holding the same children, prefix,
 // and terminal as n, indexed directly by edge byte.
