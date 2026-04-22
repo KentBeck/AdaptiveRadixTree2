@@ -26,11 +26,18 @@ func (t *Tree[V]) insertLeaf(key []byte, value V) *leaf[V] {
 	return newLeaf(key, value)
 }
 
-// clearTerminalIfMatches clears *term when it holds key, bumping
-// t.size down. It is the single chokepoint for terminal-leaf removal
-// during Delete; leaf-subtree removal decrements inline in deleteFrom.
-func clearTerminalIfMatches[V any](t *Tree[V], term **leaf[V], key []byte) bool {
-	if *term == nil || !bytes.Equal((*term).key, key) {
+// clearTerminalIfMatches clears *term when it holds a leaf whose key
+// equals key, bumping t.size down. It is the single chokepoint for
+// terminal-leaf removal during Delete; leaf-subtree removal decrements
+// inline in deleteFrom. *term holds a node interface whose concrete
+// type is *leaf[V] inside a Tree[V]; a nil interface means the node
+// has no terminal.
+func clearTerminalIfMatches[V any](t *Tree[V], term *node, key []byte) bool {
+	if *term == nil {
+		return false
+	}
+	l, ok := (*term).(*leaf[V])
+	if !ok || !bytes.Equal(l.key, key) {
 		return false
 	}
 	*term = nil
@@ -58,7 +65,7 @@ func longestCommonPrefix(a, b []byte) []byte {
 // the other is attached as a branching child. If neither is exhausted
 // both are attached as branching children on their first divergent
 // byte. Caller guarantees the two keys are not equal.
-func newNode4With[V any](t *Tree[V], existing *leaf[V], newKey []byte, newValue V, depth int) *node4[V] {
+func newNode4With[V any](t *Tree[V], existing *leaf[V], newKey []byte, newValue V, depth int) *node4 {
 	shared := longestCommonPrefix(existing.key[depth:], newKey[depth:])
 	diverge := depth + len(shared)
 	existingExhausted := diverge == len(existing.key)
@@ -66,7 +73,7 @@ func newNode4With[V any](t *Tree[V], existing *leaf[V], newKey []byte, newValue 
 	if existingExhausted && newExhausted {
 		panic("art: newNode4With called with equal keys - invariant violation")
 	}
-	n := &node4[V]{prefix: append([]byte(nil), shared...)}
+	n := &node4{prefix: append([]byte(nil), shared...)}
 	switch {
 	case existingExhausted:
 		n.terminal = existing
@@ -88,8 +95,8 @@ func newNode4With[V any](t *Tree[V], existing *leaf[V], newKey []byte, newValue 
 // parent's terminal holds (key, value); otherwise a new leaf is
 // attached as the second branching child. Caller guarantees adoptee's
 // own prefix has already been shortened past oldBranch.
-func splitPrefixedInner[V any](t *Tree[V], adoptee innerNode[V], oldBranch byte, shared, key []byte, value V, depth, splitPoint int) *node4[V] {
-	parent := &node4[V]{prefix: append([]byte(nil), shared...)}
+func splitPrefixedInner[V any](t *Tree[V], adoptee innerNode, oldBranch byte, shared, key []byte, value V, depth, splitPoint int) *node4 {
+	parent := &node4{prefix: append([]byte(nil), shared...)}
 	parent.addChild(oldBranch, adoptee)
 	if depth+splitPoint == len(key) {
 		parent.terminal = t.insertLeaf(key, value)

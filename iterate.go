@@ -23,34 +23,34 @@ func (t *Tree[V]) All() iter.Seq2[[]byte, V] {
 // iterate visits every (key, value) pair reachable from n in sorted
 // key order, returning false as soon as yield does so the caller can
 // short-circuit all the way up.
-func iterate[V any](n node[V], yield func([]byte, V) bool) bool {
+func iterate[V any](n node, yield func([]byte, V) bool) bool {
 	switch r := n.(type) {
 	case nil:
 		return true
 	case *leaf[V]:
 		return yield(r.key, r.value)
-	case *node4[V]:
-		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
+	case *node4:
+		if tl, ok := r.terminal.(*leaf[V]); ok && !yield(tl.key, tl.value) {
 			return false
 		}
 		for i := uint8(0); i < r.numChildren; i++ {
-			if !iterate(r.children[i], yield) {
+			if !iterate[V](r.children[i], yield) {
 				return false
 			}
 		}
 		return true
-	case *node16[V]:
-		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
+	case *node16:
+		if tl, ok := r.terminal.(*leaf[V]); ok && !yield(tl.key, tl.value) {
 			return false
 		}
 		for i := uint8(0); i < r.numChildren; i++ {
-			if !iterate(r.children[i], yield) {
+			if !iterate[V](r.children[i], yield) {
 				return false
 			}
 		}
 		return true
-	case *node48[V]:
-		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
+	case *node48:
+		if tl, ok := r.terminal.(*leaf[V]); ok && !yield(tl.key, tl.value) {
 			return false
 		}
 		for edge := 0; edge < 256; edge++ {
@@ -58,13 +58,13 @@ func iterate[V any](n node[V], yield func([]byte, V) bool) bool {
 			if slot == 0 {
 				continue
 			}
-			if !iterate(r.children[slot-1], yield) {
+			if !iterate[V](r.children[slot-1], yield) {
 				return false
 			}
 		}
 		return true
-	case *node256[V]:
-		if r.terminal != nil && !yield(r.terminal.key, r.terminal.value) {
+	case *node256:
+		if tl, ok := r.terminal.(*leaf[V]); ok && !yield(tl.key, tl.value) {
 			return false
 		}
 		for edge := 0; edge < 256; edge++ {
@@ -72,7 +72,7 @@ func iterate[V any](n node[V], yield func([]byte, V) bool) bool {
 			if child == nil {
 				continue
 			}
-			if !iterate(child, yield) {
+			if !iterate[V](child, yield) {
 				return false
 			}
 		}
@@ -110,7 +110,7 @@ func (t *Tree[V]) Range(start, end []byte) iter.Seq2[[]byte, V] {
 // is skipped without materializing its path, and because edges are
 // sorted, the first edge whose subtree is at-or-after end ends the
 // walk of this node.
-func iterateRange[V any](n node[V], path *[]byte, start, end []byte, yield func([]byte, V) bool) bool {
+func iterateRange[V any](n node, path *[]byte, start, end []byte, yield func([]byte, V) bool) bool {
 	switch r := n.(type) {
 	case nil:
 		return true
@@ -119,12 +119,12 @@ func iterateRange[V any](n node[V], path *[]byte, start, end []byte, yield func(
 			return yield(r.key, r.value)
 		}
 		return true
-	case *node4[V]:
+	case *node4:
 		before := len(*path)
 		*path = append(*path, r.prefix...)
 		nodeLen := len(*path)
-		if r.terminal != nil && keyInRange((*path)[:nodeLen], start, end) {
-			if !yield(r.terminal.key, r.terminal.value) {
+		if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
+			if !yield(tl.key, tl.value) {
 				*path = (*path)[:before]
 				return false
 			}
@@ -139,19 +139,19 @@ func iterateRange[V any](n node[V], path *[]byte, start, end []byte, yield func(
 				return true
 			}
 			*path = append((*path)[:nodeLen], b)
-			if !iterateRange(r.children[i], path, start, end, yield) {
+			if !iterateRange[V](r.children[i], path, start, end, yield) {
 				*path = (*path)[:before]
 				return false
 			}
 		}
 		*path = (*path)[:before]
 		return true
-	case *node16[V]:
+	case *node16:
 		before := len(*path)
 		*path = append(*path, r.prefix...)
 		nodeLen := len(*path)
-		if r.terminal != nil && keyInRange((*path)[:nodeLen], start, end) {
-			if !yield(r.terminal.key, r.terminal.value) {
+		if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
+			if !yield(tl.key, tl.value) {
 				*path = (*path)[:before]
 				return false
 			}
@@ -166,19 +166,19 @@ func iterateRange[V any](n node[V], path *[]byte, start, end []byte, yield func(
 				return true
 			}
 			*path = append((*path)[:nodeLen], b)
-			if !iterateRange(r.children[i], path, start, end, yield) {
+			if !iterateRange[V](r.children[i], path, start, end, yield) {
 				*path = (*path)[:before]
 				return false
 			}
 		}
 		*path = (*path)[:before]
 		return true
-	case *node48[V]:
+	case *node48:
 		before := len(*path)
 		*path = append(*path, r.prefix...)
 		nodeLen := len(*path)
-		if r.terminal != nil && keyInRange((*path)[:nodeLen], start, end) {
-			if !yield(r.terminal.key, r.terminal.value) {
+		if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
+			if !yield(tl.key, tl.value) {
 				*path = (*path)[:before]
 				return false
 			}
@@ -197,19 +197,19 @@ func iterateRange[V any](n node[V], path *[]byte, start, end []byte, yield func(
 				return true
 			}
 			*path = append((*path)[:nodeLen], b)
-			if !iterateRange(r.children[slot-1], path, start, end, yield) {
+			if !iterateRange[V](r.children[slot-1], path, start, end, yield) {
 				*path = (*path)[:before]
 				return false
 			}
 		}
 		*path = (*path)[:before]
 		return true
-	case *node256[V]:
+	case *node256:
 		before := len(*path)
 		*path = append(*path, r.prefix...)
 		nodeLen := len(*path)
-		if r.terminal != nil && keyInRange((*path)[:nodeLen], start, end) {
-			if !yield(r.terminal.key, r.terminal.value) {
+		if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
+			if !yield(tl.key, tl.value) {
 				*path = (*path)[:before]
 				return false
 			}
@@ -228,7 +228,7 @@ func iterateRange[V any](n node[V], path *[]byte, start, end []byte, yield func(
 				return true
 			}
 			*path = append((*path)[:nodeLen], b)
-			if !iterateRange(child, path, start, end, yield) {
+			if !iterateRange[V](child, path, start, end, yield) {
 				*path = (*path)[:before]
 				return false
 			}

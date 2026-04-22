@@ -1068,13 +1068,13 @@ func rootKindOf[V any](tree *Tree[V]) string {
 	switch tree.root.(type) {
 	case *leaf[V]:
 		return "leaf"
-	case *node4[V]:
+	case *node4:
 		return "node4"
-	case *node16[V]:
+	case *node16:
 		return "node16"
-	case *node48[V]:
+	case *node48:
 		return "node48"
-	case *node256[V]:
+	case *node256:
 		return "node256"
 	default:
 		return "unknown"
@@ -1718,9 +1718,9 @@ func TestNode4ChildListOps(t *testing.T) {
 		c0 := newSentinelLeaf[int]("c0")
 		c1 := newSentinelLeaf[int]("c1")
 		c2 := newSentinelLeaf[int]("c2")
-		n := &node4[int]{
+		n := &node4{
 			keys:        [4]byte{10, 20, 30, 0},
-			children:    [4]node[int]{c0, c1, c2, nil},
+			children:    [4]node{c0, c1, c2, nil},
 			numChildren: 3,
 		}
 		nc := newSentinelLeaf[int]("new")
@@ -1742,9 +1742,9 @@ func TestNode4ChildListOps(t *testing.T) {
 		c1 := newSentinelLeaf[int]("c1")
 		c2 := newSentinelLeaf[int]("c2")
 		nc := newSentinelLeaf[int]("new")
-		n := &node4[int]{
+		n := &node4{
 			keys:        [4]byte{1, 2, 0, 0},
-			children:    [4]node[int]{c1, c2, nil, nil},
+			children:    [4]node{c1, c2, nil, nil},
 			numChildren: 2,
 		}
 		n.replaceChild(0, nc)
@@ -1761,9 +1761,9 @@ func TestNode4ChildListOps(t *testing.T) {
 	t.Run("removeChildOnAbsentZeroEdge", func(t *testing.T) {
 		c1 := newSentinelLeaf[int]("c1")
 		c2 := newSentinelLeaf[int]("c2")
-		n := &node4[int]{
+		n := &node4{
 			keys:        [4]byte{1, 2, 0, 0},
-			children:    [4]node[int]{c1, c2, nil, nil},
+			children:    [4]node{c1, c2, nil, nil},
 			numChildren: 2,
 		}
 		n.removeChild(0)
@@ -1786,7 +1786,7 @@ func TestNode16ChildListOps(t *testing.T) {
 		c0 := newSentinelLeaf[int]("c0")
 		c1 := newSentinelLeaf[int]("c1")
 		c2 := newSentinelLeaf[int]("c2")
-		n := &node16[int]{numChildren: 3}
+		n := &node16{numChildren: 3}
 		n.keys[0], n.keys[1], n.keys[2] = 10, 20, 30
 		n.children[0], n.children[1], n.children[2] = c0, c1, c2
 		nc := newSentinelLeaf[int]("new")
@@ -1808,7 +1808,7 @@ func TestNode16ChildListOps(t *testing.T) {
 		c1 := newSentinelLeaf[int]("c1")
 		c2 := newSentinelLeaf[int]("c2")
 		nc := newSentinelLeaf[int]("new")
-		n := &node16[int]{numChildren: 2}
+		n := &node16{numChildren: 2}
 		n.keys[0], n.keys[1] = 1, 2
 		n.children[0], n.children[1] = c1, c2
 		n.replaceChild(0, nc)
@@ -1827,7 +1827,7 @@ func TestNode16ChildListOps(t *testing.T) {
 	t.Run("removeChildOnAbsentZeroEdge", func(t *testing.T) {
 		c1 := newSentinelLeaf[int]("c1")
 		c2 := newSentinelLeaf[int]("c2")
-		n := &node16[int]{numChildren: 2}
+		n := &node16{numChildren: 2}
 		n.keys[0], n.keys[1] = 1, 2
 		n.children[0], n.children[1] = c1, c2
 		n.removeChild(0)
@@ -1851,7 +1851,7 @@ func TestNode48ReplaceChildSlot(t *testing.T) {
 	c5 := newSentinelLeaf[int]("c5")
 	c50 := newSentinelLeaf[int]("c50")
 	c200 := newSentinelLeaf[int]("c200")
-	n := &node48[int]{}
+	n := &node48{}
 	n.addChild(5, c5)
 	n.addChild(50, c50)
 	n.addChild(200, c200)
@@ -1883,7 +1883,7 @@ func TestNode48ReplaceChildSlot(t *testing.T) {
 		t.Fatalf("numChildren = %d, want 3", n.numChildren)
 	}
 
-	var snapshot [node48Capacity]node[int]
+	var snapshot [node48Capacity]node
 	for i := 0; i < node48Capacity; i++ {
 		snapshot[i] = n.children[i]
 	}
@@ -2051,7 +2051,7 @@ func TestPutTerminalOnNode16(t *testing.T) {
 	if got := rootKindOf(tree); got != "node16" {
 		t.Fatalf("rootKindOf = %q, want %q", got, "node16")
 	}
-	r := tree.root.(*node16[any])
+	r := tree.root.(*node16)
 	if !bytes.Equal(r.prefix, prefix) {
 		t.Fatalf("root prefix = %v, want %v", r.prefix, prefix)
 	}
@@ -2090,7 +2090,7 @@ func TestPutTerminalOnNode48(t *testing.T) {
 	if got := rootKindOf(tree); got != "node48" {
 		t.Fatalf("rootKindOf = %q, want %q", got, "node48")
 	}
-	r := tree.root.(*node48[any])
+	r := tree.root.(*node48)
 	if !bytes.Equal(r.prefix, prefix) {
 		t.Fatalf("root prefix = %v, want %v", r.prefix, prefix)
 	}
@@ -2129,7 +2129,7 @@ func TestPutTerminalOnNode256(t *testing.T) {
 	if got := rootKindOf(tree); got != "node256" {
 		t.Fatalf("rootKindOf = %q, want %q", got, "node256")
 	}
-	r := tree.root.(*node256[any])
+	r := tree.root.(*node256)
 	if !bytes.Equal(r.prefix, prefix) {
 		t.Fatalf("root prefix = %v, want %v", r.prefix, prefix)
 	}

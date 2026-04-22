@@ -11,7 +11,7 @@ import "bytes"
 // are equivalent (both represent the empty key).
 func (t *Tree[V]) Delete(key []byte) bool {
 	before := t.size
-	t.root = deleteFrom[V](t, t.root, key, 0)
+	t.root = deleteFrom(t, t.root, key, 0)
 	return t.size != before
 }
 
@@ -22,7 +22,7 @@ func (t *Tree[V]) Delete(key []byte) bool {
 // the *leaf case here for branching leaves); a "nothing changed"
 // signal is communicated by returning the same pointer that was
 // passed in.
-func deleteFrom[V any](t *Tree[V], current node[V], key []byte, depth int) node[V] {
+func deleteFrom[V any](t *Tree[V], current node, key []byte, depth int) node {
 	switch r := current.(type) {
 	case nil:
 		return nil
@@ -32,7 +32,7 @@ func deleteFrom[V any](t *Tree[V], current node[V], key []byte, depth int) node[
 			return nil
 		}
 		return r
-	case *node4[V]:
+	case *node4:
 		if pl := len(r.prefix); pl != 0 {
 			end := depth + pl
 			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
@@ -41,17 +41,17 @@ func deleteFrom[V any](t *Tree[V], current node[V], key []byte, depth int) node[
 			depth = end
 		}
 		if depth == len(key) {
-			if !clearTerminalIfMatches(t, &r.terminal, key) {
+			if !clearTerminalIfMatches[V](t, &r.terminal, key) {
 				return r
 			}
-			return postDeleteReshape[V](r)
+			return postDeleteReshape(r)
 		}
 		branch := key[depth]
 		child := r.findChild(branch)
 		if child == nil {
 			return r
 		}
-		newChild := deleteFrom[V](t, child, key, depth+1)
+		newChild := deleteFrom(t, child, key, depth+1)
 		if newChild == child {
 			return r
 		}
@@ -60,8 +60,8 @@ func deleteFrom[V any](t *Tree[V], current node[V], key []byte, depth int) node[
 		} else {
 			r.replaceChild(branch, newChild)
 		}
-		return postDeleteReshape[V](r)
-	case *node16[V]:
+		return postDeleteReshape(r)
+	case *node16:
 		if pl := len(r.prefix); pl != 0 {
 			end := depth + pl
 			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
@@ -70,17 +70,17 @@ func deleteFrom[V any](t *Tree[V], current node[V], key []byte, depth int) node[
 			depth = end
 		}
 		if depth == len(key) {
-			if !clearTerminalIfMatches(t, &r.terminal, key) {
+			if !clearTerminalIfMatches[V](t, &r.terminal, key) {
 				return r
 			}
-			return postDeleteReshape[V](r)
+			return postDeleteReshape(r)
 		}
 		branch := key[depth]
 		child := r.findChild(branch)
 		if child == nil {
 			return r
 		}
-		newChild := deleteFrom[V](t, child, key, depth+1)
+		newChild := deleteFrom(t, child, key, depth+1)
 		if newChild == child {
 			return r
 		}
@@ -89,8 +89,8 @@ func deleteFrom[V any](t *Tree[V], current node[V], key []byte, depth int) node[
 		} else {
 			r.replaceChild(branch, newChild)
 		}
-		return postDeleteReshape[V](r)
-	case *node48[V]:
+		return postDeleteReshape(r)
+	case *node48:
 		if pl := len(r.prefix); pl != 0 {
 			end := depth + pl
 			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
@@ -99,17 +99,17 @@ func deleteFrom[V any](t *Tree[V], current node[V], key []byte, depth int) node[
 			depth = end
 		}
 		if depth == len(key) {
-			if !clearTerminalIfMatches(t, &r.terminal, key) {
+			if !clearTerminalIfMatches[V](t, &r.terminal, key) {
 				return r
 			}
-			return postDeleteReshape[V](r)
+			return postDeleteReshape(r)
 		}
 		branch := key[depth]
 		child := r.findChild(branch)
 		if child == nil {
 			return r
 		}
-		newChild := deleteFrom[V](t, child, key, depth+1)
+		newChild := deleteFrom(t, child, key, depth+1)
 		if newChild == child {
 			return r
 		}
@@ -118,8 +118,8 @@ func deleteFrom[V any](t *Tree[V], current node[V], key []byte, depth int) node[
 		} else {
 			r.replaceChild(branch, newChild)
 		}
-		return postDeleteReshape[V](r)
-	case *node256[V]:
+		return postDeleteReshape(r)
+	case *node256:
 		if pl := len(r.prefix); pl != 0 {
 			end := depth + pl
 			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
@@ -128,17 +128,17 @@ func deleteFrom[V any](t *Tree[V], current node[V], key []byte, depth int) node[
 			depth = end
 		}
 		if depth == len(key) {
-			if !clearTerminalIfMatches(t, &r.terminal, key) {
+			if !clearTerminalIfMatches[V](t, &r.terminal, key) {
 				return r
 			}
-			return postDeleteReshape[V](r)
+			return postDeleteReshape(r)
 		}
 		branch := key[depth]
 		child := r.findChild(branch)
 		if child == nil {
 			return r
 		}
-		newChild := deleteFrom[V](t, child, key, depth+1)
+		newChild := deleteFrom(t, child, key, depth+1)
 		if newChild == child {
 			return r
 		}
@@ -147,7 +147,7 @@ func deleteFrom[V any](t *Tree[V], current node[V], key []byte, depth int) node[
 		} else {
 			r.replaceChild(branch, newChild)
 		}
-		return postDeleteReshape[V](r)
+		return postDeleteReshape(r)
 	}
 	return current
 }
@@ -159,9 +159,9 @@ func deleteFrom[V any](t *Tree[V], current node[V], key []byte, depth int) node[
 // node4 with exactly one child and no terminal collapses to that child
 // (a leaf replaces the node directly; an inner child absorbs the
 // parent's prefix and branch byte into its own prefix).
-func postDeleteReshape[V any](n innerNode[V]) node[V] {
+func postDeleteReshape(n innerNode) node {
 	switch m := n.(type) {
-	case *node256[V]:
+	case *node256:
 		if m.numChildren == 0 {
 			if m.terminal != nil {
 				return m.terminal
@@ -171,7 +171,7 @@ func postDeleteReshape[V any](n innerNode[V]) node[V] {
 		if m.numChildren == node48Capacity {
 			return shrinkToNode48(m)
 		}
-	case *node48[V]:
+	case *node48:
 		if m.numChildren == 0 {
 			if m.terminal != nil {
 				return m.terminal
@@ -181,7 +181,7 @@ func postDeleteReshape[V any](n innerNode[V]) node[V] {
 		if m.numChildren == node16Capacity {
 			return shrinkToNode16(m)
 		}
-	case *node16[V]:
+	case *node16:
 		if m.numChildren == 0 {
 			if m.terminal != nil {
 				return m.terminal
@@ -191,7 +191,7 @@ func postDeleteReshape[V any](n innerNode[V]) node[V] {
 		if m.numChildren == node4Capacity {
 			return shrinkToNode4(m)
 		}
-	case *node4[V]:
+	case *node4:
 		if m.numChildren == 0 {
 			if m.terminal != nil {
 				return m.terminal
@@ -200,10 +200,10 @@ func postDeleteReshape[V any](n innerNode[V]) node[V] {
 		}
 		if m.numChildren == 1 && m.terminal == nil {
 			only := m.children[0]
-			if leaf, isLeaf := only.(*leaf[V]); isLeaf {
-				return leaf
+			if only.kind() == kindLeaf {
+				return only
 			}
-			return mergePrefixIntoChild[V](m.prefix, m.keys[0], only.(innerNode[V]))
+			return mergePrefixIntoChild(m.prefix, m.keys[0], only.(innerNode))
 		}
 	}
 	return n
@@ -213,18 +213,18 @@ func postDeleteReshape[V any](n innerNode[V]) node[V] {
 // branchByte || child's old prefix and returns child for use as the
 // replacement of its collapsed parent. The merged slice is freshly
 // allocated so the parent's prefix backing array is not aliased.
-func mergePrefixIntoChild[V any](parentPrefix []byte, branchByte byte, child innerNode[V]) node[V] {
+func mergePrefixIntoChild(parentPrefix []byte, branchByte byte, child innerNode) node {
 	switch c := child.(type) {
-	case *node4[V]:
+	case *node4:
 		c.prefix = mergedPrefix(parentPrefix, branchByte, c.prefix)
 		return c
-	case *node16[V]:
+	case *node16:
 		c.prefix = mergedPrefix(parentPrefix, branchByte, c.prefix)
 		return c
-	case *node48[V]:
+	case *node48:
 		c.prefix = mergedPrefix(parentPrefix, branchByte, c.prefix)
 		return c
-	case *node256[V]:
+	case *node256:
 		c.prefix = mergedPrefix(parentPrefix, branchByte, c.prefix)
 		return c
 	}

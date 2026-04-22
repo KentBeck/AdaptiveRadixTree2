@@ -70,31 +70,31 @@ func (t *Tree[V]) Clear() {
 // n, or nil if the subtree is empty. A node's terminal (when set) is
 // the smallest key in its subtree: the shorter key sorts before any
 // longer key that extends the same prefix.
-func minLeafOf[V any](n node[V]) *leaf[V] {
+func minLeafOf[V any](n node) *leaf[V] {
 	for n != nil {
 		switch r := n.(type) {
 		case *leaf[V]:
 			return r
-		case *node4[V]:
-			if r.terminal != nil {
-				return r.terminal
+		case *node4:
+			if tl, ok := r.terminal.(*leaf[V]); ok {
+				return tl
 			}
 			n = r.children[0]
-		case *node16[V]:
-			if r.terminal != nil {
-				return r.terminal
+		case *node16:
+			if tl, ok := r.terminal.(*leaf[V]); ok {
+				return tl
 			}
 			n = r.children[0]
-		case *node48[V]:
-			if r.terminal != nil {
-				return r.terminal
+		case *node48:
+			if tl, ok := r.terminal.(*leaf[V]); ok {
+				return tl
 			}
-			n = firstChildOfNode48[V](r)
-		case *node256[V]:
-			if r.terminal != nil {
-				return r.terminal
+			n = firstChildOfNode48(r)
+		case *node256:
+			if tl, ok := r.terminal.(*leaf[V]); ok {
+				return tl
 			}
-			n = firstChildOfNode256[V](r)
+			n = firstChildOfNode256(r)
 		default:
 			return nil
 		}
@@ -107,34 +107,38 @@ func minLeafOf[V any](n node[V]) *leaf[V] {
 // following the highest-byte child at every inner node; a terminal,
 // when present, is always smaller than any child-extension and is used
 // only when the node has no children.
-func maxLeafOf[V any](n node[V]) *leaf[V] {
+func maxLeafOf[V any](n node) *leaf[V] {
 	for n != nil {
 		switch r := n.(type) {
 		case *leaf[V]:
 			return r
-		case *node4[V]:
+		case *node4:
 			if r.numChildren > 0 {
 				n = r.children[r.numChildren-1]
 			} else {
-				return r.terminal
+				tl, _ := r.terminal.(*leaf[V])
+				return tl
 			}
-		case *node16[V]:
+		case *node16:
 			if r.numChildren > 0 {
 				n = r.children[r.numChildren-1]
 			} else {
-				return r.terminal
+				tl, _ := r.terminal.(*leaf[V])
+				return tl
 			}
-		case *node48[V]:
-			if c := lastChildOfNode48[V](r); c != nil {
+		case *node48:
+			if c := lastChildOfNode48(r); c != nil {
 				n = c
 			} else {
-				return r.terminal
+				tl, _ := r.terminal.(*leaf[V])
+				return tl
 			}
-		case *node256[V]:
-			if c := lastChildOfNode256[V](r); c != nil {
+		case *node256:
+			if c := lastChildOfNode256(r); c != nil {
 				n = c
 			} else {
-				return r.terminal
+				tl, _ := r.terminal.(*leaf[V])
+				return tl
 			}
 		default:
 			return nil
@@ -145,7 +149,7 @@ func maxLeafOf[V any](n node[V]) *leaf[V] {
 
 // firstChildOfNode48 returns the child under the smallest occupied
 // edge byte of n, or nil if n has no children.
-func firstChildOfNode48[V any](n *node48[V]) node[V] {
+func firstChildOfNode48(n *node48) node {
 	for edge := 0; edge < 256; edge++ {
 		if slot := n.childIndex[byte(edge)]; slot != 0 {
 			return n.children[slot-1]
@@ -156,7 +160,7 @@ func firstChildOfNode48[V any](n *node48[V]) node[V] {
 
 // lastChildOfNode48 returns the child under the largest occupied edge
 // byte of n, or nil if n has no children.
-func lastChildOfNode48[V any](n *node48[V]) node[V] {
+func lastChildOfNode48(n *node48) node {
 	for edge := 255; edge >= 0; edge-- {
 		if slot := n.childIndex[byte(edge)]; slot != 0 {
 			return n.children[slot-1]
@@ -167,7 +171,7 @@ func lastChildOfNode48[V any](n *node48[V]) node[V] {
 
 // firstChildOfNode256 returns the child under the smallest occupied
 // edge byte of n, or nil if n has no children.
-func firstChildOfNode256[V any](n *node256[V]) node[V] {
+func firstChildOfNode256(n *node256) node {
 	for edge := 0; edge < 256; edge++ {
 		if c := n.children[edge]; c != nil {
 			return c
@@ -178,7 +182,7 @@ func firstChildOfNode256[V any](n *node256[V]) node[V] {
 
 // lastChildOfNode256 returns the child under the largest occupied
 // edge byte of n, or nil if n has no children.
-func lastChildOfNode256[V any](n *node256[V]) node[V] {
+func lastChildOfNode256(n *node256) node {
 	for edge := 255; edge >= 0; edge-- {
 		if c := n.children[edge]; c != nil {
 			return c
@@ -188,31 +192,37 @@ func lastChildOfNode256[V any](n *node256[V]) node[V] {
 }
 
 // innerPrefixTerminal returns the prefix and terminal of an inner
-// node. The second return is the terminal leaf (or nil).
-func innerPrefixTerminal[V any](n node[V]) ([]byte, *leaf[V]) {
+// node. The second return is the terminal leaf (or nil) after
+// asserting the node-interface terminal to *leaf[V].
+func innerPrefixTerminal[V any](n node) ([]byte, *leaf[V]) {
+	var tl *leaf[V]
 	switch r := n.(type) {
-	case *node4[V]:
-		return r.prefix, r.terminal
-	case *node16[V]:
-		return r.prefix, r.terminal
-	case *node48[V]:
-		return r.prefix, r.terminal
-	case *node256[V]:
-		return r.prefix, r.terminal
+	case *node4:
+		tl, _ = r.terminal.(*leaf[V])
+		return r.prefix, tl
+	case *node16:
+		tl, _ = r.terminal.(*leaf[V])
+		return r.prefix, tl
+	case *node48:
+		tl, _ = r.terminal.(*leaf[V])
+		return r.prefix, tl
+	case *node256:
+		tl, _ = r.terminal.(*leaf[V])
+		return r.prefix, tl
 	}
 	return nil, nil
 }
 
 // findInnerChild returns n's child under edge byte b, or nil.
-func findInnerChild[V any](n node[V], b byte) node[V] {
+func findInnerChild(n node, b byte) node {
 	switch r := n.(type) {
-	case *node4[V]:
+	case *node4:
 		return r.findChild(b)
-	case *node16[V]:
+	case *node16:
 		return r.findChild(b)
-	case *node48[V]:
+	case *node48:
 		return r.findChild(b)
-	case *node256[V]:
+	case *node256:
 		return r.findChild(b)
 	}
 	return nil
@@ -220,27 +230,27 @@ func findInnerChild[V any](n node[V], b byte) node[V] {
 
 // firstChildGT returns n's smallest child whose edge byte is strictly
 // greater than b, or nil if none exists.
-func firstChildGT[V any](n node[V], b byte) node[V] {
+func firstChildGT(n node, b byte) node {
 	switch r := n.(type) {
-	case *node4[V]:
+	case *node4:
 		for i := uint8(0); i < r.numChildren; i++ {
 			if r.keys[i] > b {
 				return r.children[i]
 			}
 		}
-	case *node16[V]:
+	case *node16:
 		for i := uint8(0); i < r.numChildren; i++ {
 			if r.keys[i] > b {
 				return r.children[i]
 			}
 		}
-	case *node48[V]:
+	case *node48:
 		for edge := int(b) + 1; edge < 256; edge++ {
 			if slot := r.childIndex[byte(edge)]; slot != 0 {
 				return r.children[slot-1]
 			}
 		}
-	case *node256[V]:
+	case *node256:
 		for edge := int(b) + 1; edge < 256; edge++ {
 			if c := r.children[edge]; c != nil {
 				return c
@@ -252,27 +262,27 @@ func firstChildGT[V any](n node[V], b byte) node[V] {
 
 // lastChildLT returns n's largest child whose edge byte is strictly
 // less than b, or nil if none exists.
-func lastChildLT[V any](n node[V], b byte) node[V] {
+func lastChildLT(n node, b byte) node {
 	switch r := n.(type) {
-	case *node4[V]:
+	case *node4:
 		for i := int(r.numChildren) - 1; i >= 0; i-- {
 			if r.keys[i] < b {
 				return r.children[i]
 			}
 		}
-	case *node16[V]:
+	case *node16:
 		for i := int(r.numChildren) - 1; i >= 0; i-- {
 			if r.keys[i] < b {
 				return r.children[i]
 			}
 		}
-	case *node48[V]:
+	case *node48:
 		for edge := int(b) - 1; edge >= 0; edge-- {
 			if slot := r.childIndex[byte(edge)]; slot != 0 {
 				return r.children[slot-1]
 			}
 		}
-	case *node256[V]:
+	case *node256:
 		for edge := int(b) - 1; edge >= 0; edge-- {
 			if c := r.children[edge]; c != nil {
 				return c
@@ -288,7 +298,7 @@ func lastChildLT[V any](n node[V], b byte) node[V] {
 // When target's bytes diverge from n's compressed prefix, the
 // divergent byte alone decides whether the whole subtree sorts above
 // target (Min of subtree is the answer) or below (no ceiling here).
-func ceilingLeafOf[V any](n node[V], target []byte, depth int) *leaf[V] {
+func ceilingLeafOf[V any](n node, target []byte, depth int) *leaf[V] {
 	switch r := n.(type) {
 	case nil:
 		return nil
@@ -320,15 +330,15 @@ func ceilingLeafOf[V any](n node[V], target []byte, depth int) *leaf[V] {
 		if terminal != nil {
 			return terminal
 		}
-		return minLeafOf[V](firstChildOfInner[V](n))
+		return minLeafOf[V](firstChildOfInner(n))
 	}
 	b := target[newDepth]
-	if child := findInnerChild[V](n, b); child != nil {
+	if child := findInnerChild(n, b); child != nil {
 		if result := ceilingLeafOf[V](child, target, newDepth+1); result != nil {
 			return result
 		}
 	}
-	if sib := firstChildGT[V](n, b); sib != nil {
+	if sib := firstChildGT(n, b); sib != nil {
 		return minLeafOf[V](sib)
 	}
 	return nil
@@ -340,7 +350,7 @@ func ceilingLeafOf[V any](n node[V], target []byte, depth int) *leaf[V] {
 // When target's bytes diverge from n's compressed prefix, the
 // divergent byte alone decides whether the whole subtree sorts above
 // target (no floor here) or below (Max of subtree is the answer).
-func floorLeafOf[V any](n node[V], target []byte, depth int) *leaf[V] {
+func floorLeafOf[V any](n node, target []byte, depth int) *leaf[V] {
 	switch r := n.(type) {
 	case nil:
 		return nil
@@ -372,32 +382,32 @@ func floorLeafOf[V any](n node[V], target []byte, depth int) *leaf[V] {
 		return terminal
 	}
 	b := target[newDepth]
-	if child := findInnerChild[V](n, b); child != nil {
+	if child := findInnerChild(n, b); child != nil {
 		if result := floorLeafOf[V](child, target, newDepth+1); result != nil {
 			return result
 		}
 	}
-	if sib := lastChildLT[V](n, b); sib != nil {
+	if sib := lastChildLT(n, b); sib != nil {
 		return maxLeafOf[V](sib)
 	}
 	return terminal
 }
 
 // firstChildOfInner returns n's smallest-edge child, or nil.
-func firstChildOfInner[V any](n node[V]) node[V] {
+func firstChildOfInner(n node) node {
 	switch r := n.(type) {
-	case *node4[V]:
+	case *node4:
 		if r.numChildren > 0 {
 			return r.children[0]
 		}
-	case *node16[V]:
+	case *node16:
 		if r.numChildren > 0 {
 			return r.children[0]
 		}
-	case *node48[V]:
-		return firstChildOfNode48[V](r)
-	case *node256[V]:
-		return firstChildOfNode256[V](r)
+	case *node48:
+		return firstChildOfNode48(r)
+	case *node256:
+		return firstChildOfNode256(r)
 	}
 	return nil
 }
@@ -406,48 +416,48 @@ func firstChildOfInner[V any](n node[V]) node[V] {
 // newly allocated (so child-slot writes on either copy do not affect
 // the other); leaves are freshly allocated with shared value semantics
 // and their key bytes copied through newLeaf.
-func cloneNode[V any](n node[V]) node[V] {
+func cloneNode[V any](n node) node {
 	switch r := n.(type) {
 	case nil:
 		return nil
 	case *leaf[V]:
 		return newLeaf(r.key, r.value)
-	case *node4[V]:
-		cp := &node4[V]{prefix: r.prefix, keys: r.keys, numChildren: r.numChildren}
-		if r.terminal != nil {
-			cp.terminal = newLeaf(r.terminal.key, r.terminal.value)
+	case *node4:
+		cp := &node4{prefix: r.prefix, keys: r.keys, numChildren: r.numChildren}
+		if tl, ok := r.terminal.(*leaf[V]); ok {
+			cp.terminal = newLeaf(tl.key, tl.value)
 		}
 		for i := uint8(0); i < r.numChildren; i++ {
 			cp.children[i] = cloneNode[V](r.children[i])
 		}
 		return cp
-	case *node16[V]:
-		cp := &node16[V]{prefix: r.prefix, keys: r.keys, numChildren: r.numChildren}
-		if r.terminal != nil {
-			cp.terminal = newLeaf(r.terminal.key, r.terminal.value)
+	case *node16:
+		cp := &node16{prefix: r.prefix, keys: r.keys, numChildren: r.numChildren}
+		if tl, ok := r.terminal.(*leaf[V]); ok {
+			cp.terminal = newLeaf(tl.key, tl.value)
 		}
 		for i := uint8(0); i < r.numChildren; i++ {
 			cp.children[i] = cloneNode[V](r.children[i])
 		}
 		return cp
-	case *node48[V]:
-		cp := &node48[V]{
+	case *node48:
+		cp := &node48{
 			prefix:      r.prefix,
 			childIndex:  r.childIndex,
 			childEdge:   r.childEdge,
 			numChildren: r.numChildren,
 		}
-		if r.terminal != nil {
-			cp.terminal = newLeaf(r.terminal.key, r.terminal.value)
+		if tl, ok := r.terminal.(*leaf[V]); ok {
+			cp.terminal = newLeaf(tl.key, tl.value)
 		}
 		for i := uint8(0); i < r.numChildren; i++ {
 			cp.children[i] = cloneNode[V](r.children[i])
 		}
 		return cp
-	case *node256[V]:
-		cp := &node256[V]{prefix: r.prefix, numChildren: r.numChildren}
-		if r.terminal != nil {
-			cp.terminal = newLeaf(r.terminal.key, r.terminal.value)
+	case *node256:
+		cp := &node256{prefix: r.prefix, numChildren: r.numChildren}
+		if tl, ok := r.terminal.(*leaf[V]); ok {
+			cp.terminal = newLeaf(tl.key, tl.value)
 		}
 		for edge := 0; edge < 256; edge++ {
 			if r.children[edge] != nil {

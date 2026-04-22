@@ -15,7 +15,7 @@ func (t *Tree[V]) Put(key []byte, value V) {
 // putInto returns the (possibly replaced) subtree root. Size
 // accounting lives in [Tree.insertLeaf]: every fresh-leaf allocation
 // bumps t.size, so recursion only needs to return the new subtree.
-func putInto[V any](t *Tree[V], current node[V], key []byte, value V, depth int) node[V] {
+func putInto[V any](t *Tree[V], current node, key []byte, value V, depth int) node {
 	if current == nil {
 		return t.insertLeaf(key, value)
 	}
@@ -26,40 +26,40 @@ func putInto[V any](t *Tree[V], current node[V], key []byte, value V, depth int)
 			return r
 		}
 		return newNode4With(t, r, key, value, depth)
-	case *node4[V]:
+	case *node4:
 		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
 		if splitPoint < len(r.prefix) {
 			shared := r.prefix[:splitPoint]
 			oldBranch := r.prefix[splitPoint]
 			r.prefix = r.prefix[splitPoint+1:]
-			return splitPrefixedInner[V](t, r, oldBranch, shared, key, value, depth, splitPoint)
+			return splitPrefixedInner(t, r, oldBranch, shared, key, value, depth, splitPoint)
 		}
 		return putIntoNode4(t, r, key, value, depth+len(r.prefix))
-	case *node16[V]:
+	case *node16:
 		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
 		if splitPoint < len(r.prefix) {
 			shared := r.prefix[:splitPoint]
 			oldBranch := r.prefix[splitPoint]
 			r.prefix = r.prefix[splitPoint+1:]
-			return splitPrefixedInner[V](t, r, oldBranch, shared, key, value, depth, splitPoint)
+			return splitPrefixedInner(t, r, oldBranch, shared, key, value, depth, splitPoint)
 		}
 		return putIntoNode16(t, r, key, value, depth+len(r.prefix))
-	case *node48[V]:
+	case *node48:
 		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
 		if splitPoint < len(r.prefix) {
 			shared := r.prefix[:splitPoint]
 			oldBranch := r.prefix[splitPoint]
 			r.prefix = r.prefix[splitPoint+1:]
-			return splitPrefixedInner[V](t, r, oldBranch, shared, key, value, depth, splitPoint)
+			return splitPrefixedInner(t, r, oldBranch, shared, key, value, depth, splitPoint)
 		}
 		return putIntoNode48(t, r, key, value, depth+len(r.prefix))
-	case *node256[V]:
+	case *node256:
 		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
 		if splitPoint < len(r.prefix) {
 			shared := r.prefix[:splitPoint]
 			oldBranch := r.prefix[splitPoint]
 			r.prefix = r.prefix[splitPoint+1:]
-			return splitPrefixedInner[V](t, r, oldBranch, shared, key, value, depth, splitPoint)
+			return splitPrefixedInner(t, r, oldBranch, shared, key, value, depth, splitPoint)
 		}
 		return putIntoNode256(t, r, key, value, depth+len(r.prefix))
 	}
@@ -72,10 +72,10 @@ func putInto[V any](t *Tree[V], current node[V], key []byte, value V, depth int)
 // switch on the child at key[depth]: absent → add/grow; leaf same
 // key → overwrite; leaf different key → nested node4; inner node →
 // recurse.
-func putIntoNode4[V any](t *Tree[V], r *node4[V], key []byte, value V, depth int) node[V] {
+func putIntoNode4[V any](t *Tree[V], r *node4, key []byte, value V, depth int) node {
 	if depth == len(key) {
 		if r.terminal != nil {
-			r.terminal.value = value
+			r.terminal.(*leaf[V]).value = value
 			return r
 		}
 		r.terminal = t.insertLeaf(key, value)
@@ -100,10 +100,10 @@ func putIntoNode4[V any](t *Tree[V], r *node4[V], key []byte, value V, depth int
 
 // putIntoNode16 mirrors putIntoNode4 at node16 capacity. r.prefix has
 // already been consumed from key by the caller.
-func putIntoNode16[V any](t *Tree[V], r *node16[V], key []byte, value V, depth int) node[V] {
+func putIntoNode16[V any](t *Tree[V], r *node16, key []byte, value V, depth int) node {
 	if depth == len(key) {
 		if r.terminal != nil {
-			r.terminal.value = value
+			r.terminal.(*leaf[V]).value = value
 			return r
 		}
 		r.terminal = t.insertLeaf(key, value)
@@ -129,7 +129,7 @@ func putIntoNode16[V any](t *Tree[V], r *node16[V], key []byte, value V, depth i
 // node4AddOrGrow adds child under edge byte b, growing to a node16
 // when r is already full. The grown node16 inherits r's prefix and
 // terminal.
-func node4AddOrGrow[V any](r *node4[V], b byte, child node[V]) node[V] {
+func node4AddOrGrow(r *node4, b byte, child node) node {
 	if r.numChildren < node4Capacity {
 		r.addChild(b, child)
 		return r
@@ -142,7 +142,7 @@ func node4AddOrGrow[V any](r *node4[V], b byte, child node[V]) node[V] {
 // node16AddOrGrow adds child under edge byte b, growing to a node48
 // when r is already full. The grown node48 inherits r's prefix and
 // terminal.
-func node16AddOrGrow[V any](r *node16[V], b byte, child node[V]) node[V] {
+func node16AddOrGrow(r *node16, b byte, child node) node {
 	if r.numChildren < node16Capacity {
 		r.insertChild(b, child)
 		return r
@@ -154,10 +154,10 @@ func node16AddOrGrow[V any](r *node16[V], b byte, child node[V]) node[V] {
 
 // putIntoNode48 mirrors putIntoNode4 at node48 capacity. r.prefix has
 // already been consumed from key by the caller.
-func putIntoNode48[V any](t *Tree[V], r *node48[V], key []byte, value V, depth int) node[V] {
+func putIntoNode48[V any](t *Tree[V], r *node48, key []byte, value V, depth int) node {
 	if depth == len(key) {
 		if r.terminal != nil {
-			r.terminal.value = value
+			r.terminal.(*leaf[V]).value = value
 			return r
 		}
 		r.terminal = t.insertLeaf(key, value)
@@ -182,10 +182,10 @@ func putIntoNode48[V any](t *Tree[V], r *node48[V], key []byte, value V, depth i
 
 // putIntoNode256 mirrors putIntoNode4 at node256 capacity. r.prefix has
 // already been consumed from key by the caller.
-func putIntoNode256[V any](t *Tree[V], r *node256[V], key []byte, value V, depth int) node[V] {
+func putIntoNode256[V any](t *Tree[V], r *node256, key []byte, value V, depth int) node {
 	if depth == len(key) {
 		if r.terminal != nil {
-			r.terminal.value = value
+			r.terminal.(*leaf[V]).value = value
 			return r
 		}
 		r.terminal = t.insertLeaf(key, value)
@@ -212,7 +212,7 @@ func putIntoNode256[V any](t *Tree[V], r *node256[V], key []byte, value V, depth
 // node48AddOrGrow adds child under edge byte b, growing to a node256
 // when r is already full. The grown node256 inherits r's prefix and
 // terminal.
-func node48AddOrGrow[V any](r *node48[V], b byte, child node[V]) node[V] {
+func node48AddOrGrow(r *node48, b byte, child node) node {
 	if r.numChildren < node48Capacity {
 		r.addChild(b, child)
 		return r

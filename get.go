@@ -17,7 +17,7 @@ func (t *Tree[V]) Get(key []byte) (value V, ok bool) {
 				return n.value, true
 			}
 			return zero, false
-		case *node4[V]:
+		case *node4:
 			if pl := len(n.prefix); pl != 0 {
 				end := depth + pl
 				if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
@@ -26,14 +26,14 @@ func (t *Tree[V]) Get(key []byte) (value V, ok bool) {
 				depth = end
 			}
 			if depth == len(key) {
-				if n.terminal != nil && bytes.Equal(n.terminal.key, key) {
-					return n.terminal.value, true
+				if tl, ok := n.terminal.(*leaf[V]); ok && bytes.Equal(tl.key, key) {
+					return tl.value, true
 				}
 				return zero, false
 			}
 			current = n.findChild(key[depth])
 			depth++
-		case *node16[V]:
+		case *node16:
 			if pl := len(n.prefix); pl != 0 {
 				end := depth + pl
 				if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
@@ -42,14 +42,14 @@ func (t *Tree[V]) Get(key []byte) (value V, ok bool) {
 				depth = end
 			}
 			if depth == len(key) {
-				if n.terminal != nil && bytes.Equal(n.terminal.key, key) {
-					return n.terminal.value, true
+				if tl, ok := n.terminal.(*leaf[V]); ok && bytes.Equal(tl.key, key) {
+					return tl.value, true
 				}
 				return zero, false
 			}
 			current = n.findChild(key[depth])
 			depth++
-		case *node48[V]:
+		case *node48:
 			if pl := len(n.prefix); pl != 0 {
 				end := depth + pl
 				if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
@@ -58,14 +58,14 @@ func (t *Tree[V]) Get(key []byte) (value V, ok bool) {
 				depth = end
 			}
 			if depth == len(key) {
-				if n.terminal != nil && bytes.Equal(n.terminal.key, key) {
-					return n.terminal.value, true
+				if tl, ok := n.terminal.(*leaf[V]); ok && bytes.Equal(tl.key, key) {
+					return tl.value, true
 				}
 				return zero, false
 			}
 			current = n.findChild(key[depth])
 			depth++
-		case *node256[V]:
+		case *node256:
 			if pl := len(n.prefix); pl != 0 {
 				end := depth + pl
 				if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
@@ -74,8 +74,8 @@ func (t *Tree[V]) Get(key []byte) (value V, ok bool) {
 				depth = end
 			}
 			if depth == len(key) {
-				if n.terminal != nil && bytes.Equal(n.terminal.key, key) {
-					return n.terminal.value, true
+				if tl, ok := n.terminal.(*leaf[V]); ok && bytes.Equal(tl.key, key) {
+					return tl.value, true
 				}
 				return zero, false
 			}
