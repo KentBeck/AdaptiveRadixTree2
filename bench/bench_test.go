@@ -1,4 +1,4 @@
-package art
+package bench
 
 import (
 	"bytes"
@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	art "github.com/KentBeck/AdaptiveRadixTree2"
 	"github.com/google/btree"
 )
 
@@ -37,7 +38,7 @@ var (
 	keysOnce  sync.Once
 
 	artOnce sync.Once
-	artBig  *Tree[int]
+	artBig  *art.Tree[int]
 
 	btOnce sync.Once
 	btBig  *btree.BTreeG[kv]
@@ -68,10 +69,10 @@ func initKeys() {
 	})
 }
 
-func getArtBig() *Tree[int] {
+func getArtBig() *art.Tree[int] {
 	initKeys()
 	artOnce.Do(func() {
-		t := New[int]()
+		t := art.New[int]()
 		for i := 0; i < benchN; i++ {
 			t.Put(benchKeys[i], i)
 		}
@@ -103,7 +104,7 @@ func BenchmarkPut_ART(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		t := New[int]()
+		t := art.New[int]()
 		for i := 0; i < benchN; i++ {
 			t.Put(benchKeys[i], i)
 		}
@@ -173,7 +174,7 @@ func BenchmarkDelete_ART(b *testing.B) {
 	b.ReportAllocs()
 	for n := 0; n < b.N; n++ {
 		b.StopTimer()
-		t := New[int]()
+		t := art.New[int]()
 		for i := 0; i < benchN; i++ {
 			t.Put(benchKeys[i], i)
 		}

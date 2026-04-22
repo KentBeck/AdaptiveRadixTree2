@@ -1,6 +1,10 @@
 # art — Adaptive Radix Tree for Go
 
+[![test](https://github.com/KentBeck/AdaptiveRadixTree2/actions/workflows/test.yml/badge.svg)](https://github.com/KentBeck/AdaptiveRadixTree2/actions/workflows/test.yml)
+
 A sorted map implementation using an Adaptive Radix Tree (ART). Fast lookups, path compression, and sorted iteration with Go 1.23 range-over-func.
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 The ulterior goals of this project are to get the genie to write code that is:
 - Fast
