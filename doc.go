@@ -53,4 +53,7 @@
 //
 //	t.Delete([]byte("apple"))
 //	_ = t.Len() // 2
+//
+// See CHANGELOG.md at the repository root for version-to-version
+// changes and release notes.
 package art
