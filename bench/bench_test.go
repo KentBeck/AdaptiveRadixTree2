@@ -237,3 +237,75 @@ func BenchmarkRange_BTree(b *testing.B) {
 	}
 	perKey(b, rangeN)
 }
+
+// --- RangeDescending: reverse in-order scan of the same window ---
+
+func BenchmarkRangeDescending_ART(b *testing.B) {
+	t := getArtBig()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		count := 0
+		for range t.RangeDescending(rangeLo, rangeHi) {
+			count++
+		}
+		if count != rangeN {
+			b.Fatalf("ranged %d, want %d", count, rangeN)
+		}
+	}
+	perKey(b, rangeN)
+}
+
+func BenchmarkRangeDescending_BTree(b *testing.B) {
+	t := getBtBig()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		count := 0
+		t.DescendRange(kv{k: rangeHi}, kv{k: rangeLo}, func(_ kv) bool {
+			count++
+			return true
+		})
+		if count != rangeN {
+			b.Fatalf("ranged %d, want %d", count, rangeN)
+		}
+	}
+	perKey(b, rangeN)
+}
+
+// --- RangeFrom: open-ended scan from start to the end of the tree ---
+
+func BenchmarkRangeFrom_ART(b *testing.B) {
+	t := getArtBig()
+	wantCount := benchN - rangeLoV
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		count := 0
+		for range t.RangeFrom(rangeLo) {
+			count++
+		}
+		if count != wantCount {
+			b.Fatalf("ranged %d, want %d", count, wantCount)
+		}
+	}
+	perKey(b, wantCount)
+}
+
+func BenchmarkRangeFrom_BTree(b *testing.B) {
+	t := getBtBig()
+	wantCount := benchN - rangeLoV
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		count := 0
+		t.AscendGreaterOrEqual(kv{k: rangeLo}, func(_ kv) bool {
+			count++
+			return true
+		})
+		if count != wantCount {
+			b.Fatalf("ranged %d, want %d", count, wantCount)
+		}
+	}
+	perKey(b, wantCount)
+}

@@ -2715,3 +2715,459 @@ func TestNilAndEmptyKeyAreSameEntry(t *testing.T) {
 		t.Fatal("Get(nil) after Delete should miss")
 	}
 }
+
+// --- Descending iteration + open-ended ranges ----------------------
+
+func TestAllDescendingEmptyTreeYieldsNothing(t *testing.T) {
+	tree := New[int]()
+	count := 0
+	for range tree.AllDescending() {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("empty tree yielded %d pairs, want 0", count)
+	}
+}
+
+func TestAllDescendingYieldsSingleKey(t *testing.T) {
+	tree := New[int]()
+	tree.Put([]byte("apple"), 1)
+	var gotKeys []string
+	var gotVals []int
+	for k, v := range tree.AllDescending() {
+		gotKeys = append(gotKeys, string(k))
+		gotVals = append(gotVals, v)
+	}
+	if len(gotKeys) != 1 || gotKeys[0] != "apple" || gotVals[0] != 1 {
+		t.Fatalf("got %v / %v, want [apple] / [1]", gotKeys, gotVals)
+	}
+}
+
+func TestAllDescendingYieldsReverseOfAll(t *testing.T) {
+	tree := New[int]()
+	inserted := []string{"", "a", "ap", "apple", "application", "apricot", "banana", "z", "zoo"}
+	for _, s := range inserted {
+		tree.Put([]byte(s), 0)
+	}
+	for i := 0; i < 260; i++ {
+		tree.Put([]byte{'k', byte(i % 256), byte(i / 256)}, 0)
+	}
+
+	var asc []string
+	for k := range tree.All() {
+		asc = append(asc, string(k))
+	}
+	var desc []string
+	for k := range tree.AllDescending() {
+		desc = append(desc, string(k))
+	}
+	if len(asc) != len(desc) {
+		t.Fatalf("lengths differ: asc=%d desc=%d", len(asc), len(desc))
+	}
+	for i := range asc {
+		if asc[i] != desc[len(desc)-1-i] {
+			t.Fatalf("position %d: asc=%q desc-rev=%q", i, asc[i], desc[len(desc)-1-i])
+		}
+	}
+}
+
+func TestAllDescendingYieldsTerminalAfterChildren(t *testing.T) {
+	tree := New[int]()
+	tree.Put([]byte("ap"), 1)
+	tree.Put([]byte("apple"), 2)
+	tree.Put([]byte("apricot"), 3)
+	var keys []string
+	for k := range tree.AllDescending() {
+		keys = append(keys, string(k))
+	}
+	want := []string{"apricot", "apple", "ap"}
+	if !reflect.DeepEqual(keys, want) {
+		t.Fatalf("got %v, want %v", keys, want)
+	}
+}
+
+func TestAllDescendingEarlyTermination(t *testing.T) {
+	tree := New[int]()
+	for _, s := range []string{"a", "b", "c", "d", "e"} {
+		tree.Put([]byte(s), 0)
+	}
+	var keys []string
+	for k := range tree.AllDescending() {
+		keys = append(keys, string(k))
+		if string(k) == "c" {
+			break
+		}
+	}
+	want := []string{"e", "d", "c"}
+	if !reflect.DeepEqual(keys, want) {
+		t.Fatalf("got %v, want %v", keys, want)
+	}
+}
+
+func TestAllDescendingAcrossInnerNodeTypes(t *testing.T) {
+	prefix := []byte("common-prefix/")
+	cases := []struct {
+		name       string
+		childCount int
+	}{
+		{"node4", 3},
+		{"node16", 10},
+		{"node48", 30},
+		{"node256", 100},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tree, keys := buildInnerNode(t, prefix, tc.childCount, true)
+			sortedAsc := make([][]byte, len(keys))
+			for i, k := range keys {
+				sortedAsc[i] = bytes.Clone(k)
+			}
+			sort.Slice(sortedAsc, func(i, j int) bool { return bytes.Compare(sortedAsc[i], sortedAsc[j]) < 0 })
+
+			var got [][]byte
+			for k := range tree.AllDescending() {
+				got = append(got, bytes.Clone(k))
+			}
+			if len(got) != len(sortedAsc) {
+				t.Fatalf("got %d keys, want %d", len(got), len(sortedAsc))
+			}
+			for i := range got {
+				want := sortedAsc[len(sortedAsc)-1-i]
+				if !bytes.Equal(got[i], want) {
+					t.Fatalf("pos %d: got %q want %q", i, got[i], want)
+				}
+			}
+		})
+	}
+}
+
+func TestRangeFromEmptyTree(t *testing.T) {
+	tree := New[int]()
+	count := 0
+	for range tree.RangeFrom([]byte("a")) {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("RangeFrom on empty yielded %d, want 0", count)
+	}
+}
+
+func TestRangeFromIncludesStartKey(t *testing.T) {
+	tree := New[int]()
+	for _, s := range []string{"a", "b", "c", "d", "e"} {
+		tree.Put([]byte(s), 0)
+	}
+	var got []string
+	for k := range tree.RangeFrom([]byte("c")) {
+		got = append(got, string(k))
+	}
+	want := []string{"c", "d", "e"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestRangeFromNilStartEqualsAll(t *testing.T) {
+	tree := New[int]()
+	for _, s := range []string{"", "ap", "apple", "banana", "z"} {
+		tree.Put([]byte(s), 0)
+	}
+	var all, got []string
+	for k := range tree.All() {
+		all = append(all, string(k))
+	}
+	for k := range tree.RangeFrom(nil) {
+		got = append(got, string(k))
+	}
+	if !reflect.DeepEqual(got, all) {
+		t.Fatalf("RangeFrom(nil)=%v, All=%v", got, all)
+	}
+}
+
+func TestRangeFromStartAfterAllKeys(t *testing.T) {
+	tree := New[int]()
+	for _, s := range []string{"a", "b", "c"} {
+		tree.Put([]byte(s), 0)
+	}
+	count := 0
+	for range tree.RangeFrom([]byte("z")) {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("RangeFrom(z) yielded %d, want 0", count)
+	}
+}
+
+func TestRangeFromAcrossInnerNodeTypes(t *testing.T) {
+	prefix := []byte("p/")
+	cases := []struct {
+		name       string
+		childCount int
+	}{
+		{"node4", 3},
+		{"node16", 10},
+		{"node48", 30},
+		{"node256", 100},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tree, keys := buildInnerNode(t, prefix, tc.childCount, true)
+			sortedKeys := make([][]byte, len(keys))
+			for i, k := range keys {
+				sortedKeys[i] = bytes.Clone(k)
+			}
+			sort.Slice(sortedKeys, func(i, j int) bool { return bytes.Compare(sortedKeys[i], sortedKeys[j]) < 0 })
+			start := sortedKeys[len(sortedKeys)/2]
+
+			var want [][]byte
+			for _, k := range sortedKeys {
+				if bytes.Compare(k, start) >= 0 {
+					want = append(want, k)
+				}
+			}
+			var got [][]byte
+			for k := range tree.RangeFrom(start) {
+				got = append(got, bytes.Clone(k))
+			}
+			if len(got) != len(want) {
+				t.Fatalf("got %d want %d", len(got), len(want))
+			}
+			for i := range want {
+				if !bytes.Equal(got[i], want[i]) {
+					t.Fatalf("pos %d: got %q want %q", i, got[i], want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestRangeToEmptyTree(t *testing.T) {
+	tree := New[int]()
+	count := 0
+	for range tree.RangeTo([]byte("z")) {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("RangeTo on empty yielded %d, want 0", count)
+	}
+}
+
+func TestRangeToExcludesEndKey(t *testing.T) {
+	tree := New[int]()
+	for _, s := range []string{"a", "b", "c", "d", "e"} {
+		tree.Put([]byte(s), 0)
+	}
+	var got []string
+	for k := range tree.RangeTo([]byte("c")) {
+		got = append(got, string(k))
+	}
+	want := []string{"a", "b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestRangeToNilEndEqualsAll(t *testing.T) {
+	tree := New[int]()
+	for _, s := range []string{"", "a", "ap", "apple", "z"} {
+		tree.Put([]byte(s), 0)
+	}
+	var all, got []string
+	for k := range tree.All() {
+		all = append(all, string(k))
+	}
+	for k := range tree.RangeTo(nil) {
+		got = append(got, string(k))
+	}
+	if !reflect.DeepEqual(got, all) {
+		t.Fatalf("RangeTo(nil)=%v, All=%v", got, all)
+	}
+}
+
+func TestRangeDescendingEmptyTree(t *testing.T) {
+	tree := New[int]()
+	count := 0
+	for range tree.RangeDescending([]byte("a"), []byte("z")) {
+		count++
+	}
+	if count != 0 {
+		t.Fatalf("RangeDescending on empty yielded %d, want 0", count)
+	}
+}
+
+func TestRangeDescendingSingleton(t *testing.T) {
+	tree := New[int]()
+	tree.Put([]byte("m"), 7)
+	var got []string
+	for k := range tree.RangeDescending(nil, nil) {
+		got = append(got, string(k))
+	}
+	if !reflect.DeepEqual(got, []string{"m"}) {
+		t.Fatalf("got %v want [m]", got)
+	}
+	got = nil
+	for k := range tree.RangeDescending([]byte("a"), []byte("z")) {
+		got = append(got, string(k))
+	}
+	if !reflect.DeepEqual(got, []string{"m"}) {
+		t.Fatalf("bounded got %v want [m]", got)
+	}
+	// Outside range.
+	got = nil
+	for k := range tree.RangeDescending([]byte("n"), nil) {
+		got = append(got, string(k))
+	}
+	if len(got) != 0 {
+		t.Fatalf("RangeDescending(n, nil) got %v, want empty", got)
+	}
+}
+
+func TestRangeDescendingHalfOpenBounds(t *testing.T) {
+	tree := New[int]()
+	for _, s := range []string{"apple", "apricot", "banana", "blueberry", "cherry"} {
+		tree.Put([]byte(s), 0)
+	}
+	var got []string
+	for k := range tree.RangeDescending([]byte("apricot"), []byte("cherry")) {
+		got = append(got, string(k))
+	}
+	want := []string{"blueberry", "banana", "apricot"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestRangeDescendingNilBounds(t *testing.T) {
+	tree := New[int]()
+	for _, s := range []string{"a", "b", "c", "d"} {
+		tree.Put([]byte(s), 0)
+	}
+	var all []string
+	for k := range tree.AllDescending() {
+		all = append(all, string(k))
+	}
+	var both []string
+	for k := range tree.RangeDescending(nil, nil) {
+		both = append(both, string(k))
+	}
+	if !reflect.DeepEqual(all, both) {
+		t.Fatalf("RangeDescending(nil,nil)=%v, AllDescending=%v", both, all)
+	}
+
+	var nilStart []string
+	for k := range tree.RangeDescending(nil, []byte("c")) {
+		nilStart = append(nilStart, string(k))
+	}
+	if !reflect.DeepEqual(nilStart, []string{"b", "a"}) {
+		t.Fatalf("RangeDescending(nil, c)=%v, want [b a]", nilStart)
+	}
+
+	var nilEnd []string
+	for k := range tree.RangeDescending([]byte("b"), nil) {
+		nilEnd = append(nilEnd, string(k))
+	}
+	if !reflect.DeepEqual(nilEnd, []string{"d", "c", "b"}) {
+		t.Fatalf("RangeDescending(b, nil)=%v, want [d c b]", nilEnd)
+	}
+}
+
+func TestRangeDescendingStartGEEndIsEmpty(t *testing.T) {
+	tree := New[int]()
+	for _, s := range []string{"a", "b", "c"} {
+		tree.Put([]byte(s), 0)
+	}
+	for _, bounds := range []struct{ s, e string }{
+		{"b", "b"},
+		{"c", "a"},
+	} {
+		count := 0
+		for range tree.RangeDescending([]byte(bounds.s), []byte(bounds.e)) {
+			count++
+		}
+		if count != 0 {
+			t.Fatalf("RangeDescending(%s,%s) yielded %d, want 0", bounds.s, bounds.e, count)
+		}
+	}
+}
+
+func TestRangeDescendingHandlesPrefixAndTerminal(t *testing.T) {
+	tree := New[int]()
+	for _, s := range []string{"ap", "apple", "application", "apricot", "banana"} {
+		tree.Put([]byte(s), 0)
+	}
+	var got []string
+	for k := range tree.RangeDescending([]byte("ap"), []byte("apricot")) {
+		got = append(got, string(k))
+	}
+	want := []string{"application", "apple", "ap"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestRangeDescendingEarlyTermination(t *testing.T) {
+	tree := New[int]()
+	for _, s := range []string{"a", "b", "c", "d", "e"} {
+		tree.Put([]byte(s), 0)
+	}
+	var got []string
+	for k := range tree.RangeDescending([]byte("a"), []byte("e")) {
+		got = append(got, string(k))
+		if string(k) == "c" {
+			break
+		}
+	}
+	want := []string{"d", "c"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestRangeDescendingAcrossInnerNodeTypes(t *testing.T) {
+	prefix := []byte("p/")
+	cases := []struct {
+		name       string
+		childCount int
+	}{
+		{"node4", 3},
+		{"node16", 10},
+		{"node48", 30},
+		{"node256", 100},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tree, keys := buildInnerNode(t, prefix, tc.childCount, true)
+			sortedKeys := make([][]byte, len(keys))
+			for i, k := range keys {
+				sortedKeys[i] = bytes.Clone(k)
+			}
+			sort.Slice(sortedKeys, func(i, j int) bool { return bytes.Compare(sortedKeys[i], sortedKeys[j]) < 0 })
+			start := sortedKeys[len(sortedKeys)/4]
+			end := sortedKeys[3*len(sortedKeys)/4]
+
+			var want [][]byte
+			for _, k := range sortedKeys {
+				if bytes.Compare(k, start) >= 0 && bytes.Compare(k, end) < 0 {
+					want = append(want, k)
+				}
+			}
+			// Reverse want.
+			for i, j := 0, len(want)-1; i < j; i, j = i+1, j-1 {
+				want[i], want[j] = want[j], want[i]
+			}
+
+			var got [][]byte
+			for k := range tree.RangeDescending(start, end) {
+				got = append(got, bytes.Clone(k))
+			}
+			if len(got) != len(want) {
+				t.Fatalf("got %d want %d", len(got), len(want))
+			}
+			for i := range want {
+				if !bytes.Equal(got[i], want[i]) {
+					t.Fatalf("pos %d: got %q want %q", i, got[i], want[i])
+				}
+			}
+		})
+	}
+}

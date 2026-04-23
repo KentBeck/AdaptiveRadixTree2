@@ -20,18 +20,22 @@ import (
 // tests cannot exhaust by hand.
 
 const (
-	fuzzOpPut     byte = 0
-	fuzzOpGet     byte = 1
-	fuzzOpDelete  byte = 2
-	fuzzOpAll     byte = 3
-	fuzzOpRange   byte = 4
-	fuzzOpMin     byte = 5
-	fuzzOpMax     byte = 6
-	fuzzOpCeiling byte = 7
-	fuzzOpFloor   byte = 8
-	fuzzOpClone   byte = 9
-	fuzzOpClear   byte = 10
-	fuzzOpCount        = 11
+	fuzzOpPut             byte = 0
+	fuzzOpGet             byte = 1
+	fuzzOpDelete          byte = 2
+	fuzzOpAll             byte = 3
+	fuzzOpRange           byte = 4
+	fuzzOpMin             byte = 5
+	fuzzOpMax             byte = 6
+	fuzzOpCeiling         byte = 7
+	fuzzOpFloor           byte = 8
+	fuzzOpClone           byte = 9
+	fuzzOpClear           byte = 10
+	fuzzOpAllDescending   byte = 11
+	fuzzOpRangeDescending byte = 12
+	fuzzOpRangeFrom       byte = 13
+	fuzzOpRangeTo         byte = 14
+	fuzzOpCount                = 15
 
 	fuzzMaxOps      = 1000
 	fuzzKeyLenMask  = 0x07 // keys are 0..7 bytes long
@@ -75,6 +79,14 @@ func (r opRecord) String() string {
 		return "Clone()"
 	case fuzzOpClear:
 		return "Clear()"
+	case fuzzOpAllDescending:
+		return "AllDescending()"
+	case fuzzOpRangeDescending:
+		return fmt.Sprintf("RangeDescending(%s, %s)", fuzzBoundString(r.start, r.startNil), fuzzBoundString(r.end, r.endNil))
+	case fuzzOpRangeFrom:
+		return fmt.Sprintf("RangeFrom(%s)", fuzzBoundString(r.start, r.startNil))
+	case fuzzOpRangeTo:
+		return fmt.Sprintf("RangeTo(%s)", fuzzBoundString(r.end, r.endNil))
 	}
 	return fmt.Sprintf("unknown(%d)", r.code)
 }
@@ -273,6 +285,49 @@ func runFuzzOps(t *testing.T, data []byte) {
 			}
 			assertLen(t, tree, oracle, log)
 			checkDrainAll(t, tree, oracle, log)
+		case fuzzOpAllDescending:
+			log = append(log, opRecord{code: code})
+			checkDrainAllDescending(t, tree, oracle, log)
+		case fuzzOpRangeDescending:
+			start, startNil, ok := cur.readBound()
+			if !ok {
+				return
+			}
+			end, endNil, ok := cur.readBound()
+			if !ok {
+				return
+			}
+			log = append(log, opRecord{code: code, start: start, end: end, startNil: startNil, endNil: endNil})
+			var s, e []byte
+			if !startNil {
+				s = start
+			}
+			if !endNil {
+				e = end
+			}
+			checkRangeDescending(t, tree, oracle, s, e, log)
+		case fuzzOpRangeFrom:
+			start, startNil, ok := cur.readBound()
+			if !ok {
+				return
+			}
+			log = append(log, opRecord{code: code, start: start, startNil: startNil})
+			var s []byte
+			if !startNil {
+				s = start
+			}
+			checkRangeFrom(t, tree, oracle, s, log)
+		case fuzzOpRangeTo:
+			end, endNil, ok := cur.readBound()
+			if !ok {
+				return
+			}
+			log = append(log, opRecord{code: code, end: end, endNil: endNil})
+			var e []byte
+			if !endNil {
+				e = end
+			}
+			checkRangeTo(t, tree, oracle, e, log)
 		}
 	}
 }
@@ -316,6 +371,72 @@ func checkRange(t *testing.T, tree *Tree[byte], oracle map[string]byte, start, e
 		gotVals = append(gotVals, v)
 	}
 	label := fmt.Sprintf("Range(%s, %s)", fuzzBoundString(start, start == nil), fuzzBoundString(end, end == nil))
+	assertSortedKV(t, label, got, gotVals, want, oracle, log)
+}
+
+// checkDrainAllDescending asserts Tree.AllDescending yields exactly
+// the oracle's keys in byte-wise descending order, with matching
+// values.
+func checkDrainAllDescending(t *testing.T, tree *Tree[byte], oracle map[string]byte, log []opRecord) {
+	t.Helper()
+	assertLen(t, tree, oracle, log)
+	want := oracleReversedKeys(oracle)
+	var got []string
+	var gotVals []byte
+	for k, v := range tree.AllDescending() {
+		got = append(got, string(k))
+		gotVals = append(gotVals, v)
+	}
+	assertSortedKV(t, "AllDescending()", got, gotVals, want, oracle, log)
+}
+
+// checkRangeDescending asserts Tree.RangeDescending(start, end) yields
+// exactly the oracle keys in [start, end) in byte-wise descending
+// order, with matching values.
+func checkRangeDescending(t *testing.T, tree *Tree[byte], oracle map[string]byte, start, end []byte, log []opRecord) {
+	t.Helper()
+	assertLen(t, tree, oracle, log)
+	ascending := oracleRange(oracle, start, end)
+	want := reverseStrings(ascending)
+	var got []string
+	var gotVals []byte
+	for k, v := range tree.RangeDescending(start, end) {
+		got = append(got, string(k))
+		gotVals = append(gotVals, v)
+	}
+	label := fmt.Sprintf("RangeDescending(%s, %s)", fuzzBoundString(start, start == nil), fuzzBoundString(end, end == nil))
+	assertSortedKV(t, label, got, gotVals, want, oracle, log)
+}
+
+// checkRangeFrom asserts Tree.RangeFrom(start) behaves as
+// Tree.Range(start, nil) and matches the oracle.
+func checkRangeFrom(t *testing.T, tree *Tree[byte], oracle map[string]byte, start []byte, log []opRecord) {
+	t.Helper()
+	assertLen(t, tree, oracle, log)
+	want := oracleRange(oracle, start, nil)
+	var got []string
+	var gotVals []byte
+	for k, v := range tree.RangeFrom(start) {
+		got = append(got, string(k))
+		gotVals = append(gotVals, v)
+	}
+	label := fmt.Sprintf("RangeFrom(%s)", fuzzBoundString(start, start == nil))
+	assertSortedKV(t, label, got, gotVals, want, oracle, log)
+}
+
+// checkRangeTo asserts Tree.RangeTo(end) behaves as Tree.Range(nil,
+// end) and matches the oracle.
+func checkRangeTo(t *testing.T, tree *Tree[byte], oracle map[string]byte, end []byte, log []opRecord) {
+	t.Helper()
+	assertLen(t, tree, oracle, log)
+	want := oracleRange(oracle, nil, end)
+	var got []string
+	var gotVals []byte
+	for k, v := range tree.RangeTo(end) {
+		got = append(got, string(k))
+		gotVals = append(gotVals, v)
+	}
+	label := fmt.Sprintf("RangeTo(%s)", fuzzBoundString(end, end == nil))
 	assertSortedKV(t, label, got, gotVals, want, oracle, log)
 }
 
@@ -470,6 +591,22 @@ func oracleSortedKeys(oracle map[string]byte) []string {
 	return keys
 }
 
+// oracleReversedKeys returns the oracle's keys in byte-wise descending
+// order.
+func oracleReversedKeys(oracle map[string]byte) []string {
+	return reverseStrings(oracleSortedKeys(oracle))
+}
+
+// reverseStrings returns a new slice with the same elements as in but
+// in reverse order.
+func reverseStrings(in []string) []string {
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[len(in)-1-i] = s
+	}
+	return out
+}
+
 // oracleRange returns oracle keys in [start, end), sorted. A nil bound
 // is unbounded on that side. If start >= end (both non-nil) the result
 // is empty - Tree.Range returns nothing in that case.
@@ -514,6 +651,7 @@ func addFuzzSeeds(f *testing.F) {
 	f.Add(seedRangeBounds())
 	f.Add(seedSortedNav())
 	f.Add(seedCloneClear())
+	f.Add(seedDescendingOps())
 }
 
 // --- seed builders ---
@@ -533,11 +671,12 @@ func (s *seedBuf) del(key []byte) {
 	s.b = append(s.b, fuzzOpDelete, byte(len(key)))
 	s.b = append(s.b, key...)
 }
-func (s *seedBuf) all()   { s.b = append(s.b, fuzzOpAll) }
-func (s *seedBuf) min()   { s.b = append(s.b, fuzzOpMin) }
-func (s *seedBuf) max()   { s.b = append(s.b, fuzzOpMax) }
-func (s *seedBuf) clone() { s.b = append(s.b, fuzzOpClone) }
-func (s *seedBuf) clear() { s.b = append(s.b, fuzzOpClear) }
+func (s *seedBuf) all()           { s.b = append(s.b, fuzzOpAll) }
+func (s *seedBuf) allDescending() { s.b = append(s.b, fuzzOpAllDescending) }
+func (s *seedBuf) min()           { s.b = append(s.b, fuzzOpMin) }
+func (s *seedBuf) max()           { s.b = append(s.b, fuzzOpMax) }
+func (s *seedBuf) clone()         { s.b = append(s.b, fuzzOpClone) }
+func (s *seedBuf) clear()         { s.b = append(s.b, fuzzOpClear) }
 func (s *seedBuf) ceiling(key []byte, isNil bool) {
 	s.b = append(s.b, fuzzOpCeiling)
 	s.appendBound(key, isNil)
@@ -549,6 +688,19 @@ func (s *seedBuf) floor(key []byte, isNil bool) {
 func (s *seedBuf) rangeOp(start, end []byte, startNil, endNil bool) {
 	s.b = append(s.b, fuzzOpRange)
 	s.appendBound(start, startNil)
+	s.appendBound(end, endNil)
+}
+func (s *seedBuf) rangeDescending(start, end []byte, startNil, endNil bool) {
+	s.b = append(s.b, fuzzOpRangeDescending)
+	s.appendBound(start, startNil)
+	s.appendBound(end, endNil)
+}
+func (s *seedBuf) rangeFrom(start []byte, startNil bool) {
+	s.b = append(s.b, fuzzOpRangeFrom)
+	s.appendBound(start, startNil)
+}
+func (s *seedBuf) rangeTo(end []byte, endNil bool) {
+	s.b = append(s.b, fuzzOpRangeTo)
 	s.appendBound(end, endNil)
 }
 func (s *seedBuf) appendBound(key []byte, isNil bool) {
@@ -678,5 +830,35 @@ func seedCloneClear() []byte {
 	s.clone()
 	s.clear()
 	s.clear()
+	return s.b
+}
+
+// seedDescendingOps exercises AllDescending / RangeDescending /
+// RangeFrom / RangeTo across empty, singleton, and multi-level shapes
+// with terminal keys and nil-bound variants.
+func seedDescendingOps() []byte {
+	var s seedBuf
+	s.allDescending()
+	s.rangeDescending(nil, nil, true, true)
+	s.put([]byte{5}, 5)
+	s.allDescending()
+	s.rangeDescending([]byte{0}, []byte{6}, false, false)
+	for i := byte(0); i < 8; i++ {
+		s.put([]byte{i}, i)
+	}
+	s.put([]byte{1, 2}, 12)
+	s.put([]byte{1, 2, 3}, 123)
+	s.put([]byte{1, 2, 4}, 124)
+	s.allDescending()
+	s.rangeDescending(nil, nil, true, true)
+	s.rangeDescending([]byte{2}, []byte{6}, false, false)
+	s.rangeDescending(nil, []byte{4}, true, false)
+	s.rangeDescending([]byte{3}, nil, false, true)
+	s.rangeDescending([]byte{5}, []byte{5}, false, false)
+	s.rangeDescending([]byte{6}, []byte{2}, false, false)
+	s.rangeFrom([]byte{3}, false)
+	s.rangeFrom(nil, true)
+	s.rangeTo([]byte{4}, false)
+	s.rangeTo(nil, true)
 	return s.b
 }
