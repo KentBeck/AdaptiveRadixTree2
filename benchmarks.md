@@ -1,6 +1,6 @@
 # ART vs google/btree — 10M-element benchmark
 
-*Last measured at commit `d8df19e` (post-v0.4.1; node interface de-parameterised so V lives only on `Tree[V]` and `leaf[V]`).*
+*Last measured at commit `0f4234f`. The main 10M table and Key-shape sub-table below are carried forward from `d8df19e` and remain representative — nothing on the hot-path `Tree[V]` Put / Get / Delete / Range was edited in the intervening 9 commits (the changes are doc-only plus the new `artmap` subpackage and `LockedTree` wrapper). The **New-surface microbenchmarks** section below was measured fresh at `0f4234f`.*
 
 **Comparator:** `github.com/google/btree` v1.1.3 (4.1k stars, most-imported B-tree in Go; used by etcd/k8s-adjacent tooling), degree 32 (library default), generics form `BTreeG[kv]`.
 
@@ -85,6 +85,49 @@ Read the table as a map of where ART's costs live:
 
 B-tree equivalents are intentionally omitted from this table — the point here is to characterize *ART's* internal sensitivity. Rerun the harness against a `BTreeG[kv]` in your own workload if you need the direct per-shape comparison.
 
+## New-surface microbenchmarks
+
+The following numbers characterize three pieces of surface area that ship alongside the core `Tree[V]`: the extra `Range` shapes (descending and half-open), the `LockedTree` RWMutex wrapper, and the `artmap.Ordered` typed encoder subpackage. All three tables were measured fresh at `0f4234f` with `-benchtime=1s -count=3` (median reported) on the same darwin/amd64 host as the main table.
+
+### Range shape: descending and half-open
+
+Measured from the nested `bench/` module at the same 10M working set used by the main table. Ascending `Range` is reproduced here as the reference row.
+
+| Bench | ns/op | ns/key | B/op | allocs/op | Keys yielded |
+| --- | --- | --- | --- | --- | --- |
+| `BenchmarkRange_ART` (ascending, 1 % window) | 1,762,460 | 17.62 | 32 | 1 | 100,000 |
+| `BenchmarkRangeDescending_ART` (same window, reversed) | 1,820,001 | 18.20 | 32 | 1 | 100,000 |
+| `BenchmarkRangeFrom_ART` (half-open: start → end of tree) | 82,685,491 | 16.54 | 32 | 1 | ~5,000,000 |
+
+`BenchmarkRangeTo_ART` is not present in the suite — only `RangeFrom` has a dedicated bench today. If you need a `RangeTo`-shaped (start-of-tree → bound) number, add the bench; the public method exists, the harness row does not.
+
+Descending iteration pays roughly 3 % over ascending at the same window — the iterator spends one extra node-visit step on each descent but the per-yielded-key cost (18.20 vs 17.62 ns/key) is within measurement noise of the forward path. `RangeFrom` yields ~5M keys from the midpoint of the 10M tree and actually comes in slightly *cheaper* per-key (16.54 ns/key) than the short window, because the one-time descent cost amortizes over a much larger yield. All three shapes match the main-table allocation profile: a single 32-byte path buffer per scan, with keys aliased into the tree's own storage.
+
+### LockedTree overhead
+
+Measured from the root module's `art_test.go`. Both sub-benchmarks run single-goroutine so the lock path is exercised but never contended; the numbers isolate the pure `sync.RWMutex` lock-path cost from the underlying tree work. Working set is a 1024-entry 2-byte-key cycle, so both the bare and wrapped trees stay warm in L1.
+
+| Op | `Tree[V]` ns/op | `LockedTree[V]` ns/op | Δ (ns/op, uncontended) |
+| --- | --- | --- | --- |
+| Put | 12.92 | 17.22 | +4.30 |
+| Get | 9.09 | 10.61 | +1.52 |
+
+Uncontended overhead is about 4.3 ns per Put and 1.5 ns per Get — a single Lock/Unlock pair on the fast path. At this tiny working set the underlying tree is already in the 9–13 ns range so the *relative* cost looks steep (~33 % on Put, ~17 % on Get); against the main-table 10M working set (Put 162 ns/op, Get 53 ns/op) the same absolute overhead would shrink to ~3 %. Contended behaviour — what happens when multiple goroutines actually fight for the lock — is not characterized here; the RWMutex-guarded wrapper behaves as a standard Go `sync.RWMutex` under load and should be profiled against your real reader/writer mix before adopting.
+
+### artmap.Ordered encoder overhead
+
+Measured from the `artmap/` subpackage. Typed `artmap.Ordered[int64, int]` is compared against raw `art.Tree[int]` with hand-rolled big-endian `int64` encoding, at a 10K-key working set.
+
+| Op | `art.Tree[int]` (raw, []byte keys) | `artmap.Ordered[int64,int]` | Δ |
+| --- | --- | --- | --- |
+| Put (full 10K-key build) | 490,996 ns/op (49.10 ns/key) | 537,888 ns/op (53.79 ns/key) | +46,892 ns/build (+4.69 ns/key) |
+| Get (per op) | 12.23 ns/op | 14.84 ns/op | +2.61 ns/op |
+| Range (full `[-1<<62, 1<<62)` scan) | 125,632 ns/op (32 B, 1 alloc) | 134,356 ns/op (168 B, 7 allocs) | +8,724 ns/scan (+136 B, +6 allocs) |
+
+`artmap` ships no standalone `BenchmarkOrderedDelete` / `BenchmarkTreeDelete` today — Delete is unbenched in the subpackage, so it is not covered in this table. Flagging as a gap for a follow-up bench PR rather than writing a new bench under this doc-only task.
+
+The encoder adds ~4.7 ns/Put, ~2.6 ns/Get, and ~0.9 ns per yielded key on Range — the cost of one `binary.BigEndian.PutUint64` with a sign-bit flip on each operation, plus (on the Range path) a small decoded-key slice that pushes the scan from a single 32-byte allocation to 168 B across 7 allocations. Net guidance: if your workload is already in `[]byte` keys, the raw `art.Tree` is marginally cheaper; if you're starting from `int64` / `string` / other Go-native ordered types, `artmap.Ordered` saves the hand-written encode/decode at a cost small relative to a single allocation per op.
+
 ## Caveats / what these numbers don't cover
 
 1. **Key shape.** 8-byte keys from a permutation of `[0, 10M)` have shallow common prefixes. See the Key-shape sensitivity section above for how Put / Get / Delete / Range costs change across `seqInt64`, `randInt64`, `uuid`, and `urlPath` workloads; in particular, longer keys slow ART's point ops down in absolute terms (an `urlPath` Get is ~3.7× slower than a `seqInt64` Get at 100K).
@@ -107,7 +150,15 @@ Each benchmark is run 3 times; the main table reports the median of the 3 reps p
 (cd bench && go test -run=^$ -bench=BenchmarkKeyShape -benchmem -benchtime=1s -count=1 ./...)
 ```
 
-To run everything at once (~3 minutes), use `-bench=.` in place of either regex.
+The New-surface microbenchmarks live in three different modules and use three separate commands:
+
+```
+(cd bench && go test -run=^$ -bench='^Benchmark(Range|RangeDescending|RangeFrom)_ART$' -benchmem -benchtime=1s -count=3 ./...)
+go test -run=^$ -bench='^BenchmarkLockedTree(Put|Get)$' -benchmem -benchtime=1s -count=3 .
+(cd artmap && go test -run=^$ -bench='^Benchmark(Ordered|Tree)(Put|Get|Range)_int64$' -benchmem -benchtime=1s -count=3 ./...)
+```
+
+To run everything at once (~3 minutes), use `-bench=.` in place of either main-table regex.
 
 ## Environment (as measured)
 
