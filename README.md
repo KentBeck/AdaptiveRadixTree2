@@ -113,6 +113,31 @@ func main() {
 - A `terminal` leaf at an inner node has a key equal to that node's full path from the root.
 - After `Delete`, a node with 0 children and no terminal is removed; a node with exactly 1 remaining child collapses (terminal-only, leaf-only, or prefix-merge into its sole child).
 
+## When to choose artmap
+
+This project ships two related types: the raw-bytes `art.Tree` and the typed façade [`artmap.Ordered[K, V]`](artmap/ordered.go) built on top of it. Both are in-memory ordered maps with one clear sweet spot and two honest trade-offs against `google/btree`. Full numbers live in [benchmarks.md](benchmarks.md); the short guidance is below.
+
+If your keys are a single `cmp.Ordered` type (integers, floats, strings) rather than raw `[]byte`, reach for `artmap.Ordered[K, V]`: it uses byte-order-preserving encoders so the underlying tree preserves the natural ascending order of `K` without the caller hand-encoding keys.
+
+| Workload shape | Recommended |
+| --- | --- |
+| Point-heavy reads / writes (cache, dedup, lookup, set-membership) | `art.Tree` / `artmap.Ordered` |
+| Short random-access lookups on long or UUID-shaped keys | `art.Tree` / `artmap.Ordered` |
+| Large ordered scans or windowed pagination (scan-heavy) | `google/btree` |
+| Heavy mutation under GC pressure (tight alloc budget) | `google/btree` |
+| Small dataset (< 10k keys) | Either — pick on language fit |
+| Mostly-ordered iteration with occasional point ops | `google/btree` |
+
+**The Range trade-off.** On short ordered scans (the 1 %, 100k-entry window in the bench), `google/btree` is ~1.74× faster than `art.Tree`. Both are essentially zero-alloc on the scan, so the gap is pure traversal cost: the ART descent pays to locate the start and then walks through mostly-empty inner structure relative to the span it yields. `Range`, `RangeFrom`, `RangeTo`, `RangeDescending`, and `AllDescending` cover the common ordered-iteration shapes, but if ordered scans dominate your workload, `google/btree` is still the right pick.
+
+**The allocation trade-off.** `Put` on `art.Tree` averages ~1.02 allocs/key at 10M; `google/btree` averages ~0.07 allocs/key — about 15× fewer allocations per key at build time. Under heavy GC pressure or on memory-tight hosts, the allocation count matters more than the ~25 % byte-total difference.
+
+### Quality
+
+- CI: the [`test` workflow](https://github.com/KentBeck/AdaptiveRadixTree2/actions/workflows/test.yml) (badge at the top of this README) runs build, vet, staticcheck, unit tests, and a short fuzz campaign on every push.
+- Fuzz corpus: [`testdata/fuzz/FuzzSortedMap`](testdata/fuzz/FuzzSortedMap); cumulative executions have exceeded 45M across campaigns with zero divergences against the `map[string]V` + sorted-oracle reference.
+- Mutation testing: ~95 % measured efficacy under `gremlins` (100 % of killable mutants at the v0.1.0 baseline; see [`CHANGELOG.md`](CHANGELOG.md) for per-release figures).
+
 ## Testing
 
 ```sh
