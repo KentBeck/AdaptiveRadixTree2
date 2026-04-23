@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `Tree[V]` descending iteration and open-ended range methods: `AllDescending`, `RangeFrom`, `RangeTo`, `RangeDescending`.
+- `artmap` subpackage exposing `Ordered[K cmp.Ordered, V any]`, a typed sorted-map façade over byte-keyed ART with order-preserving encoders for the `cmp.Ordered` types. Encoder overhead on int64 keys: +2.6 ns/op (Put), +2.5 ns/op (Get), +1.3 ns/op (Delete).
+- `art.LockedTree[V]`: a `sync.RWMutex` wrapper exposing `Put`, `Get`, `Delete`, `Len`, `Clear`, and `Clone`. Uncontended `Get` overhead ~0.8 ns/op.
+
+### Performance
+- De-parameterised the internal node interface so that `V` appears only on `Tree[V]` and the leaf. `Delete` (bulk 10M, 8-byte keys): −39 ns/key (~34 % faster). `Get` (hit, 10M, 8-byte keys): +8.5 ns/op regression, attributed to the extra pointer word in the terminal slot promoting `node4` into the 128-byte allocator size class.
+
+### Documented
+- `benchmarks.md` expanded with three-column-per-engine tables (ns/op · B/op · allocs/op) and a key-shape sensitivity section covering `seqInt64` / `randInt64` / `uuid` / `urlPath`.
+
 ### Stability
 - README now carries a `## Stability` section enumerating the exported surface of both packages that will be frozen at v1.0 and committing to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) from that tag forward. Target for v1.0.0 is no earlier than 2026-07-23.
 
