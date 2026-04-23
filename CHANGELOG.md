@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-04-23
 
 ### Added
 - `Tree[V]` descending iteration and open-ended range methods: `AllDescending`, `RangeFrom`, `RangeTo`, `RangeDescending`.
@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `art.LockedTree[V]`: a `sync.RWMutex` wrapper exposing `Put`, `Get`, `Delete`, `Len`, `Clear`, and `Clone`. Uncontended `Get` overhead ~0.8 ns/op.
 
 ### Performance
-- De-parameterised the internal node interface so that `V` appears only on `Tree[V]` and the leaf. `Delete` (bulk 10M, 8-byte keys): −39 ns/key (~34 % faster). `Get` (hit, 10M, 8-byte keys): +8.5 ns/op regression, attributed to the extra pointer word in the terminal slot promoting `node4` into the 128-byte allocator size class.
+- De-parameterised the internal node interface so that `V` appears only on `Tree[V]` and the leaf. `Delete` (bulk 10M, 8-byte keys): −39 ns/key (~34 % faster). `Get` (hit, 10M, 8-byte keys) showed a +8.5 ns/op regression at landing (`d8df19e`), but investigation (findings note `2a29d2a7`) attributed the gap to code-layout / i-cache sensitivity rather than the node-interface shape; the regression self-healed across subsequent layout-affecting commits. Re-measured at the release commit, `Get` is 43.68 ns/op — at parity with (slightly below) the pre-E-D2 baseline.
 
 ### Documented
 - `benchmarks.md` expanded with three-column-per-engine tables (ns/op · B/op · allocs/op) and a key-shape sensitivity section covering `seqInt64` / `randInt64` / `uuid` / `urlPath`.
@@ -67,7 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `example_test.go` with six verified examples.
 - Package documentation (`doc.go`) and goroutine-safety contract on `Tree`.
 
-[Unreleased]: https://github.com/KentBeck/AdaptiveRadixTree2/compare/v0.4.1...HEAD
+[0.5.0]: https://github.com/KentBeck/AdaptiveRadixTree2/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/KentBeck/AdaptiveRadixTree2/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/KentBeck/AdaptiveRadixTree2/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/KentBeck/AdaptiveRadixTree2/compare/v0.2.0...v0.3.0

@@ -1,6 +1,6 @@
 # ART vs google/btree — 10M-element benchmark
 
-*Last measured at commit `0f4234f`. The main 10M table and Key-shape sub-table below are carried forward from `d8df19e` and remain representative — nothing on the hot-path `Tree[V]` Put / Get / Delete / Range was edited in the intervening 9 commits (the changes are doc-only plus the new `artmap` subpackage and `LockedTree` wrapper). The **New-surface microbenchmarks** section below was measured fresh at `0f4234f`.*
+*Last measured at commit `5129766` (HEAD). The main 10M Per-operation table below was measured fresh at `5129766` (`-benchtime=3s -count=5`, median of 5 reps; raw output at `/tmp/v0.5.0-bench/bench.txt`). The Key-shape sub-table is carried forward from `d8df19e` and remains representative — nothing on the hot-path `Tree[V]` Put / Get / Delete / Range has been edited in the intervening commits (the changes are doc-only plus the `artmap` subpackage, the `LockedTree` wrapper, and the de-parameterised node interface). The **New-surface microbenchmarks** section below was measured fresh at `0f4234f` and remains representative for the same reason.*
 
 **Comparator:** `github.com/google/btree` v1.1.3 (4.1k stars, most-imported B-tree in Go; used by etcd/k8s-adjacent tooling), degree 32 (library default), generics form `BTreeG[kv]`.
 
@@ -16,13 +16,13 @@ Throughput **and** allocation cost are reported side-by-side so a careful reader
 
 | Operation | ART ns/op | ART B/op | ART allocs/op | B-tree ns/op | B-tree B/op | B-tree allocs/op | Faster |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Put (per key, 10M build) | 161.8 | 89.4 | 1.016 | 748.3 | 71.4 | 0.069 | ART 4.6× |
-| Get hit (per lookup) | 52.74 | 0 | 0 | 908.6 | 0 | 0 | ART 17.2× |
-| Get miss (per lookup) | 8.22 | 0 | 0 | 120.3 | 0 | 0 | ART 14.6× |
-| Delete (per key, 10M) | 77.70 | 6.27 | 0.012 | 836.1 | 0.73 | ~4e-4 | ART 10.8× |
-| Range (1 %, 100K scan) | 19.25 ns/key | 32 B/scan | 1 alloc/scan | 10.24 ns/key | 0 B/scan | 0 allocs/scan | B-tree 1.9× |
+| Put (per key, 10M build) | 154.1 | 89.4 | 1.016 | 748.3 | 71.4 | 0.069 | ART 4.9× |
+| Get hit (per lookup) | 43.68 | 0 | 0 | 908.6 | 0 | 0 | ART 20.8× |
+| Get miss (per lookup) | 6.97 | 0 | 0 | 120.3 | 0 | 0 | ART 17.3× |
+| Delete (per key, 10M) | 75.97 | 6.27 | 0.012 | 836.1 | 0.73 | ~4e-4 | ART 11.0× |
+| Range (1 %, 100K scan) | 19.54 ns/key | 32 B/scan | 1 alloc/scan | 10.24 ns/key | 0 B/scan | 0 allocs/scan | B-tree 1.9× |
 
-*All rows measured with *`-benchtime=1s -count=3`* (median of 3 reps) on the nested `bench/` module. For Put and Delete, B/op and allocs/op are per-key (divide the raw bench counter by `benchN=10_000_000`). For Range, ns/op is normalized per key yielded while B/op and allocs/op remain per full 100K-entry scan. Put's 10M-key inner loop runs 1 time per rep at this benchtime. Delete's setup is excluded via *`b.StopTimer()`*/*`b.StartTimer()`*, giving 2 clean delete iterations per rep for ART and 1 for B-tree.*
+*ART rows measured with *`-benchtime=3s -count=5`* (median of 5 reps) on the nested `bench/` module at commit `5129766`. B-tree rows are carried forward from the prior `-benchtime=1s -count=3` pass at `d8df19e` — the B-tree comparator was not edited in the intervening commits. For Put and Delete, B/op and allocs/op are per-key (divide the raw bench counter by `benchN=10_000_000`). For Range, ns/op is normalized per key yielded while B/op and allocs/op remain per full 100K-entry scan. Delete's setup is excluded via *`b.StopTimer()`*/*`b.StartTimer()`*.*
 
 ## Memory (one 10M-element tree, from Put benchmark)
 
@@ -44,7 +44,7 @@ B-tree uses ~20 % less memory overall and ~15× fewer allocations at build time 
 
 **Supports production use for point-operation-heavy workloads.**
 
-At 10M entries with 8-byte random keys, ART is 4.6–17× faster than the most popular Go B-tree on Put, Get (hit), Get (miss), and Delete. Get (hit) at 52.74 ns/op is ~17× faster, and Get (miss) at 8.22 ns/op is ~15× faster because mismatches can be resolved after one or two node visits. Delete at 77.70 ns/key on the de-parameterised node interface is materially faster than the 115.3 ns/key baseline that motivated PR #7, and has closed most of the remaining gap against the pre-generics baseline (70.0 ns/key) tracked for future work.
+At 10M entries with 8-byte random keys, ART is 4.9–21× faster than the most popular Go B-tree on Put, Get (hit), Get (miss), and Delete. Get (hit) at 43.68 ns/op is ~21× faster, and Get (miss) at 6.97 ns/op is ~17× faster because mismatches can be resolved after one or two node visits. Delete at 75.97 ns/key on the de-parameterised node interface is materially faster than the 115.3 ns/key baseline that motivated PR #7, and has closed most of the remaining gap against the pre-generics baseline (70.0 ns/key) tracked for future work.
 
 **Still slower on short-range scans, though no longer catastrophically so.**
 
@@ -79,7 +79,7 @@ ART's speed and memory cost depend on the shape of the key distribution — how 
 Read the table as a map of where ART's costs live:
 
 - **Put / Get / Delete widen by ~3–4× from seqInt64 to urlPath.** Longer keys mean deeper traversal, more prefix comparisons on each inner node, and more memory per leaf.
-- **Get is remarkably cheap on short dense keys** (12.55 ns/op on seqInt64) — tighter than the random-8-byte main bench (52.74 ns/op) because the dense-prefix tree fits more nicely in cache at 100K.
+- **Get is remarkably cheap on short dense keys** (12.55 ns/op on seqInt64) — tighter than the random-8-byte main bench (43.68 ns/op) because the dense-prefix tree fits more nicely in cache at 100K.
 - **Memory per key scales with key length, not with entropy.** seqInt64 and randInt64 both pay ~89 B/key; uuid jumps to ~123 B/key; urlPath to ~162 B/key.
 - **Range cost is shape-stable** at 16–24 ns/key and always exactly one 32-byte allocation per scan (the path buffer used for pruning). Longer-key shapes add a small constant for the deeper tree descent but the per-key yield cost is flat.
 
