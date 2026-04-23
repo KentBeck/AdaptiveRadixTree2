@@ -168,6 +168,35 @@ for k, v := range snap.All() { /* safe: snap is not shared */ _, _ = k, v }
 
 Copy-on-write, lock-free, and RCU variants are out of scope for this release; `LockedTree` is the supported concurrent surface.
 
+## Stability
+
+art is pre-1.0 (currently v0.4.x). Until v1.0.0 is tagged, the public API may change in minor-version bumps; patch releases stay API-compatible. The target for tagging **v1.0.0 is no earlier than 2026-07-23**, giving the recent additions (the typed `artmap.Ordered[K, V]` façade, the descending and half-open `Range*` helpers, and the `LockedTree[V]` wrapper) time to settle before the signatures are locked down.
+
+From v1.0 onward the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html): breaking changes to the surface listed below only land in a new major version.
+
+**Frozen at v1.0.** The exported surface of both packages as of v0.4.1:
+
+- Package `art` (module root):
+  - Types: `Tree[V any]`, `LockedTree[V any]`.
+  - Constructors: `New[V any]() *Tree[V]`, `NewLocked[V any]() *LockedTree[V]`.
+  - `Tree[V]` methods: `Put`, `Get`, `Delete`, `Len`, `Clear`, `Clone`, `Min`, `Max`, `Ceiling`, `Floor`, `All`, `AllDescending`, `Range`, `RangeFrom`, `RangeTo`, `RangeDescending`.
+  - `LockedTree[V]` methods: `Put`, `Get`, `Delete`, `Len`, `Clear`, `Clone`.
+- Package `artmap`:
+  - Types: `OrderedKey` (alias for `cmp.Ordered`), `Ordered[K OrderedKey, V any]`.
+  - Constructor: `New[K OrderedKey, V any]() *Ordered[K, V]`.
+  - `Ordered[K, V]` methods: `Put`, `Get`, `Delete`, `Len`, `Clone`, `Min`, `Max`, `Ceiling`, `Floor`, `All`, `AllDescending`, `Range`, `RangeFrom`, `RangeTo`, `RangeDescending`.
+
+Signatures and documented behaviour (including the `Range` nil / half-open semantics and the goroutine-safety contract above) of these symbols are covered by the SemVer compatibility promise from v1.0 forward.
+
+**Not frozen.** The following remain free to change under a minor or patch release, before and after v1.0:
+
+- Internal package layout — inner node types (`node4`/`node16`/`node48`/`node256`), file organization, and unexported helpers.
+- Performance characteristics and specific benchmark numbers; improvements or regressions are not breaking changes.
+- The `artmap` byte-order-preserving key encoding is an implementation detail — treat encoded keys as opaque and do not persist them across versions.
+- Fuzz corpus layout under `testdata/`.
+
+Breaking changes during the 0.x series are recorded in [CHANGELOG.md](CHANGELOG.md).
+
 ## Testing
 
 ```sh

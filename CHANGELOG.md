@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Stability
+- README now carries a `## Stability` section enumerating the exported surface of both packages that will be frozen at v1.0 and committing to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) from that tag forward. Target for v1.0.0 is no earlier than 2026-07-23.
+
 ## [0.4.1] - 2026-04-22
 
 ### Performance
