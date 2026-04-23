@@ -1,6 +1,6 @@
 # ART vs google/btree — 10M-element benchmark
 
-*Last measured at commit `d14c9c6` (v0.4.1).*
+*Last measured at commit `d8df19e` (post-v0.4.1; node interface de-parameterised so V lives only on `Tree[V]` and `leaf[V]`).*
 
 **Comparator:** `github.com/google/btree` v1.1.3 (4.1k stars, most-imported B-tree in Go; used by etcd/k8s-adjacent tooling), degree 32 (library default), generics form `BTreeG[kv]`.
 
@@ -12,15 +12,17 @@
 
 ## Per-operation results
 
-| Operation | ART | B-tree | Ratio | Faster |
-| --- | --- | --- | --- | --- |
-| Put (bulk) | 160.3 ns/key | 800.1 ns/key | 0.20× | ART 5.0× |
-| Get (hit) | 44.81 ns/op (recovered in v0.4.1; see CHANGELOG) | 929.4 ns/op | 0.048× | ART 20.7× |
-| Get (miss) | 8.66 ns/op | 118.5 ns/op | 0.073× | ART 13.7× |
-| Delete (bulk) | 115.3 ns/key (PR #7 recovered ~9 ns/key vs v0.4.0; residual ~45 ns/key gap vs pre-generics tracked) | 796.3 ns/key | 0.145× | ART 6.9× |
-| Range (1 %, 100K) | 19.53 ns/key | 10.73 ns/key | 1.82× | B-tree 1.8× |
+Throughput **and** allocation cost are reported side-by-side so a careful reader can compare point-op speed against GC pressure in one place.
 
-*All rows measured with *`-benchtime=3s -count=5`* (median of 5 reps). Put's 10M-key inner loop runs 2–3 times per rep at this benchtime. Delete's setup is excluded via *`b.StopTimer()`*/*`b.StartTimer()`*, so ~3 clean delete iterations per rep for ART and 1 for B-tree. At 3s benchtime Get / GetMiss / Range converged to ~77M ops for ART Get, ~425M ops for ART GetMiss, and ~1874 range passes for ART Range.*
+| Operation | ART ns/op | ART B/op | ART allocs/op | B-tree ns/op | B-tree B/op | B-tree allocs/op | Faster |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Put (per key, 10M build) | 161.8 | 89.4 | 1.016 | 748.3 | 71.4 | 0.069 | ART 4.6× |
+| Get hit (per lookup) | 52.74 | 0 | 0 | 908.6 | 0 | 0 | ART 17.2× |
+| Get miss (per lookup) | 8.22 | 0 | 0 | 120.3 | 0 | 0 | ART 14.6× |
+| Delete (per key, 10M) | 77.70 | 6.27 | 0.012 | 836.1 | 0.73 | ~4e-4 | ART 10.8× |
+| Range (1 %, 100K scan) | 19.25 ns/key | 32 B/scan | 1 alloc/scan | 10.24 ns/key | 0 B/scan | 0 allocs/scan | B-tree 1.9× |
+
+*All rows measured with *`-benchtime=1s -count=3`* (median of 3 reps) on the nested `bench/` module. For Put and Delete, B/op and allocs/op are per-key (divide the raw bench counter by `benchN=10_000_000`). For Range, ns/op is normalized per key yielded while B/op and allocs/op remain per full 100K-entry scan. Put's 10M-key inner loop runs 1 time per rep at this benchtime. Delete's setup is excluded via *`b.StopTimer()`*/*`b.StartTimer()`*, giving 2 clean delete iterations per rep for ART and 1 for B-tree.*
 
 ## Memory (one 10M-element tree, from Put benchmark)
 
@@ -42,7 +44,7 @@ B-tree uses ~20 % less memory overall and ~15× fewer allocations at build time 
 
 **Supports production use for point-operation-heavy workloads.**
 
-At 10M entries with 8-byte random keys, ART is 5–21× faster than the most popular Go B-tree on Put, Get (hit), Get (miss), and Delete. Get (hit) at 44.81 ns/op is ~21× faster, and Get (miss) at 8.66 ns/op is ~14× faster because mismatches can be resolved after one or two node visits. Get (hit) has fully recovered to the pre-generics baseline (44.81 ns/op vs the pre-generics 43.22 ns/op); Delete is partially recovered via PR #7 (124.5 → 115.3 ns/key), with a residual ~45 ns/key gap vs the pre-generics baseline (70.0 ns/key) tracked for future work.
+At 10M entries with 8-byte random keys, ART is 4.6–17× faster than the most popular Go B-tree on Put, Get (hit), Get (miss), and Delete. Get (hit) at 52.74 ns/op is ~17× faster, and Get (miss) at 8.22 ns/op is ~15× faster because mismatches can be resolved after one or two node visits. Delete at 77.70 ns/key on the de-parameterised node interface is materially faster than the 115.3 ns/key baseline that motivated PR #7, and has closed most of the remaining gap against the pre-generics baseline (70.0 ns/key) tracked for future work.
 
 **Still slower on short-range scans, though no longer catastrophically so.**
 
@@ -56,9 +58,36 @@ The 1 % range (100 K entries) is the common "pagination / windowed scan" shape, 
 - Workload is ordered windowed reads (paginated iteration, range queries, scan-then-emit pipelines): **B-tree still wins, but the gap has narrowed** (~1.8× on short-range scans). Prefer B-tree for scan-heavy workloads.
 - Mixed / unknown: collect a representative trace and re-benchmark. The point-op / range ratio can flip the recommendation.
 
+## Key-shape sensitivity
+
+ART's speed and memory cost depend on the shape of the key distribution — how much prefix siblings share, how dense the byte space is, and how long each key is. `bench/keyshapes_test.go` sweeps four representative shapes at a 100K working set so the whole sweep finishes in well under a minute.
+
+- **seqInt64** — sequential `uint64` `[0, 100K)` big-endian. Dense, short, heavy shared prefix.
+- **randInt64** — permutation of `[0, 100K)` big-endian. Short, sparse on the leading bytes, same tree shape as the main 10M workload.
+- **uuid** — 16 random bytes per key. Long, effectively prefix-less.
+- **urlPath** — deep `/api/v1/org/NNN/user/NNN/session/NNNNNN` strings. Long keys with heavy common prefixes across siblings.
+
+| Shape | Put ns/key | Put B/key | Get ns/op | Get B/op | Delete ns/key | Delete B/key | Range ns/key | Range B/scan |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| seqInt64 | 37.52 | 89.4 | 12.55 | 0 | 24.10 | 6.29 | 16.48 | 32 |
+| randInt64 | 45.87 | 89.4 | 15.00 | 0 | 31.46 | 6.29 | 16.48 | 32 |
+| uuid | 62.86 | 122.9 | 22.89 | 0 | 39.56 | 5.72 | 23.63 | 32 |
+| urlPath | 130.5 | 161.9 | 46.42 | 0 | 64.67 | 14.30 | 24.29 | 32 |
+
+*Measured with *`(cd bench && go test -run=^$ -bench=BenchmarkKeyShape -benchmem -benchtime=1s -count=1 ./...)`* at 100K keys per shape. Put B/key, Delete B/key, and the raw Go counters scale roughly linearly with working-set size; see `keyshapes_test.go` for the exact key generators. Range yields the middle 1 % of the sorted keyspace (~1000 entries) so each row's Range window is comparable across shapes.*
+
+Read the table as a map of where ART's costs live:
+
+- **Put / Get / Delete widen by ~3–4× from seqInt64 to urlPath.** Longer keys mean deeper traversal, more prefix comparisons on each inner node, and more memory per leaf.
+- **Get is remarkably cheap on short dense keys** (12.55 ns/op on seqInt64) — tighter than the random-8-byte main bench (52.74 ns/op) because the dense-prefix tree fits more nicely in cache at 100K.
+- **Memory per key scales with key length, not with entropy.** seqInt64 and randInt64 both pay ~89 B/key; uuid jumps to ~123 B/key; urlPath to ~162 B/key.
+- **Range cost is shape-stable** at 16–24 ns/key and always exactly one 32-byte allocation per scan (the path buffer used for pruning). Longer-key shapes add a small constant for the deeper tree descent but the per-key yield cost is flat.
+
+B-tree equivalents are intentionally omitted from this table — the point here is to characterize *ART's* internal sensitivity. Rerun the harness against a `BTreeG[kv]` in your own workload if you need the direct per-shape comparison.
+
 ## Caveats / what these numbers don't cover
 
-1. **Key shape.** 8-byte keys from a permutation of `[0, 10M)` have shallow common prefixes. Longer keys with deep common prefixes would likely widen ART's point-op lead and narrow the range gap.
+1. **Key shape.** 8-byte keys from a permutation of `[0, 10M)` have shallow common prefixes. See the Key-shape sensitivity section above for how Put / Get / Delete / Range costs change across `seqInt64`, `randInt64`, `uuid`, and `urlPath` workloads; in particular, longer keys slow ART's point ops down in absolute terms (an `urlPath` Get is ~3.7× slower than a `seqInt64` Get at 100K).
 2. **No concurrent access.** Both impls are single-goroutine; neither library ships a tested RW-safe wrapper.
 3. **Steady-state vs. cold.** Get / Range run on a warm cache; first-hit latency is not isolated.
 4. **B-tree degree.** Left at library default (32). Tuning could shift B-tree numbers by 10–30 % on any single op.
@@ -66,14 +95,20 @@ The 1 % range (100 K entries) is the common "pagination / windowed scan" shape, 
 
 ## Reproducing
 
-The numbers in this document come from a single invocation of the full bench suite, from the nested `bench/` module:
+The main-table numbers come from a single invocation of the original per-op bench suite, from the nested `bench/` module:
 
 ```
-(cd bench && go test -bench=. -benchmem -benchtime=3s -count=5 -timeout=30m ./...)
+(cd bench && go test -run=^$ -bench='^Benchmark(Put|Get|GetMiss|Delete|Range)_(ART|BTree)$' -benchmem -benchtime=1s -count=3 -timeout=20m ./...)
 ```
 
-Each benchmark is run 5 times; the tables above report the median of the 5 reps per row.
+Each benchmark is run 3 times; the main table reports the median of the 3 reps per row. The Key-shape sensitivity table is produced by a separate, faster pass:
+
+```
+(cd bench && go test -run=^$ -bench=BenchmarkKeyShape -benchmem -benchtime=1s -count=1 ./...)
+```
+
+To run everything at once (~3 minutes), use `-bench=.` in place of either regex.
 
 ## Environment (as measured)
 
-Measured on macOS 26.3.1 (darwin) on an Apple M4 Max laptop with 16 logical CPUs, on AC power (100% charged). The Go toolchain is `go version go1.24.2 darwin/amd64` — i.e. the Go binary targets `darwin/amd64` and runs under Rosetta 2 on Apple Silicon, which is why `go test` reports the CPU as `VirtualApple @ 2.50GHz`. `GOMAXPROCS` was left unset (Go default = 16, one per logical CPU). Command: `(cd bench && go test -bench=. -benchmem -benchtime=3s -count=5 -timeout=30m ./...)`. No machine-quiescing steps beyond closing foreground apps and letting the laptop idle on AC; the run took ~6.5 minutes wall time.
+Measured on macOS 26.3.1 (darwin) on an Apple M4 Max laptop with 16 logical CPUs, on AC power (100% charged). The Go toolchain is `go version go1.24.2 darwin/amd64` — i.e. the Go binary targets `darwin/amd64` and runs under Rosetta 2 on Apple Silicon, which is why `go test` reports the CPU as `VirtualApple @ 2.50GHz`. `GOMAXPROCS` was left unset (Go default = 16, one per logical CPU). Main-table command: `(cd bench && go test -run=^$ -bench='^Benchmark(Put|Get|GetMiss|Delete|Range)_(ART|BTree)$' -benchmem -benchtime=1s -count=3 -timeout=20m ./...)` — ~2.5 minutes wall time. Key-shape command: `(cd bench && go test -run=^$ -bench=BenchmarkKeyShape -benchmem -benchtime=1s -count=1 ./...)` — ~36 seconds wall time. No machine-quiescing steps beyond closing foreground apps and letting the laptop idle on AC.
