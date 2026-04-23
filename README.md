@@ -23,9 +23,13 @@ The data structure was introduced by Leis, Kemper, and Neumann in ["The Adaptive
 
 - `Put`, `Get`, `Delete` with O(k) complexity where k is key length
 - Sorted iteration via Go 1.23 range-over-func: `All()` and `Range(start, end)`
+- Descending and open-ended iteration: `AllDescending`, `RangeFrom`, `RangeTo`, `RangeDescending`
+- Sorted-map accessors: `Min`, `Max`, `Ceiling`, `Floor`, plus `Len`, `Clear`, `Clone`
 - Path compression (shared key prefixes stored once)
 - Terminal values (keys that are prefixes of other keys are stored correctly)
 - Adaptive node types (node4 / node16 / node48 / node256) with automatic promote/demote
+- `LockedTree[V]` wrapper for `sync.RWMutex`-guarded concurrent access
+- `artmap.Ordered[K, V]` typed façade for `cmp.Ordered` keys (integers, floats, strings) with byte-order-preserving encoding
 - Fuzz-tested against Go's built-in map (45M+ executions, 0 divergences as of last campaign)
 
 ## Installation
@@ -48,7 +52,7 @@ import (
 )
 
 func main() {
-	tree := art.New()
+	tree := art.New[int]()
 	tree.Put([]byte("apple"), 1)
 	tree.Put([]byte("apricot"), 2)
 	tree.Put([]byte("banana"), 3)
@@ -57,14 +61,33 @@ func main() {
 		fmt.Println("apple ->", v)
 	}
 
-	// Sorted iteration.
+	fmt.Println("size:", tree.Len())
+
+	if k, v, ok := tree.Min(); ok {
+		fmt.Printf("min: %s -> %d\n", k, v)
+	}
+	if k, v, ok := tree.Max(); ok {
+		fmt.Printf("max: %s -> %d\n", k, v)
+	}
+
+	// Sorted iteration (ascending).
 	for k, v := range tree.All() {
-		fmt.Printf("%s -> %v\n", k, v)
+		fmt.Printf("%s -> %d\n", k, v)
+	}
+
+	// Reverse iteration.
+	for k, v := range tree.AllDescending() {
+		fmt.Printf("%s -> %d\n", k, v)
 	}
 
 	// Range scan: keys in [start, end).
 	for k, v := range tree.Range([]byte("ap"), []byte("b")) {
-		fmt.Printf("%s -> %v\n", k, v)
+		fmt.Printf("%s -> %d\n", k, v)
+	}
+
+	// Open-ended range: all keys >= "b".
+	for k, v := range tree.RangeFrom([]byte("b")) {
+		fmt.Printf("%s -> %d\n", k, v)
 	}
 
 	tree.Delete([]byte("banana"))
@@ -73,12 +96,41 @@ func main() {
 
 ## API reference
 
-- `func New() *Tree` — create an empty tree.
-- `func (t *Tree) Put(key []byte, value any)` — insert or overwrite the value at `key`.
-- `func (t *Tree) Get(key []byte) (any, bool)` — look up `key`; `ok` is false if absent.
-- `func (t *Tree) Delete(key []byte) bool` — remove `key`; returns whether it was present.
-- `func (t *Tree) All() iter.Seq2[[]byte, any]` — range over all `(key, value)` pairs in sorted order.
-- `func (t *Tree) Range(start, end []byte) iter.Seq2[[]byte, any]` — range over keys in `[start, end)`.
+### `art.Tree[V any]`
+
+- `func New[V any]() *Tree[V]` — create an empty tree.
+- `func (t *Tree[V]) Put(key []byte, value V)` — insert or overwrite the value at `key`.
+- `func (t *Tree[V]) Get(key []byte) (V, bool)` — look up `key`; `ok` is false if absent.
+- `func (t *Tree[V]) Delete(key []byte) bool` — remove `key`; returns whether it was present.
+- `func (t *Tree[V]) Len() int` — current number of entries, O(1).
+- `func (t *Tree[V]) Clear()` — drop every entry in O(1).
+- `func (t *Tree[V]) Clone() *Tree[V]` — independent structural copy.
+- `func (t *Tree[V]) Min() (key []byte, value V, ok bool)` — smallest entry.
+- `func (t *Tree[V]) Max() (key []byte, value V, ok bool)` — largest entry.
+- `func (t *Tree[V]) Ceiling(target []byte) (key []byte, value V, ok bool)` — smallest key ≥ `target`.
+- `func (t *Tree[V]) Floor(target []byte) (key []byte, value V, ok bool)` — largest key ≤ `target`.
+- `func (t *Tree[V]) All() iter.Seq2[[]byte, V]` — every `(key, value)` pair in ascending order.
+- `func (t *Tree[V]) AllDescending() iter.Seq2[[]byte, V]` — every pair in descending order.
+- `func (t *Tree[V]) Range(start, end []byte) iter.Seq2[[]byte, V]` — pairs with key in `[start, end)`, ascending.
+- `func (t *Tree[V]) RangeFrom(start []byte) iter.Seq2[[]byte, V]` — pairs with key ≥ `start`, ascending.
+- `func (t *Tree[V]) RangeTo(end []byte) iter.Seq2[[]byte, V]` — pairs with key < `end`, ascending.
+- `func (t *Tree[V]) RangeDescending(start, end []byte) iter.Seq2[[]byte, V]` — pairs with key in `[start, end)`, descending.
+
+### `art.LockedTree[V any]`
+
+A `sync.RWMutex`-guarded wrapper around `Tree[V]` — see the Concurrency section below.
+
+- `func NewLocked[V any]() *LockedTree[V]` — create an empty locked tree.
+- `func (t *LockedTree[V]) Put(key []byte, value V)`
+- `func (t *LockedTree[V]) Get(key []byte) (V, bool)`
+- `func (t *LockedTree[V]) Delete(key []byte) bool`
+- `func (t *LockedTree[V]) Len() int`
+- `func (t *LockedTree[V]) Clear()`
+- `func (t *LockedTree[V]) Clone() *Tree[V]` — returns an unlocked `*Tree[V]` snapshot.
+
+### `artmap.Ordered[K, V]`
+
+For typed keys (any `cmp.Ordered` type: integers, floats, strings), the [`artmap`](artmap/ordered.go) subpackage provides `Ordered[K, V]`, a façade that encodes keys with a byte-order-preserving codec on top of `art.Tree[V]`. It exposes the same sorted-map surface as `Tree[V]` — `Put`, `Get`, `Delete`, `Len`, `Clone`, `Min`, `Max`, `Ceiling`, `Floor`, `All`, `AllDescending`, `Range`, `RangeFrom`, `RangeTo`, `RangeDescending` — with `K` in place of `[]byte`. See [`artmap/ordered.go`](artmap/ordered.go) for the exact signatures.
 
 `Range` nil semantics:
 
@@ -92,20 +144,24 @@ func main() {
 
 **Node types.** There are four inner node types (`node4`, `node16`, `node48`, `node256`) plus a `leaf`. Inner nodes grow and shrink based on child count. Each inner node may carry a `prefix` (for path compression) and an optional `terminal` leaf holding a value for a key that ends exactly at that node.
 
-**The `innerNode` interface.** All four inner node types implement a minimal `innerNode` interface covering `findChild`, `removeChild`, and `isEmpty`. Operations (`Put`, `Get`, `Delete`, iteration) are implemented as standalone functions with switch statements dispatching on node type.
+**The `innerNode` interface.** All four inner node types implement a minimal `innerNode` interface covering `findChild` and `removeChild` (plus `kind()` via the embedded `node` interface). Operations (`Put`, `Get`, `Delete`, iteration) are implemented as standalone functions with switch statements dispatching on node type.
 
 **File organization.**
 
 | File | Purpose |
 |------|---------|
-| `types.go` | Node structs, `innerNode` interface, node lifecycle (grow/shrink/addChild/replaceChild/removeChild) |
+| `types.go` | Node structs, `innerNode` interface, node lifecycle (grow/shrink/addChild/replaceChild/removeChild), `Tree[V]` definition, `New` constructor, `Len` |
 | `put.go` | `Tree.Put` + `putInto` dispatcher + `putIntoNode4/16/48/256` helpers |
 | `get.go` | `Tree.Get` with inline switch over node types |
 | `delete.go` | `Tree.Delete` + `deleteFrom` switch + `postDeleteReshape` collapse logic |
-| `iterate.go` | `Tree.All`, `Tree.Range` + `iterate`/`iterateRange` switches |
+| `iterate.go` | `Tree.All`, `Tree.AllDescending`, `Tree.Range`, `Tree.RangeFrom`, `Tree.RangeTo`, `Tree.RangeDescending` + `iterate`/`iterateRange` switches |
+| `sorted.go` | `Tree.Min`, `Tree.Max`, `Tree.Ceiling`, `Tree.Floor`, `Tree.Clone`, `Tree.Clear` + shared `*LeafOf` / `cloneNode` helpers |
+| `locked.go` | `LockedTree[V]` wrapper and `NewLocked` constructor |
 | `helpers.go` | Shared pure functions: `longestCommonPrefix`, `newNode4With`, `splitPrefixedInner`, `newLeaf` |
-| `art_test.go` | 44 unit tests |
-| `art_fuzz_test.go` | `FuzzSortedMap` differential fuzzer + 6 seed inputs |
+| `doc.go` | Package doc comment |
+| `art_test.go` | 116 unit tests |
+| `art_fuzz_test.go` | `FuzzSortedMap` differential fuzzer + 9 seed inputs |
+| `artmap/` | Typed `Ordered[K, V]` façade over `art.Tree[V]` with byte-order-preserving key codec (`codec.go`, `ordered.go`) |
 
 **Invariants.**
 
@@ -200,7 +256,7 @@ Breaking changes during the 0.x series are recorded in [CHANGELOG.md](CHANGELOG.
 ## Testing
 
 ```sh
-go test ./...                                           # 44 unit tests + 6 fuzz seed runs
+go test ./...                                           # 116 unit tests + 9 fuzz seed runs
 go test -run=^$ -fuzz=FuzzSortedMap -fuzztime=30s ./... # differential fuzz
 go vet ./... && gofmt -l .                              # static checks
 ```
