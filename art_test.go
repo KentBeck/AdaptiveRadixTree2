@@ -3171,3 +3171,129 @@ func TestRangeDescendingAcrossInnerNodeTypes(t *testing.T) {
 		})
 	}
 }
+
+func TestLockedTreeRoundTrip(t *testing.T) {
+	lt := NewLocked[int]()
+
+	if lt.Len() != 0 {
+		t.Fatalf("empty Len = %d, want 0", lt.Len())
+	}
+	if _, ok := lt.Get([]byte("missing")); ok {
+		t.Fatalf("Get on empty = ok, want !ok")
+	}
+
+	keys := [][]byte{[]byte("apple"), []byte("apricot"), []byte("banana"), []byte("")}
+	for i, k := range keys {
+		lt.Put(k, i)
+	}
+	if got, want := lt.Len(), len(keys); got != want {
+		t.Fatalf("Len = %d, want %d", got, want)
+	}
+	for i, k := range keys {
+		v, ok := lt.Get(k)
+		if !ok || v != i {
+			t.Fatalf("Get(%q) = (%d, %v), want (%d, true)", k, v, ok, i)
+		}
+	}
+
+	lt.Put([]byte("apple"), 99)
+	if v, ok := lt.Get([]byte("apple")); !ok || v != 99 {
+		t.Fatalf("overwrite Get(apple) = (%d, %v), want (99, true)", v, ok)
+	}
+	if got, want := lt.Len(), len(keys); got != want {
+		t.Fatalf("Len after overwrite = %d, want %d", got, want)
+	}
+
+	snap := lt.Clone()
+	lt.Put([]byte("cherry"), 42)
+	if _, ok := snap.Get([]byte("cherry")); ok {
+		t.Fatalf("snapshot saw post-snapshot write")
+	}
+	if got, want := snap.Len(), len(keys); got != want {
+		t.Fatalf("snapshot Len = %d, want %d", got, want)
+	}
+
+	if removed := lt.Delete([]byte("banana")); !removed {
+		t.Fatalf("Delete(banana) = false, want true")
+	}
+	if removed := lt.Delete([]byte("banana")); removed {
+		t.Fatalf("second Delete(banana) = true, want false")
+	}
+
+	lt.Clear()
+	if lt.Len() != 0 {
+		t.Fatalf("post-Clear Len = %d, want 0", lt.Len())
+	}
+}
+
+func TestLockedTreeConcurrentReaders(t *testing.T) {
+	lt := NewLocked[int]()
+	for i := 0; i < 256; i++ {
+		lt.Put([]byte{byte(i)}, i)
+	}
+
+	const readers = 8
+	const reads = 1000
+	done := make(chan struct{}, readers)
+	for r := 0; r < readers; r++ {
+		go func() {
+			for i := 0; i < reads; i++ {
+				k := byte(i % 256)
+				if v, ok := lt.Get([]byte{k}); !ok || v != int(k) {
+					t.Errorf("Get(%d) = (%d, %v), want (%d, true)", k, v, ok, k)
+					return
+				}
+			}
+			done <- struct{}{}
+		}()
+	}
+	for r := 0; r < readers; r++ {
+		<-done
+	}
+}
+
+func BenchmarkLockedTreePut(b *testing.B) {
+	keys := make([][]byte, 1024)
+	for i := range keys {
+		keys[i] = []byte{byte(i), byte(i >> 8)}
+	}
+	b.Run("Tree", func(b *testing.B) {
+		t := New[int]()
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			t.Put(keys[i%len(keys)], i)
+		}
+	})
+	b.Run("LockedTree", func(b *testing.B) {
+		t := NewLocked[int]()
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			t.Put(keys[i%len(keys)], i)
+		}
+	})
+}
+
+func BenchmarkLockedTreeGet(b *testing.B) {
+	keys := make([][]byte, 1024)
+	for i := range keys {
+		keys[i] = []byte{byte(i), byte(i >> 8)}
+	}
+	bare := New[int]()
+	locked := NewLocked[int]()
+	for i, k := range keys {
+		bare.Put(k, i)
+		locked.Put(k, i)
+	}
+	b.Run("Tree", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			bare.Get(keys[i%len(keys)])
+		}
+	})
+	b.Run("LockedTree", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			locked.Get(keys[i%len(keys)])
+		}
+	})
+}

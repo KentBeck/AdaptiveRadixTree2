@@ -138,6 +138,36 @@ If your keys are a single `cmp.Ordered` type (integers, floats, strings) rather 
 - Fuzz corpus: [`testdata/fuzz/FuzzSortedMap`](testdata/fuzz/FuzzSortedMap); cumulative executions have exceeded 45M across campaigns with zero divergences against the `map[string]V` + sorted-oracle reference.
 - Mutation testing: ~95 % measured efficacy under `gremlins` (100 % of killable mutants at the v0.1.0 baseline; see [`CHANGELOG.md`](CHANGELOG.md) for per-release figures).
 
+## Concurrency
+
+`art.Tree[V]` and `artmap.Ordered[K, V]` are **not** safe for concurrent use by multiple goroutines when any goroutine is writing. Concurrent reads (`Get`, `All`, `Range`, `Min`, `Max`, `Ceiling`, `Floor`, `Len`) are safe only while no goroutine is calling a mutating method (`Put`, `Delete`, `Clear`). The tree has no internal synchronization; races are undefined behaviour, not a panic.
+
+For the common read-mostly case, wrap your tree with a `sync.RWMutex` you own:
+
+```go
+var (
+    mu   sync.RWMutex
+    tree = art.New[int]()
+)
+
+mu.Lock(); tree.Put(key, v); mu.Unlock()
+
+mu.RLock(); v, ok := tree.Get(key); mu.RUnlock()
+```
+
+As a convenience, the package ships `art.LockedTree[V]`: a thin `sync.RWMutex`-guarded wrapper exposing `Put`, `Get`, `Delete`, `Len`, `Clear`, and `Clone`. It is intentionally narrow — iteration is not wrapped, since holding an `RLock` across a user-controlled `yield` is easy to mis-use. Code that needs an ordered scan under a lock should `Clone()` the tree and iterate the unlocked snapshot.
+
+```go
+t := art.NewLocked[int]()
+t.Put([]byte("apple"), 1)
+v, ok := t.Get([]byte("apple"))
+
+snap := t.Clone()
+for k, v := range snap.All() { /* safe: snap is not shared */ _, _ = k, v }
+```
+
+Copy-on-write, lock-free, and RCU variants are out of scope for this release; `LockedTree` is the supported concurrent surface.
+
 ## Testing
 
 ```sh

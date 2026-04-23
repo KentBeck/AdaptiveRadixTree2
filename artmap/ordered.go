@@ -49,7 +49,10 @@ type OrderedKey = cmp.Ordered
 //
 // An Ordered is not safe for concurrent use by multiple goroutines
 // when any goroutine is writing, with the same contract as the
-// underlying [art.Tree].
+// underlying [art.Tree]. Callers that need concurrent access should
+// guard an Ordered with their own sync.RWMutex or wrap [art.Tree]
+// directly with [art.LockedTree]. See the Concurrency section of the
+// project README for the full discussion.
 type Ordered[K OrderedKey, V any] struct {
 	tree *art.Tree[V]
 	dec  func([]byte) K

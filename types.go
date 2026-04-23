@@ -382,8 +382,11 @@ func shrinkToNode48(n *node256) *node48 {
 // Adaptive Radix Tree.
 //
 // A Tree is not safe for concurrent use by multiple goroutines when
-// any goroutine is writing. Callers that need concurrent access should
-// guard a Tree with their own sync.RWMutex.
+// any goroutine is writing; concurrent reads are safe only while no
+// goroutine is mutating the tree. Callers that need concurrent access
+// should guard a Tree with their own sync.RWMutex or use the provided
+// [LockedTree] wrapper. See the Concurrency section of the project
+// README for the full discussion.
 type Tree[V any] struct {
 	root node
 	size int

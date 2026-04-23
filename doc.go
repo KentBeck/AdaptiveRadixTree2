@@ -25,9 +25,12 @@
 //   - Clear removes every entry in O(1).
 //
 // Goroutine safety: a Tree is not safe for concurrent use by multiple
-// goroutines when any goroutine is writing. Callers that need
-// concurrent access should guard a Tree with their own sync.RWMutex.
-// See the Tree type for the authoritative statement.
+// goroutines when any goroutine is writing; concurrent reads are safe
+// only while no goroutine is mutating the tree. Callers that need
+// concurrent access should guard a Tree with their own sync.RWMutex
+// or use the provided [LockedTree] wrapper. See the Tree type and the
+// Concurrency section of the project README for the authoritative
+// statement.
 //
 // Minimal usage:
 //
