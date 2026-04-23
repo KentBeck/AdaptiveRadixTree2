@@ -74,11 +74,11 @@ func TestOrdered_CeilingFloor_Int64(t *testing.T) {
 		m.Put(k, fmt.Sprint(k))
 	}
 	cases := []struct {
-		target             int64
-		ceilK              int64
-		ceilOK             bool
-		floorK             int64
-		floorOK            bool
+		target  int64
+		ceilK   int64
+		ceilOK  bool
+		floorK  int64
+		floorOK bool
 	}{
 		{target: -20, ceilK: -10, ceilOK: true, floorOK: false},
 		{target: -5, ceilK: -1, ceilOK: true, floorK: -10, floorOK: true},
@@ -178,4 +178,3 @@ func equalString(a, b []string) bool {
 	}
 	return true
 }
-

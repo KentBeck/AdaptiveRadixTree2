@@ -150,4 +150,3 @@ func ExampleOrdered_int8() {
 	// 0
 	// 127
 }
-

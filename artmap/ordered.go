@@ -218,4 +218,3 @@ func (o *Ordered[K, V]) RangeDescending(start, end K) iter.Seq2[K, V] {
 		}
 	}
 }
-

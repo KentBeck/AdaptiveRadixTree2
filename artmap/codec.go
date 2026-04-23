@@ -215,4 +215,3 @@ func decFloat64[K OrderedKey](b []byte) K {
 	*(*uint64)(unsafe.Pointer(&k)) = bits
 	return k
 }
-

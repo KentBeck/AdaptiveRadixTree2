@@ -139,4 +139,3 @@ func BenchmarkTreeRange_int64(b *testing.B) {
 		_ = sum
 	}
 }
-
