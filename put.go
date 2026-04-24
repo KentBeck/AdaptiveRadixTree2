@@ -15,6 +15,9 @@ func (t *Tree[V]) Put(key []byte, value V) {
 // putInto returns the (possibly replaced) subtree root. Size
 // accounting lives in [Tree.insertLeaf]: every fresh-leaf allocation
 // bumps t.size, so recursion only needs to return the new subtree.
+// The four inner-node arms duplicate the prefix-split preamble by
+// design: a shared helper would reintroduce the interface-method
+// indirection measured in the reverted polymorphism spike.
 func putInto[V any](t *Tree[V], current node, key []byte, value V, depth int) node {
 	if current == nil {
 		return t.insertLeaf(key, value)

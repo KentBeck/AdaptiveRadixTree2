@@ -45,6 +45,40 @@ func clearTerminalIfMatches[V any](t *Tree[V], term *node, key []byte) bool {
 	return true
 }
 
+// consumePrefix matches an inner node's prefix against key[depth:].
+// Returns the advanced depth on success, (0, false) on mismatch.
+func consumePrefix(prefix, key []byte, depth int) (int, bool) {
+	if len(prefix) == 0 {
+		return depth, true
+	}
+	end := depth + len(prefix)
+	if end > len(key) || !bytes.Equal(prefix, key[depth:end]) {
+		return 0, false
+	}
+	return end, true
+}
+
+// terminalValue returns (value, true) when term holds a *leaf[V]
+// whose key equals key; the Get-side counterpart of
+// [clearTerminalIfMatches].
+func terminalValue[V any](term node, key []byte) (V, bool) {
+	var zero V
+	if l, ok := term.(*leaf[V]); ok && bytes.Equal(l.key, key) {
+		return l.value, true
+	}
+	return zero, false
+}
+
+// yieldTerminalInRange yields an inner node's terminal when present
+// and in range; returns false only when yield did.
+func yieldTerminalInRange[V any](term node, path, start, end []byte, yield func([]byte, V) bool) bool {
+	l, ok := term.(*leaf[V])
+	if !ok || !keyInRange(path, start, end) {
+		return true
+	}
+	return yield(l.key, l.value)
+}
+
 // longestCommonPrefix returns the leading slice of a that also
 // prefixes b.
 func longestCommonPrefix(a, b []byte) []byte {

@@ -33,25 +33,22 @@ func deleteFrom[V any](t *Tree[V], current node, key []byte, depth int) node {
 		}
 		return r
 	case *node4:
-		if pl := len(r.prefix); pl != 0 {
-			end := depth + pl
-			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-				return r
-			}
-			depth = end
+		d, ok := consumePrefix(r.prefix, key, depth)
+		if !ok {
+			return r
 		}
-		if depth == len(key) {
+		if d == len(key) {
 			if !clearTerminalIfMatches[V](t, &r.terminal, key) {
 				return r
 			}
 			return postDeleteReshape(r)
 		}
-		branch := key[depth]
+		branch := key[d]
 		child := r.findChild(branch)
 		if child == nil {
 			return r
 		}
-		newChild := deleteFrom(t, child, key, depth+1)
+		newChild := deleteFrom(t, child, key, d+1)
 		if newChild == child {
 			return r
 		}
@@ -62,25 +59,22 @@ func deleteFrom[V any](t *Tree[V], current node, key []byte, depth int) node {
 		}
 		return postDeleteReshape(r)
 	case *node16:
-		if pl := len(r.prefix); pl != 0 {
-			end := depth + pl
-			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-				return r
-			}
-			depth = end
+		d, ok := consumePrefix(r.prefix, key, depth)
+		if !ok {
+			return r
 		}
-		if depth == len(key) {
+		if d == len(key) {
 			if !clearTerminalIfMatches[V](t, &r.terminal, key) {
 				return r
 			}
 			return postDeleteReshape(r)
 		}
-		branch := key[depth]
+		branch := key[d]
 		child := r.findChild(branch)
 		if child == nil {
 			return r
 		}
-		newChild := deleteFrom(t, child, key, depth+1)
+		newChild := deleteFrom(t, child, key, d+1)
 		if newChild == child {
 			return r
 		}
@@ -91,25 +85,22 @@ func deleteFrom[V any](t *Tree[V], current node, key []byte, depth int) node {
 		}
 		return postDeleteReshape(r)
 	case *node48:
-		if pl := len(r.prefix); pl != 0 {
-			end := depth + pl
-			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-				return r
-			}
-			depth = end
+		d, ok := consumePrefix(r.prefix, key, depth)
+		if !ok {
+			return r
 		}
-		if depth == len(key) {
+		if d == len(key) {
 			if !clearTerminalIfMatches[V](t, &r.terminal, key) {
 				return r
 			}
 			return postDeleteReshape(r)
 		}
-		branch := key[depth]
+		branch := key[d]
 		child := r.findChild(branch)
 		if child == nil {
 			return r
 		}
-		newChild := deleteFrom(t, child, key, depth+1)
+		newChild := deleteFrom(t, child, key, d+1)
 		if newChild == child {
 			return r
 		}
@@ -120,25 +111,22 @@ func deleteFrom[V any](t *Tree[V], current node, key []byte, depth int) node {
 		}
 		return postDeleteReshape(r)
 	case *node256:
-		if pl := len(r.prefix); pl != 0 {
-			end := depth + pl
-			if end > len(key) || !bytes.Equal(r.prefix, key[depth:end]) {
-				return r
-			}
-			depth = end
+		d, ok := consumePrefix(r.prefix, key, depth)
+		if !ok {
+			return r
 		}
-		if depth == len(key) {
+		if d == len(key) {
 			if !clearTerminalIfMatches[V](t, &r.terminal, key) {
 				return r
 			}
 			return postDeleteReshape(r)
 		}
-		branch := key[depth]
+		branch := key[d]
 		child := r.findChild(branch)
 		if child == nil {
 			return r
 		}
-		newChild := deleteFrom(t, child, key, depth+1)
+		newChild := deleteFrom(t, child, key, d+1)
 		if newChild == child {
 			return r
 		}

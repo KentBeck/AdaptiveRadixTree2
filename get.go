@@ -1,7 +1,5 @@
 package art
 
-import "bytes"
-
 // Get returns the value previously stored under key, if any. If the
 // key is absent the returned value is the zero value of V. A nil key
 // and an empty-slice key are equivalent (both represent the empty
@@ -13,74 +11,47 @@ func (t *Tree[V]) Get(key []byte) (value V, ok bool) {
 	for current != nil {
 		switch n := current.(type) {
 		case *leaf[V]:
-			if bytes.Equal(n.key, key) {
-				return n.value, true
-			}
-			return zero, false
+			return terminalValue[V](n, key)
 		case *node4:
-			if pl := len(n.prefix); pl != 0 {
-				end := depth + pl
-				if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
-					return zero, false
-				}
-				depth = end
-			}
-			if depth == len(key) {
-				if tl, ok := n.terminal.(*leaf[V]); ok && bytes.Equal(tl.key, key) {
-					return tl.value, true
-				}
+			d, ok := consumePrefix(n.prefix, key, depth)
+			if !ok {
 				return zero, false
 			}
-			current = n.findChild(key[depth])
-			depth++
+			if d == len(key) {
+				return terminalValue[V](n.terminal, key)
+			}
+			current = n.findChild(key[d])
+			depth = d + 1
 		case *node16:
-			if pl := len(n.prefix); pl != 0 {
-				end := depth + pl
-				if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
-					return zero, false
-				}
-				depth = end
-			}
-			if depth == len(key) {
-				if tl, ok := n.terminal.(*leaf[V]); ok && bytes.Equal(tl.key, key) {
-					return tl.value, true
-				}
+			d, ok := consumePrefix(n.prefix, key, depth)
+			if !ok {
 				return zero, false
 			}
-			current = n.findChild(key[depth])
-			depth++
+			if d == len(key) {
+				return terminalValue[V](n.terminal, key)
+			}
+			current = n.findChild(key[d])
+			depth = d + 1
 		case *node48:
-			if pl := len(n.prefix); pl != 0 {
-				end := depth + pl
-				if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
-					return zero, false
-				}
-				depth = end
-			}
-			if depth == len(key) {
-				if tl, ok := n.terminal.(*leaf[V]); ok && bytes.Equal(tl.key, key) {
-					return tl.value, true
-				}
+			d, ok := consumePrefix(n.prefix, key, depth)
+			if !ok {
 				return zero, false
 			}
-			current = n.findChild(key[depth])
-			depth++
+			if d == len(key) {
+				return terminalValue[V](n.terminal, key)
+			}
+			current = n.findChild(key[d])
+			depth = d + 1
 		case *node256:
-			if pl := len(n.prefix); pl != 0 {
-				end := depth + pl
-				if end > len(key) || !bytes.Equal(n.prefix, key[depth:end]) {
-					return zero, false
-				}
-				depth = end
-			}
-			if depth == len(key) {
-				if tl, ok := n.terminal.(*leaf[V]); ok && bytes.Equal(tl.key, key) {
-					return tl.value, true
-				}
+			d, ok := consumePrefix(n.prefix, key, depth)
+			if !ok {
 				return zero, false
 			}
-			current = n.findChild(key[depth])
-			depth++
+			if d == len(key) {
+				return terminalValue[V](n.terminal, key)
+			}
+			current = n.findChild(key[d])
+			depth = d + 1
 		}
 	}
 	return zero, false

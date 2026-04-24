@@ -162,11 +162,9 @@ func iterateRange[V any](n node, path *[]byte, start, end []byte, yield func([]b
 		before := len(*path)
 		*path = append(*path, r.prefix...)
 		nodeLen := len(*path)
-		if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
-			if !yield(tl.key, tl.value) {
-				*path = (*path)[:before]
-				return false
-			}
+		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
+			*path = (*path)[:before]
+			return false
 		}
 		for i := uint8(0); i < r.numChildren; i++ {
 			b := r.keys[i]
@@ -189,11 +187,9 @@ func iterateRange[V any](n node, path *[]byte, start, end []byte, yield func([]b
 		before := len(*path)
 		*path = append(*path, r.prefix...)
 		nodeLen := len(*path)
-		if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
-			if !yield(tl.key, tl.value) {
-				*path = (*path)[:before]
-				return false
-			}
+		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
+			*path = (*path)[:before]
+			return false
 		}
 		for i := uint8(0); i < r.numChildren; i++ {
 			b := r.keys[i]
@@ -216,11 +212,9 @@ func iterateRange[V any](n node, path *[]byte, start, end []byte, yield func([]b
 		before := len(*path)
 		*path = append(*path, r.prefix...)
 		nodeLen := len(*path)
-		if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
-			if !yield(tl.key, tl.value) {
-				*path = (*path)[:before]
-				return false
-			}
+		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
+			*path = (*path)[:before]
+			return false
 		}
 		for edge := 0; edge < 256; edge++ {
 			slot := r.childIndex[byte(edge)]
@@ -247,11 +241,9 @@ func iterateRange[V any](n node, path *[]byte, start, end []byte, yield func([]b
 		before := len(*path)
 		*path = append(*path, r.prefix...)
 		nodeLen := len(*path)
-		if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
-			if !yield(tl.key, tl.value) {
-				*path = (*path)[:before]
-				return false
-			}
+		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
+			*path = (*path)[:before]
+			return false
 		}
 		for edge := 0; edge < 256; edge++ {
 			child := r.children[edge]
@@ -442,14 +434,9 @@ func iterateRangeDescending[V any](n node, path *[]byte, start, end []byte, yiel
 				continue
 			}
 			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
-				if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
-					if !yield(tl.key, tl.value) {
-						*path = (*path)[:before]
-						return false
-					}
-				}
+				ok := yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield)
 				*path = (*path)[:before]
-				return true
+				return ok
 			}
 			*path = append((*path)[:nodeLen], b)
 			if !iterateRangeDescending[V](r.children[i], path, start, end, yield) {
@@ -457,11 +444,9 @@ func iterateRangeDescending[V any](n node, path *[]byte, start, end []byte, yiel
 				return false
 			}
 		}
-		if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
-			if !yield(tl.key, tl.value) {
-				*path = (*path)[:before]
-				return false
-			}
+		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
+			*path = (*path)[:before]
+			return false
 		}
 		*path = (*path)[:before]
 		return true
@@ -475,14 +460,9 @@ func iterateRangeDescending[V any](n node, path *[]byte, start, end []byte, yiel
 				continue
 			}
 			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
-				if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
-					if !yield(tl.key, tl.value) {
-						*path = (*path)[:before]
-						return false
-					}
-				}
+				ok := yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield)
 				*path = (*path)[:before]
-				return true
+				return ok
 			}
 			*path = append((*path)[:nodeLen], b)
 			if !iterateRangeDescending[V](r.children[i], path, start, end, yield) {
@@ -490,11 +470,9 @@ func iterateRangeDescending[V any](n node, path *[]byte, start, end []byte, yiel
 				return false
 			}
 		}
-		if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
-			if !yield(tl.key, tl.value) {
-				*path = (*path)[:before]
-				return false
-			}
+		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
+			*path = (*path)[:before]
+			return false
 		}
 		*path = (*path)[:before]
 		return true
@@ -512,14 +490,9 @@ func iterateRangeDescending[V any](n node, path *[]byte, start, end []byte, yiel
 				continue
 			}
 			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
-				if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
-					if !yield(tl.key, tl.value) {
-						*path = (*path)[:before]
-						return false
-					}
-				}
+				ok := yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield)
 				*path = (*path)[:before]
-				return true
+				return ok
 			}
 			*path = append((*path)[:nodeLen], b)
 			if !iterateRangeDescending[V](r.children[slot-1], path, start, end, yield) {
@@ -527,11 +500,9 @@ func iterateRangeDescending[V any](n node, path *[]byte, start, end []byte, yiel
 				return false
 			}
 		}
-		if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
-			if !yield(tl.key, tl.value) {
-				*path = (*path)[:before]
-				return false
-			}
+		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
+			*path = (*path)[:before]
+			return false
 		}
 		*path = (*path)[:before]
 		return true
@@ -549,14 +520,9 @@ func iterateRangeDescending[V any](n node, path *[]byte, start, end []byte, yiel
 				continue
 			}
 			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
-				if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
-					if !yield(tl.key, tl.value) {
-						*path = (*path)[:before]
-						return false
-					}
-				}
+				ok := yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield)
 				*path = (*path)[:before]
-				return true
+				return ok
 			}
 			*path = append((*path)[:nodeLen], b)
 			if !iterateRangeDescending[V](child, path, start, end, yield) {
@@ -564,11 +530,9 @@ func iterateRangeDescending[V any](n node, path *[]byte, start, end []byte, yiel
 				return false
 			}
 		}
-		if tl, ok := r.terminal.(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
-			if !yield(tl.key, tl.value) {
-				*path = (*path)[:before]
-				return false
-			}
+		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
+			*path = (*path)[:before]
+			return false
 		}
 		*path = (*path)[:before]
 		return true
