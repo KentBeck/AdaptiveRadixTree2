@@ -40,7 +40,7 @@ func TestOrdered_Int64_NegativeRangeIsSignedOrder(t *testing.T) {
 
 func TestOrdered_Float64_OrderAcrossZero(t *testing.T) {
 	m := artmap.New[float64, int]()
-	keys := []float64{math.Inf(-1), -1e9, -1.5, -0.0, 0.0, 1.5, 1e9, math.Inf(1)}
+	keys := []float64{math.Inf(-1), -1e9, -1.5, math.Copysign(0, -1), 0.0, 1.5, 1e9, math.Inf(1)}
 	for i, k := range keys {
 		m.Put(k, i)
 	}
