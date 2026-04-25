@@ -5,6 +5,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-04-25
+
+### Changed (internal)
+- Deduplicated the four-way prefix-consume / terminal-check preambles in
+  `get.go`, `delete.go`, and `iterate.go` behind three free helpers in
+  `helpers.go` (`consumePrefix`, `terminalValue[V]`, `yieldTerminalInRange[V]`).
+  −40 net LOC. No additions to the `node` / `innerNode` interfaces; every
+  helper is a free function over concrete types so no interface-method
+  indirection is introduced (`runtime.getitab` remains absent from Get and
+  Delete pprof profiles). `put.go` is intentionally left expanded — sharing
+  a helper across the prefix-split allocation boundary would reintroduce
+  interface dispatch on the hot path, per the reverted polymorphism spike
+  recorded in `polymorphism-failed.md`. Hot-path benchmarks at parity with
+  v0.5.0 within run variance.
+
+### Fixed
+- `artmap/ordered_test.go`: the `TestOrdered_Float64_OrderAcrossZero` fixture
+  now uses `math.Copysign(0, -1)` for actual IEEE-754 negative zero. The
+  prior `-0.0` literal was folded to `+0.0` by the parser (staticcheck
+  SA4026); the test now exercises the intended sign-bit case.
+
+### CI
+- The fuzz-smoke workflow step now discovers `Fuzz*` targets dynamically
+  across all packages and runs each one scoped to its own package. Replaces
+  a `go test -fuzz=… ./...` invocation that was rejected by Go with
+  "cannot use -fuzz flag with multiple packages" once the `artmap`
+  subpackage was introduced. Future fuzz targets in any package are picked
+  up automatically; an explicit empty-set guard fails the step if no
+  targets are discovered.
+
 ## [0.5.0] - 2026-04-23
 
 ### Added
@@ -67,6 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `example_test.go` with six verified examples.
 - Package documentation (`doc.go`) and goroutine-safety contract on `Tree`.
 
+[0.5.1]: https://github.com/KentBeck/AdaptiveRadixTree2/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/KentBeck/AdaptiveRadixTree2/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/KentBeck/AdaptiveRadixTree2/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/KentBeck/AdaptiveRadixTree2/compare/v0.3.0...v0.4.0
