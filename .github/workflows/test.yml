@@ -45,6 +45,25 @@ jobs:
       - name: Test with race detector
         run: go test -race ./... -count=1
 
-      - name: Fuzz smoke (30s)
-        run: go test -run=^$ -fuzz=FuzzSortedMap -fuzztime=30s ./...
+      - name: Fuzz smoke (30s each)
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=0
+          while IFS=$'\t' read -r pkg fn; do
+            [ -z "${pkg:-}" ] && continue
+            found=$((found+1))
+            echo "::group::fuzz $fn in $pkg"
+            go test -run='^$' -fuzz="^${fn}$" -fuzztime=30s "$pkg"
+            echo "::endgroup::"
+          done < <(
+            for p in $(go list ./...); do
+              go test -list '^Fuzz' "$p" 2>/dev/null \
+                | awk -v p="$p" '/^Fuzz/ {print p"\t"$0}'
+            done
+          )
+          if [ "$found" -eq 0 ]; then
+            echo "no Fuzz* targets discovered — failing to surface a CI misconfiguration" >&2
+            exit 1
+          fi
 
