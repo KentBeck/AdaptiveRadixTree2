@@ -80,6 +80,31 @@ The 1 % range (100K entries) is the common "pagination / windowed scan" shape. *
 - Workload is ordered windowed reads (paginated iteration, range queries, scan-then-emit pipelines): **prefer a B-tree.** `tidwall/btree` is the fastest (2.4× over ART); `google/btree` is the most-imported (1.8× over ART). Both are zero-alloc on the scan.
 - Workload is mixed: collect a representative trace and re-benchmark. The point-op / range ratio is what flips the recommendation, and the four-way comparison above gives you the unit costs for each side of the trade.
 
+## Picking between implementations
+
+**Short version:** if your workload is dominated by point ops, use this ART. If it's dominated by short range scans, use `tidwall/btree`. The other two are dominated.
+
+| Implementation | When to pick it | When to avoid |
+|---|---|---|
+| **This ART** (`KentBeck/AdaptiveRadixTree2`) | Point-op heavy: Get/Put/Delete dominate. Generic `V` matters (no boxing). Variable-length byte keys, or keys with shared prefixes. | Short range scans are the hot path. |
+| **tidwall/btree** | Range scans dominate (2.4× faster than ART, 1.3× faster than google/btree). Iterator-heavy code. | Point-op heavy workloads — ~20× slower than ART on Get-hit, ~5× on Put. Note `Options{NoLocks: true}` is required to match the parity numbers above. |
+| **google/btree** | Default reach for "I want a B-tree." Mature, widely imported, easy to staff. | Anywhere `tidwall/btree` can be substituted — tidwall matches it on point ops and beats it on range. |
+| **plar/go-adaptive-radix-tree** | You need an ART **and** generics is unavailable (pre-Go 1.18 codebase) **and** you can't switch deps. | Almost everywhere else. Strictly dominated: 1.5–1.8× slower than this ART on every point op, no seek primitive on its iterator, and `interface{}` values force ~4 allocs/Put. |
+
+### Decision rule, one axis at a time
+
+- **Throughput on Get/Put/Delete:** ART > plar/ART >> the two B-trees.
+- **Throughput on short range scans:** tidwall > google >> ART >>> plar/ART (harness-bound; see Caveats).
+- **Allocation pressure on Put:** ART ≈ tidwall ≈ google (~1 alloc) << plar (~4 allocs from `interface{}` boxing).
+- **API ergonomics:** ART and tidwall are generic on `V` (no boxing); google is generic on the item type; plar is `interface{}` only.
+- **Mindshare / staffability:** google >> tidwall >> the two ARTs.
+
+### TL;DR
+
+Use this ART for point-op-heavy workloads with byte-string keys. Use `tidwall/btree` for range-scan-heavy workloads. Use `google/btree` if "the standard one" is a feature. `plar/go-adaptive-radix-tree` is dominated by this ART on every axis where they overlap.
+
+> The plar Range number (~6800 ns/key) is harness-bound, not tree-shape — plar v1.0.7 ships no seek primitive, so the bench falls back to a full leaf-walk-and-skip. See **Caveats / what these numbers don't cover** for the full list.
+
 ## Key-shape sensitivity
 
 ART's speed and memory cost depend on the shape of the key distribution — how much prefix siblings share, how dense the byte space is, and how long each key is. `bench/keyshapes_test.go` sweeps four representative shapes at a 100K working set so the whole sweep finishes in well under a minute.
