@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed (docs)
+- `benchmarks.md` per-operation results now compare ART against three
+  implementations rather than one. The `bench/` harness gained `_Tidwall`
+  (`github.com/tidwall/btree` v1.8.1, configured with
+  `Options{NoLocks: true, Degree: 32}` for parity with `google/btree`'s default
+  degree and to keep its sync.RWMutex out of the measurement) and `_Plar`
+  (`github.com/plar/go-adaptive-radix-tree` v1.0.7, whose public API stores
+  `interface{}` values — the per-Put boxing alloc that costs is structural to
+  the API and is documented in-table) siblings of `Put`, `Get`, `GetMiss`,
+  `Delete`, and `Range`. The Verdict prose has been rewritten to reflect the
+  new three-comparator landscape rather than the prior google/btree-only
+  framing. No core `.go` files were edited; the change is confined to the
+  nested `bench/` module and the `benchmarks.md` doc.
+
 ## [0.5.1] - 2026-04-25
 
 ### Changed (internal)

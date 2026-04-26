@@ -9,6 +9,8 @@ import (
 
 	art "github.com/KentBeck/AdaptiveRadixTree2"
 	"github.com/google/btree"
+	plart "github.com/plar/go-adaptive-radix-tree"
+	tbtree "github.com/tidwall/btree"
 )
 
 // benchN is the working set size: 10 million entries.
@@ -42,7 +44,19 @@ var (
 
 	btOnce sync.Once
 	btBig  *btree.BTreeG[kv]
+
+	tidwallOnce sync.Once
+	tidwallBig  *tbtree.BTreeG[kv]
+
+	plarOnce sync.Once
+	plarBig  plart.Tree
 )
+
+// tidwallOpts configures tidwall/btree to match google/btree's degree (32) and
+// disables tidwall's internal RWMutex via NoLocks=true. Without NoLocks, every
+// op pays a sync.RWMutex Lock/Unlock pair, which is overhead google/btree never
+// charges; turning locks off keeps the comparison apples-to-apples.
+var tidwallOpts = tbtree.Options{NoLocks: true, Degree: 32}
 
 func initKeys() {
 	keysOnce.Do(func() {
@@ -91,6 +105,30 @@ func getBtBig() *btree.BTreeG[kv] {
 		btBig = t
 	})
 	return btBig
+}
+
+func getTidwallBig() *tbtree.BTreeG[kv] {
+	initKeys()
+	tidwallOnce.Do(func() {
+		t := tbtree.NewBTreeGOptions(kvLess, tidwallOpts)
+		for i := 0; i < benchN; i++ {
+			t.Set(kv{k: benchKeys[i], v: i})
+		}
+		tidwallBig = t
+	})
+	return tidwallBig
+}
+
+func getPlarBig() plart.Tree {
+	initKeys()
+	plarOnce.Do(func() {
+		t := plart.New()
+		for i := 0; i < benchN; i++ {
+			t.Insert(plart.Key(benchKeys[i]), plart.Value(i))
+		}
+		plarBig = t
+	})
+	return plarBig
 }
 
 func perKey(b *testing.B, ops int) {
@@ -308,4 +346,158 @@ func BenchmarkRangeFrom_BTree(b *testing.B) {
 		}
 	}
 	perKey(b, wantCount)
+}
+
+// --- tidwall/btree comparator (Options{NoLocks: true, Degree: 32}) ---
+
+func BenchmarkPut_Tidwall(b *testing.B) {
+	initKeys()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		t := tbtree.NewBTreeGOptions(kvLess, tidwallOpts)
+		for i := 0; i < benchN; i++ {
+			t.Set(kv{k: benchKeys[i], v: i})
+		}
+	}
+	perKey(b, benchN)
+}
+
+func BenchmarkGet_Tidwall(b *testing.B) {
+	t := getTidwallBig()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = t.Get(kv{k: benchKeys[i%benchN]})
+	}
+}
+
+func BenchmarkGetMiss_Tidwall(b *testing.B) {
+	t := getTidwallBig()
+	n := len(missKeys)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = t.Get(kv{k: missKeys[i%n]})
+	}
+}
+
+func BenchmarkDelete_Tidwall(b *testing.B) {
+	initKeys()
+	b.ReportAllocs()
+	for n := 0; n < b.N; n++ {
+		b.StopTimer()
+		t := tbtree.NewBTreeGOptions(kvLess, tidwallOpts)
+		for i := 0; i < benchN; i++ {
+			t.Set(kv{k: benchKeys[i], v: i})
+		}
+		b.StartTimer()
+		for i := 0; i < benchN; i++ {
+			t.Delete(kv{k: benchKeys[i]})
+		}
+	}
+	perKey(b, benchN)
+}
+
+func BenchmarkRange_Tidwall(b *testing.B) {
+	t := getTidwallBig()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		count := 0
+		t.Ascend(kv{k: rangeLo}, func(it kv) bool {
+			if bytes.Compare(it.k, rangeHi) >= 0 {
+				return false
+			}
+			count++
+			return true
+		})
+		if count != rangeN {
+			b.Fatalf("ranged %d, want %d", count, rangeN)
+		}
+	}
+	perKey(b, rangeN)
+}
+
+// --- plar/go-adaptive-radix-tree comparator (interface{} values; no seek) ---
+
+func BenchmarkPut_Plar(b *testing.B) {
+	initKeys()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		t := plart.New()
+		for i := 0; i < benchN; i++ {
+			t.Insert(plart.Key(benchKeys[i]), plart.Value(i))
+		}
+	}
+	perKey(b, benchN)
+}
+
+func BenchmarkGet_Plar(b *testing.B) {
+	t := getPlarBig()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = t.Search(plart.Key(benchKeys[i%benchN]))
+	}
+}
+
+func BenchmarkGetMiss_Plar(b *testing.B) {
+	t := getPlarBig()
+	n := len(missKeys)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = t.Search(plart.Key(missKeys[i%n]))
+	}
+}
+
+func BenchmarkDelete_Plar(b *testing.B) {
+	initKeys()
+	b.ReportAllocs()
+	for n := 0; n < b.N; n++ {
+		b.StopTimer()
+		t := plart.New()
+		for i := 0; i < benchN; i++ {
+			t.Insert(plart.Key(benchKeys[i]), plart.Value(i))
+		}
+		b.StartTimer()
+		for i := 0; i < benchN; i++ {
+			t.Delete(plart.Key(benchKeys[i]))
+		}
+	}
+	perKey(b, benchN)
+}
+
+// BenchmarkRange_Plar: plar's Iterator() does not expose efficient seeking, so
+// we walk leaves from the start of the tree, skipping until key >= rangeLo and
+// stopping when key >= rangeHi. This is the cheapest available form on the
+// public API and is structurally slower than seek-then-scan; benchmarks.md
+// documents the limitation.
+func BenchmarkRange_Plar(b *testing.B) {
+	t := getPlarBig()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		count := 0
+		for it := t.Iterator(); it.HasNext(); {
+			node, err := it.Next()
+			if err != nil {
+				b.Fatalf("iterator error: %v", err)
+			}
+			k := []byte(node.Key())
+			if bytes.Compare(k, rangeLo) < 0 {
+				continue
+			}
+			if bytes.Compare(k, rangeHi) >= 0 {
+				break
+			}
+			count++
+		}
+		if count != rangeN {
+			b.Fatalf("ranged %d, want %d", count, rangeN)
+		}
+	}
+	perKey(b, rangeN)
 }

@@ -1,10 +1,13 @@
-# ART vs google/btree — 10M-element benchmark
+# ART vs three sorted-map alternatives — 10M-element benchmark
 
-*Last measured at commit `478ca47` (HEAD). The main 10M Per-operation table below was measured fresh at `478ca47` (`-benchtime=3s -count=5`, median of 5 reps; raw output at `/tmp/v0.5.1-bench/bench.txt`). The Key-shape sub-table is carried forward from `d8df19e` and remains representative — the only hot-path change since v0.5.0 is the internal helper-extraction refactor at `d27747e`, which the main per-op re-measure at `478ca47` confirms is at parity with v0.5.0 within run variance. The **New-surface microbenchmarks** section below was measured fresh at `0f4234f` and remains representative for the same reason.*
+*Per-operation table re-baselined against three comparators at the bench-2 commit on `sorted-map-via-art` (`-benchtime=3s -count=5`, median of 5 reps; raw output at `/tmp/bench-2-baseline/bench.txt`). The ART and `google/btree` rows are fresh measurements taken in the same harness invocation as the new `tidwall/btree` and `plar/go-adaptive-radix-tree` rows, so all four implementations share identical machine state, GOGC, and warm-up. The Key-shape sub-table is carried forward from `d8df19e` and remains ART-only by design (it characterizes ART's internal sensitivity to key shape, not a comparator race). The **New-surface microbenchmarks** section was measured fresh at `0f4234f`.*
 
-**Comparator:** `github.com/google/btree` v1.1.3 (4.1k stars, most-imported B-tree in Go; used by etcd/k8s-adjacent tooling), degree 32 (library default), generics form `BTreeG[kv]`.
+**Comparators.**
+- `github.com/google/btree` v1.1.3 — most-imported B-tree in Go (4.1k stars; used by etcd/k8s-adjacent tooling); generics form `BTreeG[kv]`, degree 32 (library default).
+- `github.com/tidwall/btree` v1.8.1 — well-tuned alternative B-tree; `BTreeG[kv]` constructed via `NewBTreeGOptions(kvLess, Options{NoLocks: true, Degree: 32})`. **Degree is overridden to 32 to match google/btree** for an apples-to-apples B-tree comparison; **`NoLocks: true` disables tidwall's internal `sync.RWMutex` on every op**, since google/btree never charges that cost. With `NoLocks: false` (the default) tidwall's numbers would be visibly worse on every operation, so this setting is part of the comparison contract.
+- `github.com/plar/go-adaptive-radix-tree` v1.0.7 — the most-cited alternative ART in pure Go (65 importers). API is non-generic: `Insert(Key, Value)` / `Search(Key)` / `Delete(Key)` where `Value` is `interface{}`, so **every Put incurs an `int → interface{}` boxing alloc** that our generic `Tree[V int]` does not. This shows up cleanly as ~4 allocs/Put for plar vs ~1 alloc/Put for ART (the extra ~3 are leaf/iterator-side; the boxing is the structural one) — the per-op table reflects it honestly rather than burying it.
 
-**Workload.** 10,000,000 entries. Keys are a deterministic random permutation of `uint64` in `[0, 10M)`, big-endian encoded to 8 bytes (seed = 42). Values are `int`. Both implementations store key + value; btree holds them in a `kv` struct and orders by `bytes.Compare`.
+**Workload.** 10,000,000 entries. Keys are a deterministic random permutation of `uint64` in `[0, 10M)`, big-endian encoded to 8 bytes (seed = 42). Values are `int`. All four implementations store key + value; the two B-trees hold them in a `kv` struct and order by `bytes.Compare`.
 
 **Host.** Go 1.24.2, darwin/amd64, VirtualApple @ 2.50GHz, 16 logical CPUs.
 
@@ -12,53 +15,70 @@
 
 ## Per-operation results
 
-Throughput **and** allocation cost are reported side-by-side so a careful reader can compare point-op speed against GC pressure in one place.
+Headline number per cell is ns/op (for `Get`/`GetMiss`) or ns/key (for `Put`/`Delete`/`Range`). Allocation profile follows in a separate sub-table so each cell here stays a single number.
 
-| Operation | ART ns/op | ART B/op | ART allocs/op | B-tree ns/op | B-tree B/op | B-tree allocs/op | Faster |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Put (per key, 10M build) | 156.9 | 89.4 | 1.016 | 748.3 | 71.4 | 0.069 | ART 4.8× |
-| Get hit (per lookup) | 44.68 | 0 | 0 | 908.6 | 0 | 0 | ART 20.3× |
-| Get miss (per lookup) | 9.49 | 0 | 0 | 120.3 | 0 | 0 | ART 12.7× |
-| Delete (per key, 10M) | 80.59 | 6.27 | 0.012 | 836.1 | 0.73 | ~4e-4 | ART 10.4× |
-| Range (1 %, 100K scan) | 19.09 ns/key | 32 B/scan | 1 alloc/scan | 10.24 ns/key | 0 B/scan | 0 allocs/scan | B-tree 1.9× |
+| Operation | ART | google/btree | tidwall/btree | plar/art | Faster | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| Put (per key, 10M build) | **161.7** ns/key | 772.9 ns/key | 797.2 ns/key | 168.9 ns/key | ART | ART 4.8× over google, 4.9× over tidwall; ART vs plar is a near-tie (1.04×) — ART's only structural lead over plar here is generics avoiding the boxing alloc. |
+| Get hit (per lookup) | **43.96** ns/op | 896.8 ns/op | 932.2 ns/op | 68.06 ns/op | ART | ART 20.4× over google, 21.2× over tidwall, 1.55× over plar. The two B-trees are within 4 % of each other; ART wins decisively against both ARTs and both B-trees. |
+| Get miss (per lookup) | **8.82** ns/op | 151.0 ns/op | 154.1 ns/op | 15.73 ns/op | ART | ART 17.1× over google, 17.5× over tidwall, 1.78× over plar. Misses resolve in 1–2 node visits on either ART. |
+| Delete (per key, 10M) | **76.61** ns/key | 808.1 ns/key | 786.5 ns/key | 119.2 ns/key | ART | ART 10.5× over google, 10.3× over tidwall, 1.56× over plar. The two B-trees are within 3 %; tidwall is fractionally faster here. |
+| Range (1 %, 100K scan) | 19.32 ns/key | 10.78 ns/key | **8.12** ns/key | 6804 ns/key | tidwall/btree | **tidwall is 2.4× faster than ART**, google is 1.8× faster than ART. plar's `Iterator` exposes no efficient seek primitive, so the bench falls back to a full leaf-walk skipping until `key >= start` — the resulting 6.8 µs/key is **~352× slower** than ART and is dominated by structure-traversal cost, not the actual scan. Honest caveat: a different harness using plar's `ForEachPrefix` would be faster for prefix-shaped windows but does not match a half-open byte range. |
 
-*ART rows measured with *`-benchtime=3s -count=5`* (median of 5 reps) on the nested `bench/` module at commit `478ca47`. B-tree rows are carried forward from the prior `-benchtime=1s -count=3` pass at `d8df19e` — the B-tree comparator was not edited in the intervening commits. For Put and Delete, B/op and allocs/op are per-key (divide the raw bench counter by `benchN=10_000_000`). For Range, ns/op is normalized per key yielded while B/op and allocs/op remain per full 100K-entry scan. Delete's setup is excluded via *`b.StopTimer()`*/*`b.StartTimer()`*.*
+*Measured at the bench-2 commit on `sorted-map-via-art` with `(cd bench && go test -run='^$' -bench='^Benchmark(Put|Get|GetMiss|Delete|Range)_(ART|BTree|Tidwall|Plar)$' -benchmem -benchtime=3s -count=5 -timeout=30m ./...)`. Each row is the median of 5 reps. Raw output: `/tmp/bench-2-baseline/bench.txt`. For Put and Delete, ns/key is the raw `ns/op` counter divided by `benchN = 10_000_000` (one outer iteration builds or empties the whole tree). For Range, ns/key is normalized over the 100,000 entries yielded from the half-open byte interval `[BE(5_000_000), BE(5_100_000))`. Delete's setup is excluded via `b.StopTimer()` / `b.StartTimer()`.*
+
+### Allocation profile per operation
+
+Per-key (`Put`, `Delete`) and per-scan (`Range`) allocations side-by-side. `Get` / `GetMiss` are zero-alloc on every implementation and are omitted.
+
+| Operation | ART (B/key, allocs/key) | google/btree | tidwall/btree | plar/art |
+| --- | --- | --- | --- | --- |
+| Put | 89.4, 1.016 | 71.4, 0.069 | 93.9, 0.069 | 93.0, **4.031** |
+| Delete | 6.27, 0.0118 | 0.73, ~3.7e-4 | 0.87, ~4.3e-4 | 3.89, 0.024 |
+| Range (per scan) | 32 B, 1 alloc | 0 B, 0 | 0 B, 0 | **165 MB, ~5.18M** |
+
+The plar Put row is the boxing tax: `Insert(Key, Value)` takes `Value = interface{}`, so each `int` value escapes to the heap. That extra alloc is structural to plar's API, not a tuning oversight; we are flagging it rather than wrapping it away. The plar Range row is the no-seek tax: walking ~5.2M leaves to find the 100K-entry midpoint window allocates per visited leaf inside the iterator. Both numbers are honest reflections of what a user choosing plar would actually pay.
 
 ## Memory (one 10M-element tree, from Put benchmark)
 
-*Memory rows are carried forward from `5129766`; the v0.5.1 Put re-measure at `478ca47` reports the same `B/op` (893,498,752) and `allocs/op` (10,156,870) counters within rounding, so a fresh memory baseline would not move the per-entry numbers.*
-
 | Impl | Total bytes | Allocs | Bytes/entry | Allocs/entry |
 | --- | --- | --- | --- | --- |
-| ART | 893 MB | 10.16M | ~89 | 1.02 |
-| B-tree | 714 MB | 692K | ~71 | 0.07 |
+| ART (this library) | 893 MB | 10.16M | ~89 | 1.02 |
+| google/btree | 714 MB | 692K | ~71 | 0.07 |
+| tidwall/btree | 939 MB | 693K | ~94 | 0.07 |
+| plar/art | 930 MB | 40.31M | ~93 | **4.03** |
 
 One 1 %-range scan (100K entries yielded):
 
 | Impl | Bytes/scan | Allocs/scan |
 | --- | --- | --- |
-| ART | 32 B | 1 |
-| B-tree | 0 B | 0 |
+| ART (this library) | 32 B | 1 |
+| google/btree | 0 B | 0 |
+| tidwall/btree | 0 B | 0 |
+| plar/art | ~165 MB | ~5.18M |
 
-B-tree uses ~20 % less memory overall and ~15× fewer allocations at build time (items packed into node slices). On range scans B-tree allocates nothing. On range scans ART allocates a single small internal path buffer used for pruning; the yielded `[]byte` keys reference the tree's own stable storage and may be retained by callers without copying, as long as the entry stays in the tree.
+Both B-trees pack items into node slices and stay essentially zero-alloc on range scans. ART (this library) allocates a single 32-byte internal path buffer per scan used for pruning; the yielded `[]byte` keys reference the tree's own stable storage and may be retained by callers without copying, as long as the entry stays in the tree. plar/art's per-scan numbers are inflated by the no-seek workaround (see Per-operation results above) — they are an artifact of how the harness has to use plar's public API to express a half-open byte-range window, not a fair characterization of plar's tree itself if a seek primitive existed.
 
 ## Verdict
 
-**Supports production use for point-operation-heavy workloads.**
+**Supports production use for point-operation-heavy workloads — across all three comparators, including the other ART.**
 
-At 10M entries with 8-byte random keys, ART is 4.8–20× faster than the most popular Go B-tree on Put, Get (hit), Get (miss), and Delete. Get (hit) at 44.68 ns/op is ~20× faster, and Get (miss) at 9.49 ns/op is ~13× faster because mismatches can be resolved after one or two node visits. Delete at 80.59 ns/key on the de-parameterised node interface is materially faster than the 115.3 ns/key baseline that motivated PR #7, and has closed most of the remaining gap against the pre-generics baseline (70.0 ns/key) tracked for future work.
+At 10M entries with 8-byte random keys, ART (this library) is the fastest of the four implementations on Put, Get (hit), Get (miss), and Delete:
 
-**Still slower on short-range scans, though no longer catastrophically so.**
+- **Versus the two B-trees** (`google/btree`, `tidwall/btree`): ART is **17–21× faster** on Get (43.96 ns/op vs 896.8 / 932.2 ns/op), **17.1–17.5× faster** on Get (miss) (8.82 ns/op vs 151.0 / 154.1 ns/op), **4.8–4.9× faster** on Put (161.7 ns/key vs 772.9 / 797.2 ns/key), and **10.3–10.5× faster** on Delete (76.61 ns/key vs 786.5 / 808.1 ns/key). The two B-trees are within ~4 % of each other on every point op — the choice between them does not change the headline.
+- **Versus the other Go ART implementation** (`plar/go-adaptive-radix-tree`): ART is **1.55× faster** on Get hit, **1.78× faster** on Get miss, and **1.56× faster** on Delete. **Put is essentially a tie** at 161.7 vs 168.9 ns/key (1.04× — within run variance) — the only structural ART-vs-ART lead our library has on Put is generics avoiding the `int → interface{}` boxing alloc that plar's API mandates (1 alloc/Put for ART, ~4 allocs/Put for plar). Concretely: if you don't need a generic value type, plar's Put is competitive; on every other point op our library wins by a clear margin.
 
-The 1 % range (100 K entries) is the common "pagination / windowed scan" shape, and B-tree is **~1.8× faster** there. Both implementations are now essentially zero-alloc on the scan, so the gap is pure traversal cost: a small range pays ART's tree-descent cost to locate the start, and then walks through mostly-empty inner structure relative to the span it yields.
+**Loses on short-range scans against both B-trees — and the gap is wider than the prior README claimed.**
 
-**Memory trade-off is modest but real.** ART is ~25 % larger in bytes and allocates ~15× more objects during build (down from ~29× pre-generics). Under heavy GC pressure or on memory-tight hosts the allocation count matters more than the byte total.
+The 1 % range (100K entries) is the common "pagination / windowed scan" shape. **`tidwall/btree` is 2.4× faster than ART** on this benchmark (8.12 vs 19.32 ns/key) and **`google/btree` is 1.8× faster** (10.78 vs 19.32 ns/key). Tidwall is the new headline range winner — the prior framing of "B-tree is 1.8× faster" understated the worst case by picking only one comparator. Both B-trees are zero-alloc on the scan; ART's one 32-byte path-buffer alloc is the same on every scan size and is not the dominant cost. The gap is structure-traversal: a small range pays ART's tree-descent cost to locate the start, then walks mostly-empty inner structure relative to the span it yields. plar/art's range number (6804 ns/key, ~352× slower than ART) is a harness artifact — plar's public `Iterator` exposes no seek primitive, so the bench falls back to a full leaf-walk; do not read it as a tree-shape verdict against plar.
 
-**Net production guidance.**
+**Memory.** ART (this library) sits at ~89 B/entry — between google/btree (~71 B, smallest) and tidwall/btree (~94 B) / plar/art (~93 B). Allocation count at build is the more interesting axis: both B-trees pack items into node slices (~0.07 allocs/entry); ART pays ~1 alloc/entry; plar pays ~4 allocs/entry due to the boxing. On memory-tight hosts or under heavy GC pressure, the allocation count matters more than the byte total — and on that axis the B-trees lead, ART is in the middle, and plar is the most expensive.
 
-- Workload is point lookups / writes / deletes (cache, dedup, lookup table, set-membership): **ART wins decisively.**
-- Workload is ordered windowed reads (paginated iteration, range queries, scan-then-emit pipelines): **B-tree still wins, but the gap has narrowed** (~1.8× on short-range scans). Prefer B-tree for scan-heavy workloads.
-- Mixed / unknown: collect a representative trace and re-benchmark. The point-op / range ratio can flip the recommendation.
+**Net production guidance (now informed by three comparators).**
+
+- Workload is point lookups / writes / deletes (cache, dedup, lookup table, set-membership): **ART (this library) wins decisively against both B-trees and against the alternative Go ART** — by 1.5–21× depending on operation. Choose this library.
+- Workload is ordered windowed reads (paginated iteration, range queries, scan-then-emit pipelines): **prefer a B-tree.** `tidwall/btree` is the fastest (2.4× over ART); `google/btree` is the most-imported (1.8× over ART). Both are zero-alloc on the scan.
+- Workload is mixed: collect a representative trace and re-benchmark. The point-op / range ratio is what flips the recommendation, and the four-way comparison above gives you the unit costs for each side of the trade.
 
 ## Key-shape sensitivity
 
@@ -132,21 +152,28 @@ The encoder adds ~4.7 ns/Put, ~2.6 ns/Get, and ~0.9 ns per yielded key on Range 
 
 ## Caveats / what these numbers don't cover
 
-1. **Key shape.** 8-byte keys from a permutation of `[0, 10M)` have shallow common prefixes. See the Key-shape sensitivity section above for how Put / Get / Delete / Range costs change across `seqInt64`, `randInt64`, `uuid`, and `urlPath` workloads; in particular, longer keys slow ART's point ops down in absolute terms (an `urlPath` Get is ~3.7× slower than a `seqInt64` Get at 100K).
-2. **No concurrent access.** Both impls are single-goroutine; neither library ships a tested RW-safe wrapper.
+1. **Key shape.** 8-byte keys from a permutation of `[0, 10M)` have shallow common prefixes. See the Key-shape sensitivity section above for how Put / Get / Delete / Range costs change across `seqInt64`, `randInt64`, `uuid`, and `urlPath` workloads; in particular, longer keys slow ART's point ops down in absolute terms (an `urlPath` Get is ~3.7× slower than a `seqInt64` Get at 100K). The key-shape sweep is ART (this library) only.
+2. **No concurrent access.** All four implementations are exercised single-goroutine. `tidwall/btree` is configured `NoLocks: true` so its sync.RWMutex is out of the measurement; `google/btree` and our ART have no internal locking; plar's tree is documented as not thread-safe.
 3. **Steady-state vs. cold.** Get / Range run on a warm cache; first-hit latency is not isolated.
-4. **B-tree degree.** Left at library default (32). Tuning could shift B-tree numbers by 10–30 % on any single op.
-5. **Key aliasing.** `Tree.Range` yields `[]byte` keys that alias the tree's internal storage. They are safe to retain while the entry is in the tree and must be treated as read-only; mutating a yielded key corrupts the tree.
+4. **B-tree degree.** Both B-trees use degree 32 (`google/btree` default; `tidwall/btree` overridden to match). Tuning the degree could shift either B-tree's numbers by 10–30 % on any single op — the relative ordering between the two B-trees, in particular, is sensitive to this knob.
+5. **plar Range is API-bound.** plar's `Iterator()` exposes no efficient seek primitive, so `BenchmarkRange_Plar` walks all leaves from the start of the tree and skips until `key >= rangeLo`, stopping at `key >= rangeHi`. The reported 6804 ns/key reflects that walk, not plar's tree shape; a future plar release adding a seek primitive could change this row substantially.
+6. **Key aliasing.** `Tree.Range` yields `[]byte` keys that alias the tree's internal storage. They are safe to retain while the entry is in the tree and must be treated as read-only; mutating a yielded key corrupts the tree.
 
 ## Reproducing
 
-The main-table numbers come from a single invocation of the original per-op bench suite, from the nested `bench/` module:
+The main-table numbers come from a single invocation of the four-comparator per-op bench suite, from the nested `bench/` module:
 
 ```
-(cd bench && go test -run=^$ -bench='^Benchmark(Put|Get|GetMiss|Delete|Range)_(ART|BTree)$' -benchmem -benchtime=1s -count=3 -timeout=20m ./...)
+(cd bench && go test -run='^$' -bench='^Benchmark(Put|Get|GetMiss|Delete|Range)_(ART|BTree|Tidwall|Plar)$' -benchmem -benchtime=3s -count=5 -timeout=30m ./...)
 ```
 
-Each benchmark is run 3 times; the main table reports the median of the 3 reps per row. The Key-shape sensitivity table is produced by a separate, faster pass:
+Each benchmark is run 5 times; the main table reports the median of the 5 reps per row. Total wall time is ~14 minutes. To run only the new comparator subset (smoke-check after a `bench/` edit) use:
+
+```
+(cd bench && go test -run='^$' -bench='^Benchmark(Put|Get|GetMiss|Delete|Range)_(Tidwall|Plar)$' -benchtime=1s -count=1 -timeout=30m ./...)
+```
+
+The Key-shape sensitivity table is produced by a separate, faster pass:
 
 ```
 (cd bench && go test -run=^$ -bench=BenchmarkKeyShape -benchmem -benchtime=1s -count=1 ./...)
@@ -164,4 +191,4 @@ To run everything at once (~3 minutes), use `-bench=.` in place of either main-t
 
 ## Environment (as measured)
 
-Measured on macOS 26.3.1 (darwin) on an Apple M4 Max laptop with 16 logical CPUs, on AC power (100% charged). The Go toolchain is `go version go1.24.2 darwin/amd64` — i.e. the Go binary targets `darwin/amd64` and runs under Rosetta 2 on Apple Silicon, which is why `go test` reports the CPU as `VirtualApple @ 2.50GHz`. `GOMAXPROCS` was left unset (Go default = 16, one per logical CPU). Main-table command: `(cd bench && go test -run=^$ -bench='^Benchmark(Put|Get|GetMiss|Delete|Range)_(ART|BTree)$' -benchmem -benchtime=1s -count=3 -timeout=20m ./...)` — ~2.5 minutes wall time. Key-shape command: `(cd bench && go test -run=^$ -bench=BenchmarkKeyShape -benchmem -benchtime=1s -count=1 ./...)` — ~36 seconds wall time. No machine-quiescing steps beyond closing foreground apps and letting the laptop idle on AC.
+Measured on macOS 26.3.1 (darwin) on an Apple M4 Max laptop with 16 logical CPUs, on AC power (100% charged). The Go toolchain is `go version go1.24.2 darwin/amd64` — i.e. the Go binary targets `darwin/amd64` and runs under Rosetta 2 on Apple Silicon, which is why `go test` reports the CPU as `VirtualApple @ 2.50GHz`. `GOMAXPROCS` was left unset (Go default = 16, one per logical CPU). Main-table command: `(cd bench && go test -run='^$' -bench='^Benchmark(Put|Get|GetMiss|Delete|Range)_(ART|BTree|Tidwall|Plar)$' -benchmem -benchtime=3s -count=5 -timeout=30m ./...)` — ~14 minutes wall time. Key-shape command: `(cd bench && go test -run=^$ -bench=BenchmarkKeyShape -benchmem -benchtime=1s -count=1 ./...)` — ~36 seconds wall time. No machine-quiescing steps beyond closing foreground apps and letting the laptop idle on AC.
