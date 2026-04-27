@@ -132,6 +132,44 @@ Read the table as a map of where ART's costs live:
 
 B-tree equivalents are intentionally omitted from this table — the point here is to characterize *ART's* internal sensitivity. Rerun the harness against a `BTreeG[kv]` in your own workload if you need the direct per-shape comparison.
 
+## Stringy-key sensitivity (URL / UUID / Short, 1M keys)
+
+*Working-set is 1M (not 10M) to keep RSS bounded across all four implementations — stringy keys are 4–10× larger per entry. Median of 5 reps at `-benchtime=3s -count=5`. Raw output at `/tmp/stringy-baseline/bench.txt`. B-tree comparator uses `strings.Compare` for parity (avoids the `<` then `>` double-compare pattern). plar Range still uses a full leaf-walk + skip (no seek primitive in v1.0.7) — those numbers are harness-bound, not tree-shape. plar Get/Put/Delete still pay the `interface{}` boxing tax on the value column (one extra alloc per Put visible in the bench output).*
+
+### URL: `https://example.com/u/<8-hex>/<8-hex>` (~46 bytes, ~24-byte shared prefix)
+
+| Operation | ART | google/btree | tidwall/btree | plar/art | Faster | Notes |
+|---|---:|---:|---:|---:|---|---|
+| Put (ns/key) | **334** | 585 | 599 | 400 | ART | ART 1.75× over google; plar pays the `interface{}` boxing tax (~5.8M extra allocs/run) |
+| Get (ns/op) | **167** | 624 | 622 | 260 | ART | ART 3.74× over google; long shared prefix did *not* widen ART's lead vs the int-key 20.4× baseline |
+| GetMiss (ns/op) | **210** | 641 | 627 | 302 | ART | ART 3.06× over google |
+| Delete (ns/key) | **194** | 570 | 529 | 257 | ART | ART 2.94× over google |
+| Range (ns/key) | 43.8 | 9.62 | **7.56** | 9523 † | tidwall | tidwall 5.79× over ART; plar 1259× slower † harness-bound (full leaf walk + skip; no seek in v1.0.7) |
+
+### UUID: 36-char hex with dashes (no shared prefix; version/variant nibbles intentionally not set, for maximum entropy)
+
+| Operation | ART | google/btree | tidwall/btree | plar/art | Faster | Notes |
+|---|---:|---:|---:|---:|---|---|
+| Put (ns/key) | **309** | 565 | 577 | 391 | ART | ART 1.83× over google |
+| Get (ns/op) | **163** | 551 | 559 | 253 | ART | ART 3.37× over google; full-entropy keys still favor ART, by roughly the same margin as URL |
+| GetMiss (ns/op) | **177** | 591 | 628 | 333 | ART | ART 3.34× over google; misses are cheap because the prefix mismatches in the first few bytes |
+| Delete (ns/key) | **189** | 526 | 480 | 240 | ART | ART 2.78× over google |
+| Range (ns/key) | 44.6 | 8.55 | **6.66** | 9574 † | tidwall | tidwall 6.70× over ART; plar 1438× slower † harness-bound |
+
+### Short: 8-byte random alphanumeric (no prefix structure)
+
+| Operation | ART | google/btree | tidwall/btree | plar/art | Faster | Notes |
+|---|---:|---:|---:|---:|---|---|
+| Put (ns/key) | **153** | 364 | 375 | 267 | ART | ART 2.38× over google; closest stringy analog to the int-key shape |
+| Get (ns/op) | **63.7** | 447 | 394 | 174 | ART | ART 6.19× over tidwall, 7.02× over google — by far the widest stringy gap |
+| GetMiss (ns/op) | **56.0** | 392 | 385 | 238 | ART | ART 6.88× over tidwall |
+| Delete (ns/key) | **124** | 381 | 361 | 174 | ART | ART 2.92× over tidwall |
+| Range (ns/key) | 27.5 | 6.42 | **4.59** | 7216 † | tidwall | tidwall 5.99× over ART; plar 1572× slower † harness-bound |
+
+### Verdict
+
+The headline hypothesis — *long shared prefix on URL would tilt further toward ART* — **broke**. ART's Get-hit lead on URL (3.74× over google/btree) is comparable to UUID (3.37×) and substantially *narrower* than the 20.4× lead measured on int-keys at 10M. Two effects cancel the structural prefix advantage: longer absolute key length adds byte-walking cost to every ART probe (167 ns on URL vs 63.7 ns on Short vs ~24 ns on int-keys), and the B-trees' `strings.Compare` short-circuits at the first differing byte, so the variable-suffix work is bounded for them too. The UUID hypothesis (no-prefix entropy lets the B-trees close the gap) **partially held in shape but not in magnitude** — UUID's 3.37× lead is essentially the same as URL's 3.74×, not a meaningful narrowing. The Short hypothesis (8-byte stringy ≈ int-key shape) **held the most** — at 7.02× over google on Get-hit, Short is by far the closest of the three to the int-key baseline, but still well below 20.4×; the missing factor of ~3 tracks the 10× working-set reduction (1M vs 10M) more than any key-shape difference. On Range, the ordering is unchanged from the int-key baseline: tidwall > google ≫ ART ≫ plar (harness-bound), with tidwall extending its lead to 5.79–6.70× over ART across all three shapes.
+
 ## New-surface microbenchmarks
 
 The following numbers characterize three pieces of surface area that ship alongside the core `Tree[V]`: the extra `Range` shapes (descending and half-open), the `LockedTree` RWMutex wrapper, and the `artmap.Ordered` typed encoder subpackage. All three tables were measured fresh at `0f4234f` with `-benchtime=1s -count=3` (median reported) on the same darwin/amd64 host as the main table.

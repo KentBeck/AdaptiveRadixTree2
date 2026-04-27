@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (docs)
+- `benchmarks.md`: new "Stringy-key sensitivity" section measuring
+  Put/Get/GetMiss/Delete/Range across three string-key shapes (URL,
+  UUID, 8-byte random) at a 1M working-set, against all four
+  implementations. Companion bench file `bench/stringy_test.go`.
+
 ### Changed (docs)
 - `benchmarks.md`: added a "Picking between implementations" section
   with a per-implementation when-to-pick / when-to-avoid table, axis-by-axis
