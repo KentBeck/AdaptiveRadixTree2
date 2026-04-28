@@ -9,50 +9,19 @@ func (t *Tree[V]) Get(key []byte) (value V, ok bool) {
 	current := t.root
 	depth := 0
 	for current != nil {
-		switch n := current.(type) {
-		case *leaf[V]:
-			return terminalValue[V](n, key)
-		case *node4:
-			d, ok := consumePrefix(n.prefix, key, depth)
-			if !ok {
-				return zero, false
-			}
-			if d == len(key) {
-				return terminalValue[V](n.terminal, key)
-			}
-			current = n.findChild(key[d])
-			depth = d + 1
-		case *node16:
-			d, ok := consumePrefix(n.prefix, key, depth)
-			if !ok {
-				return zero, false
-			}
-			if d == len(key) {
-				return terminalValue[V](n.terminal, key)
-			}
-			current = n.findChild(key[d])
-			depth = d + 1
-		case *node48:
-			d, ok := consumePrefix(n.prefix, key, depth)
-			if !ok {
-				return zero, false
-			}
-			if d == len(key) {
-				return terminalValue[V](n.terminal, key)
-			}
-			current = n.findChild(key[d])
-			depth = d + 1
-		case *node256:
-			d, ok := consumePrefix(n.prefix, key, depth)
-			if !ok {
-				return zero, false
-			}
-			if d == len(key) {
-				return terminalValue[V](n.terminal, key)
-			}
-			current = n.findChild(key[d])
-			depth = d + 1
+		if l, ok := current.(*leaf[V]); ok {
+			return terminalValue[V](l, key)
 		}
+		n := current.(innerNode)
+		d, matched := consumePrefix(n.getPrefix(), key, depth)
+		if !matched {
+			return zero, false
+		}
+		if d == len(key) {
+			return terminalValue[V](n.getTerminal(), key)
+		}
+		current = n.findChild(key[d])
+		depth = d + 1
 	}
 	return zero, false
 }

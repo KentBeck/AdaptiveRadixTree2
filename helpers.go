@@ -26,21 +26,16 @@ func (t *Tree[V]) insertLeaf(key []byte, value V) *leaf[V] {
 	return newLeaf(key, value)
 }
 
-// clearTerminalIfMatches clears *term when it holds a leaf whose key
-// equals key, bumping t.size down. It is the single chokepoint for
-// terminal-leaf removal during Delete; leaf-subtree removal decrements
-// inline in deleteFrom. *term holds a node interface whose concrete
-// type is *leaf[V] inside a Tree[V]; a nil interface means the node
-// has no terminal.
-func clearTerminalIfMatches[V any](t *Tree[V], term *node, key []byte) bool {
-	if *term == nil {
-		return false
-	}
-	l, ok := (*term).(*leaf[V])
+// clearTerminalIfMatches clears n's terminal when it holds a leaf
+// whose key equals key, bumping t.size down. It is the single
+// chokepoint for terminal-leaf removal during Delete; leaf-subtree
+// removal decrements inline in deleteFrom.
+func clearTerminalIfMatches[V any](t *Tree[V], n innerNode, key []byte) bool {
+	l, ok := n.getTerminal().(*leaf[V])
 	if !ok || !bytes.Equal(l.key, key) {
 		return false
 	}
-	*term = nil
+	n.setTerminal(nil)
 	t.size--
 	return true
 }

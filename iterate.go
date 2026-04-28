@@ -36,63 +36,22 @@ func (t *Tree[V]) AllDescending() iter.Seq2[[]byte, V] {
 
 // iterate visits every (key, value) pair reachable from n in sorted
 // key order, returning false as soon as yield does so the caller can
-// short-circuit all the way up.
+// short-circuit all the way up. Inner-node child order is delegated
+// to [innerNode.eachAscending].
 func iterate[V any](n node, yield func([]byte, V) bool) bool {
 	switch r := n.(type) {
 	case nil:
 		return true
 	case *leaf[V]:
 		return yield(r.key, r.value)
-	case *node4:
-		if tl, ok := r.terminal.(*leaf[V]); ok && !yield(tl.key, tl.value) {
-			return false
-		}
-		for i := uint8(0); i < r.numChildren; i++ {
-			if !iterate[V](r.children[i], yield) {
-				return false
-			}
-		}
-		return true
-	case *node16:
-		if tl, ok := r.terminal.(*leaf[V]); ok && !yield(tl.key, tl.value) {
-			return false
-		}
-		for i := uint8(0); i < r.numChildren; i++ {
-			if !iterate[V](r.children[i], yield) {
-				return false
-			}
-		}
-		return true
-	case *node48:
-		if tl, ok := r.terminal.(*leaf[V]); ok && !yield(tl.key, tl.value) {
-			return false
-		}
-		for edge := 0; edge < 256; edge++ {
-			slot := r.childIndex[byte(edge)]
-			if slot == 0 {
-				continue
-			}
-			if !iterate[V](r.children[slot-1], yield) {
-				return false
-			}
-		}
-		return true
-	case *node256:
-		if tl, ok := r.terminal.(*leaf[V]); ok && !yield(tl.key, tl.value) {
-			return false
-		}
-		for edge := 0; edge < 256; edge++ {
-			child := r.children[edge]
-			if child == nil {
-				continue
-			}
-			if !iterate[V](child, yield) {
-				return false
-			}
-		}
-		return true
 	}
-	return true
+	r := n.(innerNode)
+	if tl, ok := r.getTerminal().(*leaf[V]); ok && !yield(tl.key, tl.value) {
+		return false
+	}
+	return r.eachAscending(func(_ byte, child node) bool {
+		return iterate[V](child, yield)
+	})
 }
 
 // Range returns an iterator over every (key, value) pair whose key
@@ -158,116 +117,27 @@ func iterateRange[V any](n node, path *[]byte, start, end []byte, yield func([]b
 			return yield(r.key, r.value)
 		}
 		return true
-	case *node4:
-		before := len(*path)
-		*path = append(*path, r.prefix...)
-		nodeLen := len(*path)
-		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
-			*path = (*path)[:before]
-			return false
-		}
-		for i := uint8(0); i < r.numChildren; i++ {
-			b := r.keys[i]
-			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
-				continue
-			}
-			if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
-				*path = (*path)[:before]
-				return true
-			}
-			*path = append((*path)[:nodeLen], b)
-			if !iterateRange[V](r.children[i], path, start, end, yield) {
-				*path = (*path)[:before]
-				return false
-			}
-		}
-		*path = (*path)[:before]
-		return true
-	case *node16:
-		before := len(*path)
-		*path = append(*path, r.prefix...)
-		nodeLen := len(*path)
-		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
-			*path = (*path)[:before]
-			return false
-		}
-		for i := uint8(0); i < r.numChildren; i++ {
-			b := r.keys[i]
-			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
-				continue
-			}
-			if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
-				*path = (*path)[:before]
-				return true
-			}
-			*path = append((*path)[:nodeLen], b)
-			if !iterateRange[V](r.children[i], path, start, end, yield) {
-				*path = (*path)[:before]
-				return false
-			}
-		}
-		*path = (*path)[:before]
-		return true
-	case *node48:
-		before := len(*path)
-		*path = append(*path, r.prefix...)
-		nodeLen := len(*path)
-		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
-			*path = (*path)[:before]
-			return false
-		}
-		for edge := 0; edge < 256; edge++ {
-			slot := r.childIndex[byte(edge)]
-			if slot == 0 {
-				continue
-			}
-			b := byte(edge)
-			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
-				continue
-			}
-			if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
-				*path = (*path)[:before]
-				return true
-			}
-			*path = append((*path)[:nodeLen], b)
-			if !iterateRange[V](r.children[slot-1], path, start, end, yield) {
-				*path = (*path)[:before]
-				return false
-			}
-		}
-		*path = (*path)[:before]
-		return true
-	case *node256:
-		before := len(*path)
-		*path = append(*path, r.prefix...)
-		nodeLen := len(*path)
-		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
-			*path = (*path)[:before]
-			return false
-		}
-		for edge := 0; edge < 256; edge++ {
-			child := r.children[edge]
-			if child == nil {
-				continue
-			}
-			b := byte(edge)
-			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
-				continue
-			}
-			if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
-				*path = (*path)[:before]
-				return true
-			}
-			*path = append((*path)[:nodeLen], b)
-			if !iterateRange[V](child, path, start, end, yield) {
-				*path = (*path)[:before]
-				return false
-			}
-		}
-		*path = (*path)[:before]
-		return true
 	}
-	return true
+	r := n.(innerNode)
+	before := len(*path)
+	*path = append(*path, r.getPrefix()...)
+	nodeLen := len(*path)
+	if !yieldTerminalInRange[V](r.getTerminal(), (*path)[:nodeLen], start, end, yield) {
+		*path = (*path)[:before]
+		return false
+	}
+	cont := r.eachAscending(func(b byte, child node) bool {
+		if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
+			return true
+		}
+		if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
+			return false
+		}
+		*path = append((*path)[:nodeLen], b)
+		return iterateRange[V](child, path, start, end, yield)
+	})
+	*path = (*path)[:before]
+	return cont
 }
 
 // keyInRange reports whether key lies in [start, end). A nil bound
@@ -324,8 +194,9 @@ func subtreeAtOrAfterWithByte(nodePath []byte, extra byte, bound []byte) bool {
 
 // iterateDescending visits every (key, value) pair reachable from n
 // in descending key order. Within each inner node children are
-// traversed from highest to lowest edge byte, and the terminal (when
-// present) is yielded last: a node's terminal key is shorter than any
+// traversed from highest to lowest edge byte via
+// [innerNode.eachDescending], and the terminal (when present) is
+// yielded last: a node's terminal key is shorter than any
 // child-extension and therefore sorts before every child subtree.
 func iterateDescending[V any](n node, yield func([]byte, V) bool) bool {
 	switch r := n.(type) {
@@ -333,54 +204,16 @@ func iterateDescending[V any](n node, yield func([]byte, V) bool) bool {
 		return true
 	case *leaf[V]:
 		return yield(r.key, r.value)
-	case *node4:
-		for i := int(r.numChildren) - 1; i >= 0; i-- {
-			if !iterateDescending[V](r.children[i], yield) {
-				return false
-			}
-		}
-		if tl, ok := r.terminal.(*leaf[V]); ok && !yield(tl.key, tl.value) {
-			return false
-		}
-		return true
-	case *node16:
-		for i := int(r.numChildren) - 1; i >= 0; i-- {
-			if !iterateDescending[V](r.children[i], yield) {
-				return false
-			}
-		}
-		if tl, ok := r.terminal.(*leaf[V]); ok && !yield(tl.key, tl.value) {
-			return false
-		}
-		return true
-	case *node48:
-		for edge := 255; edge >= 0; edge-- {
-			slot := r.childIndex[byte(edge)]
-			if slot == 0 {
-				continue
-			}
-			if !iterateDescending[V](r.children[slot-1], yield) {
-				return false
-			}
-		}
-		if tl, ok := r.terminal.(*leaf[V]); ok && !yield(tl.key, tl.value) {
-			return false
-		}
-		return true
-	case *node256:
-		for edge := 255; edge >= 0; edge-- {
-			child := r.children[edge]
-			if child == nil {
-				continue
-			}
-			if !iterateDescending[V](child, yield) {
-				return false
-			}
-		}
-		if tl, ok := r.terminal.(*leaf[V]); ok && !yield(tl.key, tl.value) {
-			return false
-		}
-		return true
+	}
+	r := n.(innerNode)
+	cont := r.eachDescending(func(_ byte, child node) bool {
+		return iterateDescending[V](child, yield)
+	})
+	if !cont {
+		return false
+	}
+	if tl, ok := r.getTerminal().(*leaf[V]); ok && !yield(tl.key, tl.value) {
+		return false
 	}
 	return true
 }
@@ -424,118 +257,31 @@ func iterateRangeDescending[V any](n node, path *[]byte, start, end []byte, yiel
 			return yield(r.key, r.value)
 		}
 		return true
-	case *node4:
-		before := len(*path)
-		*path = append(*path, r.prefix...)
-		nodeLen := len(*path)
-		for i := int(r.numChildren) - 1; i >= 0; i-- {
-			b := r.keys[i]
-			if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
-				continue
-			}
-			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
-				ok := yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield)
-				*path = (*path)[:before]
-				return ok
-			}
-			*path = append((*path)[:nodeLen], b)
-			if !iterateRangeDescending[V](r.children[i], path, start, end, yield) {
-				*path = (*path)[:before]
-				return false
-			}
-		}
-		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
-			*path = (*path)[:before]
-			return false
-		}
-		*path = (*path)[:before]
-		return true
-	case *node16:
-		before := len(*path)
-		*path = append(*path, r.prefix...)
-		nodeLen := len(*path)
-		for i := int(r.numChildren) - 1; i >= 0; i-- {
-			b := r.keys[i]
-			if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
-				continue
-			}
-			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
-				ok := yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield)
-				*path = (*path)[:before]
-				return ok
-			}
-			*path = append((*path)[:nodeLen], b)
-			if !iterateRangeDescending[V](r.children[i], path, start, end, yield) {
-				*path = (*path)[:before]
-				return false
-			}
-		}
-		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
-			*path = (*path)[:before]
-			return false
-		}
-		*path = (*path)[:before]
-		return true
-	case *node48:
-		before := len(*path)
-		*path = append(*path, r.prefix...)
-		nodeLen := len(*path)
-		for edge := 255; edge >= 0; edge-- {
-			slot := r.childIndex[byte(edge)]
-			if slot == 0 {
-				continue
-			}
-			b := byte(edge)
-			if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
-				continue
-			}
-			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
-				ok := yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield)
-				*path = (*path)[:before]
-				return ok
-			}
-			*path = append((*path)[:nodeLen], b)
-			if !iterateRangeDescending[V](r.children[slot-1], path, start, end, yield) {
-				*path = (*path)[:before]
-				return false
-			}
-		}
-		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
-			*path = (*path)[:before]
-			return false
-		}
-		*path = (*path)[:before]
-		return true
-	case *node256:
-		before := len(*path)
-		*path = append(*path, r.prefix...)
-		nodeLen := len(*path)
-		for edge := 255; edge >= 0; edge-- {
-			child := r.children[edge]
-			if child == nil {
-				continue
-			}
-			b := byte(edge)
-			if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
-				continue
-			}
-			if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
-				ok := yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield)
-				*path = (*path)[:before]
-				return ok
-			}
-			*path = append((*path)[:nodeLen], b)
-			if !iterateRangeDescending[V](child, path, start, end, yield) {
-				*path = (*path)[:before]
-				return false
-			}
-		}
-		if !yieldTerminalInRange[V](r.terminal, (*path)[:nodeLen], start, end, yield) {
-			*path = (*path)[:before]
-			return false
-		}
-		*path = (*path)[:before]
-		return true
 	}
+	r := n.(innerNode)
+	before := len(*path)
+	*path = append(*path, r.getPrefix()...)
+	nodeLen := len(*path)
+	stoppedEarly := false
+	cont := r.eachDescending(func(b byte, child node) bool {
+		if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
+			return true
+		}
+		if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
+			stoppedEarly = true
+			return false
+		}
+		*path = append((*path)[:nodeLen], b)
+		return iterateRangeDescending[V](child, path, start, end, yield)
+	})
+	if !cont && !stoppedEarly {
+		*path = (*path)[:before]
+		return false
+	}
+	if !yieldTerminalInRange[V](r.getTerminal(), (*path)[:nodeLen], start, end, yield) {
+		*path = (*path)[:before]
+		return false
+	}
+	*path = (*path)[:before]
 	return true
 }

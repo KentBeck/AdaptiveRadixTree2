@@ -15,79 +15,51 @@ func (t *Tree[V]) Put(key []byte, value V) {
 // putInto returns the (possibly replaced) subtree root. Size
 // accounting lives in [Tree.insertLeaf]: every fresh-leaf allocation
 // bumps t.size, so recursion only needs to return the new subtree.
-// The four inner-node arms duplicate the prefix-split preamble by
-// design: a shared helper would reintroduce the interface-method
-// indirection measured in the reverted polymorphism spike.
+// Inner-node dispatch is polymorphic via the innerNode interface; the
+// node-specific work (capacity-aware add, sorted insertion) lives in
+// each type's [innerNode.addOrGrow].
 func putInto[V any](t *Tree[V], current node, key []byte, value V, depth int) node {
 	if current == nil {
 		return t.insertLeaf(key, value)
 	}
-	switch r := current.(type) {
-	case *leaf[V]:
-		if bytes.Equal(r.key, key) {
-			r.value = value
-			return r
+	if l, ok := current.(*leaf[V]); ok {
+		if bytes.Equal(l.key, key) {
+			l.value = value
+			return l
 		}
-		return newNode4With(t, r, key, value, depth)
-	case *node4:
-		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
-		if splitPoint < len(r.prefix) {
-			shared := r.prefix[:splitPoint]
-			oldBranch := r.prefix[splitPoint]
-			r.prefix = r.prefix[splitPoint+1:]
-			return splitPrefixedInner(t, r, oldBranch, shared, key, value, depth, splitPoint)
-		}
-		return putIntoNode4(t, r, key, value, depth+len(r.prefix))
-	case *node16:
-		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
-		if splitPoint < len(r.prefix) {
-			shared := r.prefix[:splitPoint]
-			oldBranch := r.prefix[splitPoint]
-			r.prefix = r.prefix[splitPoint+1:]
-			return splitPrefixedInner(t, r, oldBranch, shared, key, value, depth, splitPoint)
-		}
-		return putIntoNode16(t, r, key, value, depth+len(r.prefix))
-	case *node48:
-		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
-		if splitPoint < len(r.prefix) {
-			shared := r.prefix[:splitPoint]
-			oldBranch := r.prefix[splitPoint]
-			r.prefix = r.prefix[splitPoint+1:]
-			return splitPrefixedInner(t, r, oldBranch, shared, key, value, depth, splitPoint)
-		}
-		return putIntoNode48(t, r, key, value, depth+len(r.prefix))
-	case *node256:
-		splitPoint := len(longestCommonPrefix(key[depth:], r.prefix))
-		if splitPoint < len(r.prefix) {
-			shared := r.prefix[:splitPoint]
-			oldBranch := r.prefix[splitPoint]
-			r.prefix = r.prefix[splitPoint+1:]
-			return splitPrefixedInner(t, r, oldBranch, shared, key, value, depth, splitPoint)
-		}
-		return putIntoNode256(t, r, key, value, depth+len(r.prefix))
+		return newNode4With(t, l, key, value, depth)
 	}
-	return current
+	r := current.(innerNode)
+	prefix := r.getPrefix()
+	splitPoint := len(longestCommonPrefix(key[depth:], prefix))
+	if splitPoint < len(prefix) {
+		shared := prefix[:splitPoint]
+		oldBranch := prefix[splitPoint]
+		r.setPrefix(prefix[splitPoint+1:])
+		return splitPrefixedInner(t, r, oldBranch, shared, key, value, depth, splitPoint)
+	}
+	return putIntoInner(t, r, key, value, depth+len(prefix))
 }
 
-// putIntoNode4 writes (key, value) into r given that r.prefix has
+// putIntoInner writes (key, value) into r given that r.getPrefix() has
 // already been consumed from key (the caller passes the advanced
 // depth). The decision reads as: key exhausted? → terminal. Else
-// switch on the child at key[depth]: absent → add/grow; leaf same
+// switch on the child at key[depth]: absent → addOrGrow; leaf same
 // key → overwrite; leaf different key → nested node4; inner node →
 // recurse.
-func putIntoNode4[V any](t *Tree[V], r *node4, key []byte, value V, depth int) node {
+func putIntoInner[V any](t *Tree[V], r innerNode, key []byte, value V, depth int) node {
 	if depth == len(key) {
-		if r.terminal != nil {
-			r.terminal.(*leaf[V]).value = value
+		if term, ok := r.getTerminal().(*leaf[V]); ok {
+			term.value = value
 			return r
 		}
-		r.terminal = t.insertLeaf(key, value)
+		r.setTerminal(t.insertLeaf(key, value))
 		return r
 	}
 	branch := key[depth]
 	switch c := r.findChild(branch).(type) {
 	case nil:
-		return node4AddOrGrow(r, branch, t.insertLeaf(key, value))
+		return r.addOrGrow(branch, t.insertLeaf(key, value))
 	case *leaf[V]:
 		if bytes.Equal(c.key, key) {
 			c.value = value
@@ -99,128 +71,4 @@ func putIntoNode4[V any](t *Tree[V], r *node4, key []byte, value V, depth int) n
 		r.replaceChild(branch, putInto(t, c, key, value, depth+1))
 		return r
 	}
-}
-
-// putIntoNode16 mirrors putIntoNode4 at node16 capacity. r.prefix has
-// already been consumed from key by the caller.
-func putIntoNode16[V any](t *Tree[V], r *node16, key []byte, value V, depth int) node {
-	if depth == len(key) {
-		if r.terminal != nil {
-			r.terminal.(*leaf[V]).value = value
-			return r
-		}
-		r.terminal = t.insertLeaf(key, value)
-		return r
-	}
-	branch := key[depth]
-	switch c := r.findChild(branch).(type) {
-	case nil:
-		return node16AddOrGrow(r, branch, t.insertLeaf(key, value))
-	case *leaf[V]:
-		if bytes.Equal(c.key, key) {
-			c.value = value
-			return r
-		}
-		r.replaceChild(branch, newNode4With(t, c, key, value, depth+1))
-		return r
-	default:
-		r.replaceChild(branch, putInto(t, c, key, value, depth+1))
-		return r
-	}
-}
-
-// node4AddOrGrow adds child under edge byte b, growing to a node16
-// when r is already full. The grown node16 inherits r's prefix and
-// terminal.
-func node4AddOrGrow(r *node4, b byte, child node) node {
-	if r.numChildren < node4Capacity {
-		r.addChild(b, child)
-		return r
-	}
-	grown := growToNode16(r)
-	grown.insertChild(b, child)
-	return grown
-}
-
-// node16AddOrGrow adds child under edge byte b, growing to a node48
-// when r is already full. The grown node48 inherits r's prefix and
-// terminal.
-func node16AddOrGrow(r *node16, b byte, child node) node {
-	if r.numChildren < node16Capacity {
-		r.insertChild(b, child)
-		return r
-	}
-	grown := growToNode48(r)
-	grown.addChild(b, child)
-	return grown
-}
-
-// putIntoNode48 mirrors putIntoNode4 at node48 capacity. r.prefix has
-// already been consumed from key by the caller.
-func putIntoNode48[V any](t *Tree[V], r *node48, key []byte, value V, depth int) node {
-	if depth == len(key) {
-		if r.terminal != nil {
-			r.terminal.(*leaf[V]).value = value
-			return r
-		}
-		r.terminal = t.insertLeaf(key, value)
-		return r
-	}
-	branch := key[depth]
-	switch c := r.findChild(branch).(type) {
-	case nil:
-		return node48AddOrGrow(r, branch, t.insertLeaf(key, value))
-	case *leaf[V]:
-		if bytes.Equal(c.key, key) {
-			c.value = value
-			return r
-		}
-		r.replaceChild(branch, newNode4With(t, c, key, value, depth+1))
-		return r
-	default:
-		r.replaceChild(branch, putInto(t, c, key, value, depth+1))
-		return r
-	}
-}
-
-// putIntoNode256 mirrors putIntoNode4 at node256 capacity. r.prefix has
-// already been consumed from key by the caller.
-func putIntoNode256[V any](t *Tree[V], r *node256, key []byte, value V, depth int) node {
-	if depth == len(key) {
-		if r.terminal != nil {
-			r.terminal.(*leaf[V]).value = value
-			return r
-		}
-		r.terminal = t.insertLeaf(key, value)
-		return r
-	}
-	branch := key[depth]
-	switch c := r.findChild(branch).(type) {
-	case nil:
-		r.addChild(branch, t.insertLeaf(key, value))
-		return r
-	case *leaf[V]:
-		if bytes.Equal(c.key, key) {
-			c.value = value
-			return r
-		}
-		r.replaceChild(branch, newNode4With(t, c, key, value, depth+1))
-		return r
-	default:
-		r.replaceChild(branch, putInto(t, c, key, value, depth+1))
-		return r
-	}
-}
-
-// node48AddOrGrow adds child under edge byte b, growing to a node256
-// when r is already full. The grown node256 inherits r's prefix and
-// terminal.
-func node48AddOrGrow(r *node48, b byte, child node) node {
-	if r.numChildren < node48Capacity {
-		r.addChild(b, child)
-		return r
-	}
-	grown := growToNode256(r)
-	grown.addChild(b, child)
-	return grown
 }
