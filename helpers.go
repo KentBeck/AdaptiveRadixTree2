@@ -102,7 +102,7 @@ func newNode4With[V any](t *Tree[V], existing *leaf[V], newKey []byte, newValue 
 	if existingExhausted && newExhausted {
 		panic("art: newNode4With called with equal keys - invariant violation")
 	}
-	n := &node4{prefix: append([]byte(nil), shared...)}
+	n := &node4{innerHeader: innerHeader{prefix: append([]byte(nil), shared...)}}
 	switch {
 	case existingExhausted:
 		n.terminal = existing
@@ -125,7 +125,7 @@ func newNode4With[V any](t *Tree[V], existing *leaf[V], newKey []byte, newValue 
 // attached as the second branching child. Caller guarantees adoptee's
 // own prefix has already been shortened past oldBranch.
 func splitPrefixedInner[V any](t *Tree[V], adoptee innerNode, oldBranch byte, shared, key []byte, value V, depth, splitPoint int) *node4 {
-	parent := &node4{prefix: append([]byte(nil), shared...)}
+	parent := &node4{innerHeader: innerHeader{prefix: append([]byte(nil), shared...)}}
 	parent.addChild(oldBranch, adoptee)
 	if depth+splitPoint == len(key) {
 		parent.terminal = t.insertLeaf(key, value)

@@ -55,24 +55,33 @@ type leaf[V any] struct {
 
 func (*leaf[V]) kind() nodeKind { return kindLeaf }
 
+// innerHeader holds the (prefix, terminal) state shared by every
+// inner node (node4/16/48/256). It is embedded by value at the top
+// of each inner-node struct so the four trivial getters/setters on
+// the innerNode interface are satisfied by method promotion.
+type innerHeader struct {
+	prefix   []byte
+	terminal node
+}
+
+func (h *innerHeader) getPrefix() []byte  { return h.prefix }
+func (h *innerHeader) setPrefix(p []byte) { h.prefix = p }
+func (h *innerHeader) getTerminal() node  { return h.terminal }
+func (h *innerHeader) setTerminal(t node) { h.terminal = t }
+
 // node4 keeps keys[:numChildren] sorted ascending by edge byte. The
 // prefix is consumed from the search key before branching. terminal,
 // when non-nil, holds the leaf stored at this node's exact path (a
 // key that ends after the prefix and does not branch further); within
 // a Tree[V] the concrete type is always *leaf[V].
 type node4 struct {
-	prefix      []byte
+	innerHeader
 	keys        [4]byte
 	children    [4]node
-	terminal    node
 	numChildren uint8
 }
 
 func (*node4) kind() nodeKind       { return kindNode4 }
-func (n *node4) getPrefix() []byte  { return n.prefix }
-func (n *node4) setPrefix(p []byte) { n.prefix = p }
-func (n *node4) getTerminal() node  { return n.terminal }
-func (n *node4) setTerminal(t node) { n.terminal = t }
 func (n *node4) shallow() innerNode { cp := *n; return &cp }
 
 func (n *node4) findChild(b byte) node {
@@ -175,18 +184,13 @@ func (n *node4) reshape() node {
 // terminal (when non-nil) holds the leaf stored at this node's exact
 // path.
 type node16 struct {
-	prefix      []byte
+	innerHeader
 	keys        [node16Capacity]byte
 	children    [node16Capacity]node
-	terminal    node
 	numChildren uint8
 }
 
 func (*node16) kind() nodeKind       { return kindNode16 }
-func (n *node16) getPrefix() []byte  { return n.prefix }
-func (n *node16) setPrefix(p []byte) { n.prefix = p }
-func (n *node16) getTerminal() node  { return n.terminal }
-func (n *node16) setTerminal(t node) { n.terminal = t }
 func (n *node16) shallow() innerNode { cp := *n; return &cp }
 
 func (n *node16) findChild(b byte) node {
@@ -282,8 +286,7 @@ func (n *node16) reshape() node {
 // prefix, and terminal as n.
 func growToNode16(n *node4) *node16 {
 	grown := &node16{
-		prefix:      n.prefix,
-		terminal:    n.terminal,
+		innerHeader: n.innerHeader,
 		numChildren: n.numChildren,
 	}
 	copy(grown.keys[:n.numChildren], n.keys[:n.numChildren])
@@ -296,8 +299,7 @@ func growToNode16(n *node4) *node16 {
 // node4Capacity.
 func shrinkToNode4(n *node16) *node4 {
 	shrunk := &node4{
-		prefix:      n.prefix,
-		terminal:    n.terminal,
+		innerHeader: n.innerHeader,
 		numChildren: n.numChildren,
 	}
 	copy(shrunk.keys[:n.numChildren], n.keys[:n.numChildren])
@@ -311,19 +313,14 @@ func shrinkToNode4(n *node16) *node4 {
 // from the search key before branching and terminal (when non-nil)
 // holds the leaf stored at this node's exact path.
 type node48 struct {
-	prefix      []byte
+	innerHeader
 	childIndex  [256]byte
 	children    [node48Capacity]node
 	childEdge   [node48Capacity]byte
-	terminal    node
 	numChildren uint8
 }
 
 func (*node48) kind() nodeKind       { return kindNode48 }
-func (n *node48) getPrefix() []byte  { return n.prefix }
-func (n *node48) setPrefix(p []byte) { n.prefix = p }
-func (n *node48) getTerminal() node  { return n.terminal }
-func (n *node48) setTerminal(t node) { n.terminal = t }
 func (n *node48) shallow() innerNode { cp := *n; return &cp }
 
 func (n *node48) findChild(b byte) node {
@@ -425,8 +422,7 @@ func (n *node48) reshape() node {
 // terminal as n, with childIndex populated from n's sorted edge bytes.
 func growToNode48(n *node16) *node48 {
 	grown := &node48{
-		prefix:      n.prefix,
-		terminal:    n.terminal,
+		innerHeader: n.innerHeader,
 		numChildren: n.numChildren,
 	}
 	for i := uint8(0); i < n.numChildren; i++ {
@@ -443,8 +439,7 @@ func growToNode48(n *node16) *node48 {
 // n.numChildren <= node16Capacity.
 func shrinkToNode16(n *node48) *node16 {
 	shrunk := &node16{
-		prefix:      n.prefix,
-		terminal:    n.terminal,
+		innerHeader: n.innerHeader,
 		numChildren: n.numChildren,
 	}
 	i := uint8(0)
@@ -466,17 +461,12 @@ func shrinkToNode16(n *node48) *node16 {
 // before branching and terminal (when non-nil) holds the leaf stored
 // at this node's exact path.
 type node256 struct {
-	prefix      []byte
+	innerHeader
 	children    [node256Capacity]node
-	terminal    node
 	numChildren uint16
 }
 
 func (*node256) kind() nodeKind       { return kindNode256 }
-func (n *node256) getPrefix() []byte  { return n.prefix }
-func (n *node256) setPrefix(p []byte) { n.prefix = p }
-func (n *node256) getTerminal() node  { return n.terminal }
-func (n *node256) setTerminal(t node) { n.terminal = t }
 func (n *node256) shallow() innerNode { cp := *n; return &cp }
 
 func (n *node256) findChild(b byte) node {
@@ -553,8 +543,7 @@ func (n *node256) reshape() node {
 // and terminal as n, indexed directly by edge byte.
 func growToNode256(n *node48) *node256 {
 	grown := &node256{
-		prefix:      n.prefix,
-		terminal:    n.terminal,
+		innerHeader: n.innerHeader,
 		numChildren: uint16(n.numChildren),
 	}
 	for b := 0; b < 256; b++ {
@@ -571,8 +560,7 @@ func growToNode256(n *node48) *node256 {
 // in n. Caller guarantees n.numChildren <= node48Capacity.
 func shrinkToNode48(n *node256) *node48 {
 	shrunk := &node48{
-		prefix:      n.prefix,
-		terminal:    n.terminal,
+		innerHeader: n.innerHeader,
 		numChildren: uint8(n.numChildren),
 	}
 	slot := uint8(0)
