@@ -97,17 +97,17 @@ func longestCommonPrefix(a, b []byte) []byte {
 func newNode4With[V any](t *Tree[V], existing *leaf[V], newKey []byte, newValue V, depth int) *node4 {
 	shared := longestCommonPrefix(existing.key[depth:], newKey[depth:])
 	diverge := depth + len(shared)
-	existingExhausted := diverge == len(existing.key)
-	newExhausted := diverge == len(newKey)
-	if existingExhausted && newExhausted {
+	existingTerminatesHere := diverge == len(existing.key)
+	newTerminatesHere := diverge == len(newKey)
+	if existingTerminatesHere && newTerminatesHere {
 		panic("art: newNode4With called with equal keys - invariant violation")
 	}
 	n := &node4{innerHeader: innerHeader{prefix: append([]byte(nil), shared...)}}
 	switch {
-	case existingExhausted:
+	case existingTerminatesHere:
 		n.terminal = existing
 		n.addChild(newKey[diverge], t.insertLeaf(newKey, newValue))
-	case newExhausted:
+	case newTerminatesHere:
 		n.terminal = t.insertLeaf(newKey, newValue)
 		n.addChild(existing.key[diverge], existing)
 	default:
