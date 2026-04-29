@@ -156,6 +156,41 @@ func lastChildLT(n innerNode, b byte) node {
 	return found
 }
 
+// prefixOutcome names the four ways an inner node's compressed prefix
+// can compare to target[depth:] when descending toward target.
+type prefixOutcome uint8
+
+const (
+	prefixMatched        prefixOutcome = iota // prefix matched in full; target had >= len(prefix) bytes left
+	prefixTargetEndsHere                      // target ran out mid-prefix; subtree keys all extend prefix
+	prefixDivergedBelow                       // first divergent byte: prefix[i] < target[depth+i]
+	prefixDivergedAbove                       // first divergent byte: prefix[i] > target[depth+i]
+)
+
+// walkPrefixToward reports how prefix compares to target[depth:] over
+// the shorter of the two. When the outcome is prefixMatched the
+// returned consumed equals depth + len(prefix) (the depth at which to
+// resume descent); for the other outcomes consumed is not meaningful.
+func walkPrefixToward(prefix, target []byte, depth int) (consumed int, outcome prefixOutcome) {
+	remaining := len(target) - depth
+	m := len(prefix)
+	if m > remaining {
+		m = remaining
+	}
+	for i := 0; i < m; i++ {
+		if prefix[i] < target[depth+i] {
+			return 0, prefixDivergedBelow
+		}
+		if prefix[i] > target[depth+i] {
+			return 0, prefixDivergedAbove
+		}
+	}
+	if remaining < len(prefix) {
+		return 0, prefixTargetEndsHere
+	}
+	return depth + len(prefix), prefixMatched
+}
+
 // ceilingLeafOf returns the leaf holding the smallest key >= target
 // reachable from n, or nil if no such leaf exists. depth is the
 // number of target bytes already consumed by the enclosing traversal.
@@ -173,34 +208,22 @@ func ceilingLeafOf[V any](n node, target []byte, depth int) *leaf[V] {
 		return nil
 	}
 	r := n.(innerNode)
-	prefix := r.getPrefix()
-	tl, _ := r.getTerminal().(*leaf[V])
-	remaining := len(target) - depth
-	m := len(prefix)
-	if m > remaining {
-		m = remaining
-	}
-	for i := 0; i < m; i++ {
-		if prefix[i] < target[depth+i] {
-			return nil
-		}
-		if prefix[i] > target[depth+i] {
-			return minLeafOf[V](n)
-		}
-	}
-	if remaining < len(prefix) {
+	consumed, outcome := walkPrefixToward(r.getPrefix(), target, depth)
+	switch outcome {
+	case prefixDivergedBelow:
+		return nil
+	case prefixDivergedAbove, prefixTargetEndsHere:
 		return minLeafOf[V](n)
 	}
-	newDepth := depth + len(prefix)
-	if newDepth == len(target) {
-		if tl != nil {
+	if consumed == len(target) {
+		if tl, _ := r.getTerminal().(*leaf[V]); tl != nil {
 			return tl
 		}
 		return minLeafOf[V](firstChildOf(r))
 	}
-	b := target[newDepth]
+	b := target[consumed]
 	if child := r.findChild(b); child != nil {
-		if result := ceilingLeafOf[V](child, target, newDepth+1); result != nil {
+		if result := ceilingLeafOf[V](child, target, consumed+1); result != nil {
 			return result
 		}
 	}
@@ -227,31 +250,20 @@ func floorLeafOf[V any](n node, target []byte, depth int) *leaf[V] {
 		return nil
 	}
 	r := n.(innerNode)
-	prefix := r.getPrefix()
-	tl, _ := r.getTerminal().(*leaf[V])
-	remaining := len(target) - depth
-	m := len(prefix)
-	if m > remaining {
-		m = remaining
-	}
-	for i := 0; i < m; i++ {
-		if prefix[i] > target[depth+i] {
-			return nil
-		}
-		if prefix[i] < target[depth+i] {
-			return maxLeafOf[V](n)
-		}
-	}
-	if remaining < len(prefix) {
+	consumed, outcome := walkPrefixToward(r.getPrefix(), target, depth)
+	switch outcome {
+	case prefixDivergedAbove, prefixTargetEndsHere:
 		return nil
+	case prefixDivergedBelow:
+		return maxLeafOf[V](n)
 	}
-	newDepth := depth + len(prefix)
-	if newDepth == len(target) {
+	tl, _ := r.getTerminal().(*leaf[V])
+	if consumed == len(target) {
 		return tl
 	}
-	b := target[newDepth]
+	b := target[consumed]
 	if child := r.findChild(b); child != nil {
-		if result := floorLeafOf[V](child, target, newDepth+1); result != nil {
+		if result := floorLeafOf[V](child, target, consumed+1); result != nil {
 			return result
 		}
 	}
