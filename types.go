@@ -64,7 +64,11 @@ type innerHeader struct {
 	terminal node
 }
 
-func (h *innerHeader) getPrefix() []byte  { return h.prefix }
+func (h *innerHeader) getPrefix() []byte { return h.prefix }
+
+// setPrefix replaces the prefix slice header. It must not mutate the
+// underlying buffer: putInto (split branch) and mergePrefixIntoChild
+// pass slices that alias other buffers and may be read after this call.
 func (h *innerHeader) setPrefix(p []byte) { h.prefix = p }
 func (h *innerHeader) getTerminal() node  { return h.terminal }
 func (h *innerHeader) setTerminal(t node) { h.terminal = t }

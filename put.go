@@ -35,6 +35,10 @@ func putInto[V any](t *Tree[V], current node, key []byte, value V, depth int) no
 	if splitPoint < len(prefix) {
 		shared := prefix[:splitPoint]
 		oldBranch := prefix[splitPoint]
+		// shared aliases r's prefix buffer; it remains valid across the
+		// setPrefix call below because setPrefix only swaps the slice
+		// header (see innerHeader.setPrefix in types.go). If that ever
+		// changes, shared must be copied before setPrefix.
 		r.setPrefix(prefix[splitPoint+1:])
 		return splitPrefixedInner(t, r, oldBranch, shared, key, value, depth, splitPoint)
 	}
