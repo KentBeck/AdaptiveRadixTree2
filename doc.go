@@ -55,5 +55,7 @@
 //	_ = t.Len() // 2
 //
 // See CHANGELOG.md at the repository root for version-to-version
-// changes and release notes.
+// changes and release notes. The per-method behavioral contract
+// (preconditions, postconditions, panics, edge cases) lives in
+// CONTRACT.md at the repository root.
 package art

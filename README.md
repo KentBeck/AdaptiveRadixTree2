@@ -4,7 +4,7 @@
 
 A sorted map implementation using an Adaptive Radix Tree (ART). Fast lookups, path compression, and sorted iteration with Go 1.23 range-over-func.
 
-See [CHANGELOG.md](CHANGELOG.md) for release notes.
+See [CHANGELOG.md](CHANGELOG.md) for release notes and [CONTRACT.md](CONTRACT.md) for the per-method behavioral contract (preconditions, postconditions, panics, edge cases).
 
 The ulterior goals of this project are to get the genie to write code that is:
 - Fast
