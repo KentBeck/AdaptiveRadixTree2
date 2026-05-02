@@ -226,6 +226,51 @@ func TestOrdered_ReversedBoundsPanic(t *testing.T) {
 	_ = m.Range(10, 1)
 }
 
+// TestOrdered_ZeroValuePanics pins the typed-panic guard on every
+// public Ordered method. A zero-value Ordered[K, V]{} has nil tree
+// and nil decoder; without the requireConstructed guard each method
+// would surface a generic Go runtime nil-deref, which Goal #1
+// forbids.
+func TestOrdered_ZeroValuePanics(t *testing.T) {
+	const want = "artmap: Ordered must be constructed with New"
+	cases := []struct {
+		name string
+		call func(*artmap.Ordered[int64, int])
+	}{
+		{"Len", func(o *artmap.Ordered[int64, int]) { _ = o.Len() }},
+		{"Put", func(o *artmap.Ordered[int64, int]) { o.Put(1, 1) }},
+		{"Get", func(o *artmap.Ordered[int64, int]) { _, _ = o.Get(1) }},
+		{"Delete", func(o *artmap.Ordered[int64, int]) { _ = o.Delete(1) }},
+		{"Min", func(o *artmap.Ordered[int64, int]) { _, _, _ = o.Min() }},
+		{"Max", func(o *artmap.Ordered[int64, int]) { _, _, _ = o.Max() }},
+		{"Ceiling", func(o *artmap.Ordered[int64, int]) { _, _, _ = o.Ceiling(1) }},
+		{"Floor", func(o *artmap.Ordered[int64, int]) { _, _, _ = o.Floor(1) }},
+		{"Clone", func(o *artmap.Ordered[int64, int]) { _ = o.Clone() }},
+		{"All", func(o *artmap.Ordered[int64, int]) { _ = o.All() }},
+		{"AllDescending", func(o *artmap.Ordered[int64, int]) { _ = o.AllDescending() }},
+		{"Range", func(o *artmap.Ordered[int64, int]) { _ = o.Range(1, 2) }},
+		{"RangeFrom", func(o *artmap.Ordered[int64, int]) { _ = o.RangeFrom(1) }},
+		{"RangeTo", func(o *artmap.Ordered[int64, int]) { _ = o.RangeTo(1) }},
+		{"RangeDescending", func(o *artmap.Ordered[int64, int]) { _ = o.RangeDescending(1, 2) }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatalf("%s on zero-value Ordered did not panic", tc.name)
+				}
+				msg, _ := r.(string)
+				if msg != want {
+					t.Fatalf("%s panic = %q, want %q", tc.name, msg, want)
+				}
+			}()
+			var o artmap.Ordered[int64, int]
+			tc.call(&o)
+		})
+	}
+}
+
 func equalInt64(a, b []int64) bool {
 	if len(a) != len(b) {
 		return false

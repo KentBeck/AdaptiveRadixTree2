@@ -37,6 +37,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which preserves the non-nil-ness of an empty slice. Reversed
   bounds on `artmap.Ordered.Range` and `artmap.Ordered.RangeDescending`
   now also panic eagerly with the underlying `art:` typed message.
+- Every method on a zero-value `LockedTree[V]{}` now panics with
+  `art: LockedTree must be constructed with NewLocked` instead of
+  the bare runtime nil-pointer panic. The guard
+  (`requireConstructed`) runs before the mutex is acquired, so a
+  malformed caller fails before any synchronization side effects.
+- Every method on a zero-value `artmap.Ordered[K, V]{}` now panics
+  with `artmap: Ordered must be constructed with New` instead of
+  the bare runtime nil-pointer panic. Same `requireConstructed`
+  pattern as `LockedTree`. With this in place, the W2-era Goal #1
+  follow-up list is empty.
 
 ### Added (docs)
 - `benchmarks.md`: new "Stringy-key sensitivity" section measuring

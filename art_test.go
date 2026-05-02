@@ -3254,6 +3254,43 @@ func TestLockedTreeRoundTrip(t *testing.T) {
 	}
 }
 
+// TestLockedTreeZeroValuePanics pins the typed-panic guard on every
+// public LockedTree method. A LockedTree[V]{} (declared without
+// NewLocked) has a nil inner tree; Goal #1 prescribes a typed panic
+// rather than the bare runtime nil-deref. The guard runs before the
+// mutex is taken so a malformed caller fails before any sync side
+// effects.
+func TestLockedTreeZeroValuePanics(t *testing.T) {
+	const want = "art: LockedTree must be constructed with NewLocked"
+	cases := []struct {
+		name string
+		call func(*LockedTree[int])
+	}{
+		{"Put", func(lt *LockedTree[int]) { lt.Put([]byte("k"), 1) }},
+		{"Get", func(lt *LockedTree[int]) { _, _ = lt.Get([]byte("k")) }},
+		{"Delete", func(lt *LockedTree[int]) { _ = lt.Delete([]byte("k")) }},
+		{"Len", func(lt *LockedTree[int]) { _ = lt.Len() }},
+		{"Clear", func(lt *LockedTree[int]) { lt.Clear() }},
+		{"Clone", func(lt *LockedTree[int]) { _ = lt.Clone() }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatalf("%s on zero-value LockedTree did not panic", tc.name)
+				}
+				msg, _ := r.(string)
+				if msg != want {
+					t.Fatalf("%s panic = %q, want %q", tc.name, msg, want)
+				}
+			}()
+			var lt LockedTree[int]
+			tc.call(&lt)
+		})
+	}
+}
+
 func TestLockedTreeConcurrentReaders(t *testing.T) {
 	lt := NewLocked[int]()
 	for i := 0; i < 256; i++ {

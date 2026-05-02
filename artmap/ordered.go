@@ -48,6 +48,13 @@ type OrderedKey = cmp.Ordered
 // time (see [OrderedKey]) so range operations return entries in the
 // natural ascending order of K.
 //
+// Construction: an Ordered must be obtained from [New]. Every method
+// panics with `artmap: Ordered must be constructed with New` if the
+// receiver was zero-valued (e.g. `Ordered[K, V]{}` or an unset struct
+// field) — without this guard, the inner tree pointer and encoder
+// closure are nil and every call would surface a generic Go runtime
+// panic, which Goal #1 forbids for malformed callers.
+//
 // An Ordered is not safe for concurrent use by multiple goroutines
 // when any goroutine is writing, with the same contract as the
 // underlying [art.Tree]. Callers that need concurrent access should
@@ -68,23 +75,40 @@ func New[K OrderedKey, V any]() *Ordered[K, V] {
 	return &Ordered[K, V]{tree: art.New[V](), dec: dec, kind: kind}
 }
 
+// requireConstructed panics with a typed artmap: message when called
+// on a zero-value Ordered. tree is the only field that distinguishes
+// a constructed receiver from a zero one (kind's zero value happens
+// to be kindString and dec defaults to nil), so the tree-nil check
+// covers every method.
+func (o *Ordered[K, V]) requireConstructed() {
+	if o.tree == nil {
+		panic("artmap: Ordered must be constructed with New")
+	}
+}
+
 // Len returns the number of key-value pairs. It runs in O(1).
-func (o *Ordered[K, V]) Len() int { return o.tree.Len() }
+func (o *Ordered[K, V]) Len() int {
+	o.requireConstructed()
+	return o.tree.Len()
+}
 
 // Put associates value with key, replacing any previous value.
 func (o *Ordered[K, V]) Put(key K, value V) {
+	o.requireConstructed()
 	var buf [maxFixedKey]byte
 	o.tree.Put(o.encode(key, buf[:]), value)
 }
 
 // Get returns the value previously stored under key, if any.
 func (o *Ordered[K, V]) Get(key K) (V, bool) {
+	o.requireConstructed()
 	var buf [maxFixedKey]byte
 	return o.tree.Get(o.encode(key, buf[:]))
 }
 
 // Delete removes key, returning whether it was present.
 func (o *Ordered[K, V]) Delete(key K) bool {
+	o.requireConstructed()
 	var buf [maxFixedKey]byte
 	return o.tree.Delete(o.encode(key, buf[:]))
 }
@@ -93,6 +117,7 @@ func (o *Ordered[K, V]) Delete(key K) bool {
 // if the map is empty, in which case key and value are their zero
 // values.
 func (o *Ordered[K, V]) Min() (key K, value V, ok bool) {
+	o.requireConstructed()
 	kb, v, present := o.tree.Min()
 	if !present {
 		return key, value, false
@@ -103,6 +128,7 @@ func (o *Ordered[K, V]) Min() (key K, value V, ok bool) {
 // Max returns the largest key, its value, and ok=true. ok is false
 // if the map is empty.
 func (o *Ordered[K, V]) Max() (key K, value V, ok bool) {
+	o.requireConstructed()
 	kb, v, present := o.tree.Max()
 	if !present {
 		return key, value, false
@@ -113,6 +139,7 @@ func (o *Ordered[K, V]) Max() (key K, value V, ok bool) {
 // Ceiling returns the smallest key >= target and its value. ok is
 // false if no such key exists.
 func (o *Ordered[K, V]) Ceiling(target K) (key K, value V, ok bool) {
+	o.requireConstructed()
 	var buf [maxFixedKey]byte
 	kb, v, present := o.tree.Ceiling(o.encode(target, buf[:]))
 	if !present {
@@ -124,6 +151,7 @@ func (o *Ordered[K, V]) Ceiling(target K) (key K, value V, ok bool) {
 // Floor returns the largest key <= target and its value. ok is false
 // if no such key exists.
 func (o *Ordered[K, V]) Floor(target K) (key K, value V, ok bool) {
+	o.requireConstructed()
 	var buf [maxFixedKey]byte
 	kb, v, present := o.tree.Floor(o.encode(target, buf[:]))
 	if !present {
@@ -135,12 +163,14 @@ func (o *Ordered[K, V]) Floor(target K) (key K, value V, ok bool) {
 // Clone returns an independent structural copy. Writes to o or to the
 // returned map do not affect each other.
 func (o *Ordered[K, V]) Clone() *Ordered[K, V] {
+	o.requireConstructed()
 	return &Ordered[K, V]{tree: o.tree.Clone(), dec: o.dec, kind: o.kind}
 }
 
 // All returns an iterator over every (key, value) pair in ascending
 // key order. See [art.Tree.All] for the underlying contract.
 func (o *Ordered[K, V]) All() iter.Seq2[K, V] {
+	o.requireConstructed()
 	return func(yield func(K, V) bool) {
 		for kb, v := range o.tree.All() {
 			if !yield(o.dec(kb), v) {
@@ -153,6 +183,7 @@ func (o *Ordered[K, V]) All() iter.Seq2[K, V] {
 // AllDescending returns an iterator over every (key, value) pair in
 // descending key order.
 func (o *Ordered[K, V]) AllDescending() iter.Seq2[K, V] {
+	o.requireConstructed()
 	return func(yield func(K, V) bool) {
 		for kb, v := range o.tree.AllDescending() {
 			if !yield(o.dec(kb), v) {
@@ -176,6 +207,7 @@ func (o *Ordered[K, V]) AllDescending() iter.Seq2[K, V] {
 // "unbounded" nil. Without this, Range("", "") on a string-keyed
 // Ordered would degenerate into All().
 func (o *Ordered[K, V]) Range(start, end K) iter.Seq2[K, V] {
+	o.requireConstructed()
 	var sbuf, ebuf [maxFixedKey]byte
 	sb := bytes.Clone(o.encode(start, sbuf[:]))
 	eb := bytes.Clone(o.encode(end, ebuf[:]))
@@ -194,6 +226,7 @@ func (o *Ordered[K, V]) Range(start, end K) iter.Seq2[K, V] {
 // RangeFrom returns an iterator over entries whose key is >= start,
 // in ascending order.
 func (o *Ordered[K, V]) RangeFrom(start K) iter.Seq2[K, V] {
+	o.requireConstructed()
 	var sbuf [maxFixedKey]byte
 	sb := bytes.Clone(o.encode(start, sbuf[:]))
 	return func(yield func(K, V) bool) {
@@ -208,6 +241,7 @@ func (o *Ordered[K, V]) RangeFrom(start K) iter.Seq2[K, V] {
 // RangeTo returns an iterator over entries whose key is < end, in
 // ascending order.
 func (o *Ordered[K, V]) RangeTo(end K) iter.Seq2[K, V] {
+	o.requireConstructed()
 	var ebuf [maxFixedKey]byte
 	eb := bytes.Clone(o.encode(end, ebuf[:]))
 	return func(yield func(K, V) bool) {
@@ -224,6 +258,7 @@ func (o *Ordered[K, V]) RangeTo(end K) iter.Seq2[K, V] {
 // start > end panics eagerly at the call site with the underlying
 // art.Tree's typed message.
 func (o *Ordered[K, V]) RangeDescending(start, end K) iter.Seq2[K, V] {
+	o.requireConstructed()
 	var sbuf, ebuf [maxFixedKey]byte
 	sb := bytes.Clone(o.encode(start, sbuf[:]))
 	eb := bytes.Clone(o.encode(end, ebuf[:]))

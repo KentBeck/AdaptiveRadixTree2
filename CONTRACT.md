@@ -51,14 +51,11 @@ which is the same state `New[V]()` produces.
 acquire the wrapper's mutex (read lock for read-only methods, write lock
 for mutators).
 
-A zero-value `LockedTree[V]{}` (declared without `NewLocked[V]()`) has a
-`nil` inner `tree` and every method will dereference it, producing the
-standard Go runtime nil-pointer panic.
-🚩 **follow-up:** Goal #1 prescribes a clear panic for malformed input;
-zero-value `LockedTree` produces a generic `runtime error: invalid
-memory address or nil pointer dereference` rather than a typed
-`art:`-prefixed message. Decide whether to add a guard or document the
-constructor as mandatory.
+A zero-value `LockedTree[V]{}` (declared without `NewLocked[V]()`) has
+a `nil` inner `tree`. Every method panics eagerly with the typed
+message `art: LockedTree must be constructed with NewLocked` before
+taking the mutex. The check lives at the top of every public method
+(`requireConstructed`).
 
 ### `func New[V any]() *Tree[V]`
 
@@ -388,8 +385,10 @@ Each method takes a write lock on mutators (`Put`, `Delete`, `Clear`)
 and a read lock on read-only methods (`Get`, `Len`, `Clone`), then
 delegates to the corresponding `Tree[V]` method. Behavior, panic
 conditions, and edge cases match the underlying `Tree[V]` method
-exactly, except for the additional zero-value-receiver caveat noted
-under the type entry.
+exactly. Every method additionally panics with
+`art: LockedTree must be constructed with NewLocked` when called on a
+zero-value `LockedTree[V]{}`; the guard runs before the lock is taken,
+so a malformed caller fails before any synchronization side effects.
 
 ### `func (t *LockedTree[V]) Put(key []byte, value V)`
 
@@ -398,8 +397,8 @@ under the type entry.
 3. **Preconditions**: same as `Tree.Put`.
 4. **Postconditions**: same as `Tree.Put`. The wrapper's mutex is
    released before return.
-5. **Panics**: same as `Tree.Put` (none on the documented contract);
-   nil-pointer panic on a zero-value `LockedTree[V]{}`.
+5. **Panics**: same as `Tree.Put`; `art: LockedTree must be
+   constructed with NewLocked` on a zero-value `LockedTree[V]{}`.
 6. **Edge cases**: same as `Tree.Put`.
 
 ### `func (t *LockedTree[V]) Get(key []byte) (V, bool)`
@@ -408,8 +407,8 @@ under the type entry.
 2. **Behavior**: takes a read lock and delegates to `Tree.Get`.
 3. **Preconditions**: same as `Tree.Get`.
 4. **Postconditions**: same as `Tree.Get`.
-5. **Panics**: same as `Tree.Get`; nil-pointer panic on a zero-value
-   `LockedTree[V]{}`.
+5. **Panics**: same as `Tree.Get`; `art: LockedTree must be
+   constructed with NewLocked` on a zero-value `LockedTree[V]{}`.
 6. **Edge cases**: same as `Tree.Get`.
 
 ### `func (t *LockedTree[V]) Delete(key []byte) bool`
@@ -418,8 +417,8 @@ under the type entry.
 2. **Behavior**: takes a write lock and delegates to `Tree.Delete`.
 3. **Preconditions**: same as `Tree.Delete`.
 4. **Postconditions**: same as `Tree.Delete`.
-5. **Panics**: same as `Tree.Delete`; nil-pointer panic on a zero-value
-   `LockedTree[V]{}`.
+5. **Panics**: same as `Tree.Delete`; `art: LockedTree must be
+   constructed with NewLocked` on a zero-value `LockedTree[V]{}`.
 6. **Edge cases**: same as `Tree.Delete`.
 
 ### `func (t *LockedTree[V]) Len() int`
@@ -428,8 +427,8 @@ under the type entry.
 2. **Behavior**: takes a read lock and delegates to `Tree.Len`.
 3. **Preconditions**: none.
 4. **Postconditions**: same as `Tree.Len`.
-5. **Panics**: same as `Tree.Len`; nil-pointer panic on a zero-value
-   `LockedTree[V]{}`.
+5. **Panics**: same as `Tree.Len`; `art: LockedTree must be
+   constructed with NewLocked` on a zero-value `LockedTree[V]{}`.
 6. **Edge cases**: same as `Tree.Len`.
 
 ### `func (t *LockedTree[V]) Clear()`
@@ -438,8 +437,8 @@ under the type entry.
 2. **Behavior**: takes a write lock and delegates to `Tree.Clear`.
 3. **Preconditions**: none.
 4. **Postconditions**: same as `Tree.Clear`.
-5. **Panics**: same as `Tree.Clear`; nil-pointer panic on a zero-value
-   `LockedTree[V]{}`.
+5. **Panics**: same as `Tree.Clear`; `art: LockedTree must be
+   constructed with NewLocked` on a zero-value `LockedTree[V]{}`.
 6. **Edge cases**: same as `Tree.Clear`.
 
 ### `func (t *LockedTree[V]) Clone() *Tree[V]`
@@ -452,8 +451,8 @@ under the type entry.
    subsequent writes to `t` or to the returned tree do not affect each
    other. The returned tree has no mutex, so callers can iterate it
    without any locking.
-5. **Panics**: same as `Tree.Clone`; nil-pointer panic on a zero-value
-   `LockedTree[V]{}`.
+5. **Panics**: same as `Tree.Clone`; `art: LockedTree must be
+   constructed with NewLocked` on a zero-value `LockedTree[V]{}`.
 6. **Edge cases**:
    - `LockedTree` does not wrap iteration methods (`All`, `Range`,
      `RangeDescending`, etc.) by design; callers should `Clone` and
@@ -485,13 +484,11 @@ Sorted map from `K` to `V`, backed by `art.Tree[V]` with a
 byte-order-preserving encoder selected from `K`'s `reflect.Kind`. The
 struct has only unexported fields.
 
-A zero-value `Ordered[K, V]{}` (declared without `New[K, V]()`) has
-`nil` inner `tree` and `nil` decoder; every method will panic when it
-dereferences either of them.
-🚩 **follow-up:** Goal #1 prescribes a clear panic for malformed input;
-zero-value `Ordered` produces a generic Go runtime panic rather than a
-typed `artmap:`-prefixed message. Decide whether to add a guard or
-document the constructor as mandatory.
+A zero-value `Ordered[K, V]{}` (declared without `New[K, V]()`) has a
+`nil` inner `tree` and `nil` decoder. Every method panics eagerly with
+`artmap: Ordered must be constructed with New` (`requireConstructed`,
+called at the top of every public method) before touching either
+field.
 
 ### `func New[K OrderedKey, V any]() *Ordered[K, V]`
 
@@ -519,7 +516,7 @@ document the constructor as mandatory.
 2. **Behavior**: returns the number of key-value pairs.
 3. **Preconditions**: none.
 4. **Postconditions**: returns a non-negative count; runs in O(1).
-5. **Panics**: nil-pointer panic on a zero-value `Ordered[K, V]{}`.
+5. **Panics**: `artmap: Ordered must be constructed with New` on a zero-value `Ordered[K, V]{}`.
 6. **Edge cases**: returns `0` on a freshly constructed map.
 
 ### `func (o *Ordered[K, V]) Put(key K, value V)`
@@ -531,7 +528,7 @@ document the constructor as mandatory.
 4. **Postconditions**: same as `art.Tree.Put` on the encoded key.
 5. **Panics**: `panic("artmap: unreachable")` if the internal `kind`
    field is out of range (only reachable on a corrupted struct);
-   nil-pointer panic on a zero-value `Ordered[K, V]{}`.
+   `artmap: Ordered must be constructed with New` on a zero-value `Ordered[K, V]{}`.
 6. **Edge cases**:
    - For `K = string`, the empty string is a valid key and is stored
      as the encoded `[]byte{}` (i.e. the empty key on the underlying
@@ -547,7 +544,7 @@ document the constructor as mandatory.
 2. **Behavior**: encodes `key` and delegates to `art.Tree.Get`.
 3. **Preconditions**: none.
 4. **Postconditions**: same as `art.Tree.Get` on the encoded key.
-5. **Panics**: same as `Put`; nil-pointer panic on zero-value receiver.
+5. **Panics**: same as `Put`; `artmap: Ordered must be constructed with New` on a zero-value receiver.
 6. **Edge cases**: same as `Put`.
 
 ### `func (o *Ordered[K, V]) Delete(key K) bool`
@@ -556,7 +553,7 @@ document the constructor as mandatory.
 2. **Behavior**: encodes `key` and delegates to `art.Tree.Delete`.
 3. **Preconditions**: none.
 4. **Postconditions**: same as `art.Tree.Delete` on the encoded key.
-5. **Panics**: same as `Put`; nil-pointer panic on zero-value receiver.
+5. **Panics**: same as `Put`; `artmap: Ordered must be constructed with New` on a zero-value receiver.
 6. **Edge cases**: same as `Put`.
 
 ### `func (o *Ordered[K, V]) Min() (key K, value V, ok bool)`
@@ -568,7 +565,7 @@ document the constructor as mandatory.
 4. **Postconditions**: when non-empty, returns `(decodedMinKey,
    storedValue, true)`. When empty, returns the zero value of `K`,
    the zero value of `V`, and `false`.
-5. **Panics**: nil-pointer panic on a zero-value `Ordered[K, V]{}`.
+5. **Panics**: `artmap: Ordered must be constructed with New` on a zero-value `Ordered[K, V]{}`.
 6. **Edge cases**: on an empty map, the returned `key` is the zero
    value of `K` (e.g. `""` for string, `0` for numeric K), not `nil`.
 
@@ -579,7 +576,7 @@ document the constructor as mandatory.
    order) and its value.
 3. **Preconditions**: none.
 4. **Postconditions**: same shape as `Min`.
-5. **Panics**: nil-pointer panic on zero-value receiver.
+5. **Panics**: `artmap: Ordered must be constructed with New` on a zero-value receiver.
 6. **Edge cases**: same shape as `Min`.
 
 ### `func (o *Ordered[K, V]) Ceiling(target K) (key K, value V, ok bool)`
@@ -591,7 +588,7 @@ document the constructor as mandatory.
 4. **Postconditions**: when such a key exists, returns
    `(decodedKey, storedValue, true)`. When none exists, returns the
    zero value of `K`, the zero value of `V`, and `false`.
-5. **Panics**: same as `Put`; nil-pointer panic on zero-value receiver.
+5. **Panics**: same as `Put`; `artmap: Ordered must be constructed with New` on a zero-value receiver.
 6. **Edge cases**:
    - For numeric `K`, every encoded key has fixed width, so `Ceiling`
      of the smallest `K` value (e.g. `math.MinInt64`) on a non-empty
@@ -605,7 +602,7 @@ document the constructor as mandatory.
    order) and its value.
 3. **Preconditions**: none.
 4. **Postconditions**: same shape as `Ceiling`.
-5. **Panics**: same as `Put`; nil-pointer panic on zero-value receiver.
+5. **Panics**: same as `Put`; `artmap: Ordered must be constructed with New` on a zero-value receiver.
 6. **Edge cases**:
    - For `K = string`, `Floor("")` returns the empty-string entry if
      present, else `(zeroK, zeroV, false)`.
@@ -618,7 +615,7 @@ document the constructor as mandatory.
 3. **Preconditions**: none.
 4. **Postconditions**: same set of `(key, value)` pairs and same
    `Len()`; subsequent writes to either map do not affect the other.
-5. **Panics**: nil-pointer panic on zero-value receiver.
+5. **Panics**: `artmap: Ordered must be constructed with New` on a zero-value receiver.
 6. **Edge cases**: same `V`-shallow caveat as `art.Tree.Clone`.
 
 ### `func (o *Ordered[K, V]) All() iter.Seq2[K, V]`
@@ -631,7 +628,7 @@ document the constructor as mandatory.
 4. **Postconditions**: yields each pair exactly once in ascending `K`
    order; returning `false` stops traversal immediately. The yielded
    `K` is owned by the caller (decoded from the tree's internal bytes).
-5. **Panics**: nil-pointer panic on zero-value receiver when the
+5. **Panics**: `artmap: Ordered must be constructed with New` on a zero-value receiver when the
    iterator is invoked.
 6. **Edge cases**: on an empty map, yields nothing.
 
@@ -655,8 +652,9 @@ document the constructor as mandatory.
    multiple times.
 3. **Preconditions**: same as `All`.
 4. **Postconditions**: same as `art.Tree.Range` on the encoded bounds.
-5. **Panics**: same as `Put` (kind switch); nil-pointer panic on
-   zero-value receiver when the iterator is invoked.
+5. **Panics**: same as `Put` (kind switch); `artmap: Ordered must be
+   constructed with New` on a zero-value receiver, raised eagerly at
+   the call site.
 6. **Edge cases**:
    - For every supported `K`, the encoded bounds are wrapped through
      `bytes.Clone` so a zero-length encoding (the empty string) stays
@@ -680,7 +678,7 @@ document the constructor as mandatory.
 3. **Preconditions**: same as `All`.
 4. **Postconditions**: equivalent to `art.Tree.RangeFrom(encodedStart)`
    followed by per-pair decoding.
-5. **Panics**: same as `Put`; nil-pointer panic on zero-value receiver
+5. **Panics**: same as `Put`; `artmap: Ordered must be constructed with New` on a zero-value receiver
    when the iterator is invoked.
 6. **Edge cases**:
    - For `K = string`, `RangeFrom("")` is equivalent to `All()`.
@@ -696,7 +694,7 @@ document the constructor as mandatory.
 3. **Preconditions**: same as `All`.
 4. **Postconditions**: equivalent to `art.Tree.RangeTo(encodedEnd)`
    followed by per-pair decoding.
-5. **Panics**: same as `Put`; nil-pointer panic on zero-value receiver
+5. **Panics**: same as `Put`; `artmap: Ordered must be constructed with New` on a zero-value receiver
    when the iterator is invoked.
 6. **Edge cases**:
    - For `K = string`, `RangeTo("")` yields nothing (no string sorts
@@ -726,19 +724,8 @@ document the constructor as mandatory.
 
 ## Follow-ups
 
-The following gaps between the project's stated Goal #1 ("malformed
-inputs panic") and the current implementation are documented here for
-W2b (test backfill) and a future task to decide:
-
-1. **Zero-value `LockedTree[V]{}` panics generically** — methods on a
-   zero-value `LockedTree` produce the standard runtime nil-pointer
-   panic. Goal #1 prefers a typed `art: ...` message. Decision needed:
-   add a guard in each method, or document `NewLocked` as mandatory.
-2. **Zero-value `Ordered[K, V]{}` panics generically** — same as #1 for
-   the `artmap` package, with the additional wrinkle that the encoder
-   and decoder are both nil. Decision needed: same options as #1.
-
-Resolved (kept here for changelog cross-reference):
+No open Goal #1 follow-ups at present. The W2-era list has been
+resolved; entries below are kept as a changelog cross-reference:
 
 - *Reversed range bounds* (formerly: silently empty) — now panic with
   `art: Range called with reversed bounds (start > end)` and
@@ -749,13 +736,8 @@ Resolved (kept here for changelog cross-reference):
   switching the bounds-clone idiom from
   `append([]byte(nil), encoded...)` to `bytes.Clone(encoded)`, which
   preserves the non-nil-ness of a zero-length encoding.
-4. **Empty-string `Ordered[string, V].Range("", "")` and
-   `RangeDescending("", "")` iterate everything** — the encoded bounds
-   become `nil`/`nil` (because `append([]byte(nil), []byte("")...)`
-   returns `nil`), which bypasses the underlying tree's reversed-bounds
-   guard and falls through to `All`/`AllDescending`. Decision needed:
-   normalize the encode path so empty-string bounds stay non-nil, or
-   document the asymmetry explicitly.
-
-These are documentation artefacts only; no behavior changes are
-intended in the commit that introduces this contract.
+- *Zero-value `LockedTree[V]{}` panics generically* — every method now
+  guards with `requireConstructed` and panics with
+  `art: LockedTree must be constructed with NewLocked`.
+- *Zero-value `Ordered[K, V]{}` panics generically* — same fix in
+  `artmap`: `artmap: Ordered must be constructed with New`.

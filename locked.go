@@ -13,6 +13,11 @@ import "sync"
 // RLock easy to hold for too long; callers that need an ordered scan
 // should take a [LockedTree.Clone] and iterate the unlocked snapshot.
 //
+// Construction: a LockedTree must be obtained from [NewLocked]. Every
+// method panics with `art: LockedTree must be constructed with
+// NewLocked` if the receiver was zero-valued (e.g. `LockedTree[V]{}`
+// or an unset struct field).
+//
 // See the Concurrency section of the project README for the full
 // discussion and trade-offs.
 type LockedTree[V any] struct {
@@ -25,8 +30,20 @@ func NewLocked[V any]() *LockedTree[V] {
 	return &LockedTree[V]{tree: New[V]()}
 }
 
+// requireConstructed panics with a typed art: message when called on a
+// zero-value LockedTree (one constructed as LockedTree[V]{} rather
+// than via NewLocked). Without this guard, every method below would
+// dereference a nil tree and surface a generic Go runtime panic,
+// which Goal #1 forbids for malformed callers.
+func (t *LockedTree[V]) requireConstructed() {
+	if t.tree == nil {
+		panic("art: LockedTree must be constructed with NewLocked")
+	}
+}
+
 // Put associates value with key, replacing any previous value.
 func (t *LockedTree[V]) Put(key []byte, value V) {
+	t.requireConstructed()
 	t.mu.Lock()
 	t.tree.Put(key, value)
 	t.mu.Unlock()
@@ -34,6 +51,7 @@ func (t *LockedTree[V]) Put(key []byte, value V) {
 
 // Get returns the value stored under key, if any.
 func (t *LockedTree[V]) Get(key []byte) (V, bool) {
+	t.requireConstructed()
 	t.mu.RLock()
 	v, ok := t.tree.Get(key)
 	t.mu.RUnlock()
@@ -42,6 +60,7 @@ func (t *LockedTree[V]) Get(key []byte) (V, bool) {
 
 // Delete removes key, returning whether it was present.
 func (t *LockedTree[V]) Delete(key []byte) bool {
+	t.requireConstructed()
 	t.mu.Lock()
 	removed := t.tree.Delete(key)
 	t.mu.Unlock()
@@ -50,6 +69,7 @@ func (t *LockedTree[V]) Delete(key []byte) bool {
 
 // Len returns the current number of entries.
 func (t *LockedTree[V]) Len() int {
+	t.requireConstructed()
 	t.mu.RLock()
 	n := t.tree.Len()
 	t.mu.RUnlock()
@@ -58,6 +78,7 @@ func (t *LockedTree[V]) Len() int {
 
 // Clear removes every entry.
 func (t *LockedTree[V]) Clear() {
+	t.requireConstructed()
 	t.mu.Lock()
 	t.tree.Clear()
 	t.mu.Unlock()
@@ -67,6 +88,7 @@ func (t *LockedTree[V]) Clear() {
 // share its mutex with the original, so callers can iterate the
 // returned tree without holding any LockedTree lock.
 func (t *LockedTree[V]) Clone() *Tree[V] {
+	t.requireConstructed()
 	t.mu.RLock()
 	c := t.tree.Clone()
 	t.mu.RUnlock()
