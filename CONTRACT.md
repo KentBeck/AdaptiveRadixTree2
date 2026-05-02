@@ -9,7 +9,10 @@ mechanical so reviewers can find the exact behavior of any public method
 in seconds.
 
 See `doc.go` for prose-style package documentation and `README.md` for
-usage and architecture.
+usage and architecture. Structural rules (children sorted, terminal-key
+equals path, post-`Delete` reshape, capacity-boundary promotion and
+demotion, etc.) are catalogued separately in `INVARIANTS.md`, with each
+rule paired 1:1 to a `TestInvariant_*` test in `invariants_test.go`.
 
 ## Conventions
 

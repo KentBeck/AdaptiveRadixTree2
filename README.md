@@ -160,10 +160,11 @@ For typed keys (any `cmp.Ordered` type: integers, floats, strings), the [`artmap
 | `helpers.go` | Shared pure functions: `longestCommonPrefix`, `newNode4With`, `splitPrefixedInner`, `newLeaf` |
 | `doc.go` | Package doc comment |
 | `art_test.go` | 116 unit tests |
+| `invariants_test.go` | `TestInvariant_*` structural-rule tests, paired 1:1 with [INVARIANTS.md](INVARIANTS.md) |
 | `art_fuzz_test.go` | `FuzzSortedMap` differential fuzzer + 9 seed inputs |
 | `artmap/` | Typed `Ordered[K, V]` façade over `art.Tree[V]` with byte-order-preserving key codec (`codec.go`, `ordered.go`) |
 
-**Invariants.**
+**Invariants.** The full structural-rule list (with file:line citations and 1:1 test cross-references) lives in [INVARIANTS.md](INVARIANTS.md). The headlines:
 
 - Children of `node4` and `node16` are stored sorted ascending by edge byte.
 - A `terminal` leaf at an inner node has a key equal to that node's full path from the root.
