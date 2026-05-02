@@ -5,6 +5,7 @@
 package artmap
 
 import (
+	"bytes"
 	"cmp"
 	"iter"
 
@@ -163,15 +164,26 @@ func (o *Ordered[K, V]) AllDescending() iter.Seq2[K, V] {
 
 // Range returns an iterator over every (key, value) pair whose key
 // lies in the half-open interval [start, end), in ascending key
-// order. start >= end yields nothing. The encoded start and end are
-// captured eagerly so the returned iterator is safe to range over
-// multiple times.
+// order. start == end yields nothing; start > end (in K's natural
+// ordering, equivalently bytes.Compare on the encoded bounds) panics
+// eagerly at the call site with the underlying art.Tree's typed
+// message. The encoded start and end are captured once so the
+// returned iterator is safe to range over multiple times.
+//
+// bytes.Clone (rather than append([]byte(nil), ...)) is used to copy
+// the encoded bounds so a zero-length encoding (the empty string)
+// stays a non-nil bound rather than collapsing to a tree-level
+// "unbounded" nil. Without this, Range("", "") on a string-keyed
+// Ordered would degenerate into All().
 func (o *Ordered[K, V]) Range(start, end K) iter.Seq2[K, V] {
 	var sbuf, ebuf [maxFixedKey]byte
-	sb := append([]byte(nil), o.encode(start, sbuf[:])...)
-	eb := append([]byte(nil), o.encode(end, ebuf[:])...)
+	sb := bytes.Clone(o.encode(start, sbuf[:]))
+	eb := bytes.Clone(o.encode(end, ebuf[:]))
+	// Force the underlying tree's reversed-bounds panic to fire here,
+	// at the call site, rather than at the start of iteration.
+	inner := o.tree.Range(sb, eb)
 	return func(yield func(K, V) bool) {
-		for kb, v := range o.tree.Range(sb, eb) {
+		for kb, v := range inner {
 			if !yield(o.dec(kb), v) {
 				return
 			}
@@ -183,7 +195,7 @@ func (o *Ordered[K, V]) Range(start, end K) iter.Seq2[K, V] {
 // in ascending order.
 func (o *Ordered[K, V]) RangeFrom(start K) iter.Seq2[K, V] {
 	var sbuf [maxFixedKey]byte
-	sb := append([]byte(nil), o.encode(start, sbuf[:])...)
+	sb := bytes.Clone(o.encode(start, sbuf[:]))
 	return func(yield func(K, V) bool) {
 		for kb, v := range o.tree.RangeFrom(sb) {
 			if !yield(o.dec(kb), v) {
@@ -197,7 +209,7 @@ func (o *Ordered[K, V]) RangeFrom(start K) iter.Seq2[K, V] {
 // ascending order.
 func (o *Ordered[K, V]) RangeTo(end K) iter.Seq2[K, V] {
 	var ebuf [maxFixedKey]byte
-	eb := append([]byte(nil), o.encode(end, ebuf[:])...)
+	eb := bytes.Clone(o.encode(end, ebuf[:]))
 	return func(yield func(K, V) bool) {
 		for kb, v := range o.tree.RangeTo(eb) {
 			if !yield(o.dec(kb), v) {
@@ -208,13 +220,16 @@ func (o *Ordered[K, V]) RangeTo(end K) iter.Seq2[K, V] {
 }
 
 // RangeDescending returns an iterator over entries whose key lies in
-// [start, end), in descending key order. start >= end yields nothing.
+// [start, end), in descending key order. start == end yields nothing;
+// start > end panics eagerly at the call site with the underlying
+// art.Tree's typed message.
 func (o *Ordered[K, V]) RangeDescending(start, end K) iter.Seq2[K, V] {
 	var sbuf, ebuf [maxFixedKey]byte
-	sb := append([]byte(nil), o.encode(start, sbuf[:])...)
-	eb := append([]byte(nil), o.encode(end, ebuf[:])...)
+	sb := bytes.Clone(o.encode(start, sbuf[:]))
+	eb := bytes.Clone(o.encode(end, ebuf[:]))
+	inner := o.tree.RangeDescending(sb, eb)
 	return func(yield func(K, V) bool) {
-		for kb, v := range o.tree.RangeDescending(sb, eb) {
+		for kb, v := range inner {
 			if !yield(o.dec(kb), v) {
 				return
 			}

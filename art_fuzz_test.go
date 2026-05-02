@@ -360,9 +360,17 @@ func checkDrainAll(t *testing.T, tree *Tree[byte], oracle map[string]byte, log [
 // checkRange asserts Tree.Range(start, end) yields exactly the oracle
 // keys in [start, end) in byte-wise ascending order, with matching
 // values.
+//
+// Reversed bounds (both non-nil with start > end) now panic per the
+// public contract; the fuzz harness skips that case here because the
+// behavioral oracle has nothing to compare. Dedicated unit tests
+// cover the panic itself.
 func checkRange(t *testing.T, tree *Tree[byte], oracle map[string]byte, start, end []byte, log []opRecord) {
 	t.Helper()
 	assertLen(t, tree, oracle, log)
+	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
+		return
+	}
 	want := oracleRange(oracle, start, end)
 	var got []string
 	var gotVals []byte
@@ -392,10 +400,14 @@ func checkDrainAllDescending(t *testing.T, tree *Tree[byte], oracle map[string]b
 
 // checkRangeDescending asserts Tree.RangeDescending(start, end) yields
 // exactly the oracle keys in [start, end) in byte-wise descending
-// order, with matching values.
+// order, with matching values. See checkRange for the reversed-bounds
+// note.
 func checkRangeDescending(t *testing.T, tree *Tree[byte], oracle map[string]byte, start, end []byte, log []opRecord) {
 	t.Helper()
 	assertLen(t, tree, oracle, log)
+	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
+		return
+	}
 	ascending := oracleRange(oracle, start, end)
 	want := reverseStrings(ascending)
 	var got []string

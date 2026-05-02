@@ -945,18 +945,28 @@ func TestRangeStartEqualsEndIsEmpty(t *testing.T) {
 	}
 }
 
-func TestRangeStartAfterEndIsEmpty(t *testing.T) {
+// TestRangeStartAfterEndPanics pins the Goal #1 commitment: malformed
+// (reversed) bounds raise a typed art: panic at the call site rather
+// than degenerating to silent empty iteration. The panic must be
+// eager (before the iterator is invoked) so the caller's bug surfaces
+// at the call rather than at the loop.
+func TestRangeStartAfterEndPanics(t *testing.T) {
 	tree := New[int]()
 	for _, s := range []string{"a", "b", "c"} {
 		tree.Put([]byte(s), 0)
 	}
-	count := 0
-	for range tree.Range([]byte("c"), []byte("a")) {
-		count++
-	}
-	if count != 0 {
-		t.Fatalf("Range with start>end yielded %d, want 0", count)
-	}
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatalf("Range with start>end did not panic")
+		}
+		msg, _ := r.(string)
+		want := "art: Range called with reversed bounds (start > end)"
+		if msg != want {
+			t.Fatalf("Range panic = %q, want %q", msg, want)
+		}
+	}()
+	_ = tree.Range([]byte("c"), []byte("a"))
 }
 
 func TestRangeHandlesPrefixAndTerminal(t *testing.T) {
@@ -1900,10 +1910,11 @@ func TestNode48ReplaceChildSlot(t *testing.T) {
 	}
 }
 
-// TestRangeEmptyAndReversedBounds covers the Range top-level guard for
-// equal, reversed, and mixed-nil bounds. Equal and reversed bounds
-// must yield nothing; fully-nil bounds must yield every key; half-nil
-// bounds must still enumerate the open side.
+// TestRangeEmptyAndReversedBounds covers the Range top-level guard
+// for equal, mixed-nil, and fully-nil bounds. Equal bounds must yield
+// nothing; fully-nil bounds must yield every key; half-nil bounds
+// must enumerate the open side. Reversed bounds are covered by
+// TestRangeStartAfterEndPanics.
 func TestRangeEmptyAndReversedBounds(t *testing.T) {
 	tree := New[int]()
 	keys := [][]byte{[]byte("alpha"), []byte("beta"), []byte("gamma"), []byte("zeta")}
@@ -1921,9 +1932,6 @@ func TestRangeEmptyAndReversedBounds(t *testing.T) {
 
 	if got := collect([]byte("beta"), []byte("beta")); len(got) != 0 {
 		t.Fatalf("Range(beta,beta) = %v, want empty", got)
-	}
-	if got := collect([]byte("z"), []byte("a")); len(got) != 0 {
-		t.Fatalf("Range(z,a) = %v, want empty (reversed bounds)", got)
 	}
 	if got := collect(nil, nil); len(got) != len(keys) {
 		t.Fatalf("Range(nil,nil) yielded %d keys, want %d", len(got), len(keys))
@@ -3071,23 +3079,43 @@ func TestRangeDescendingNilBounds(t *testing.T) {
 	}
 }
 
-func TestRangeDescendingStartGEEndIsEmpty(t *testing.T) {
+// TestRangeDescendingStartEqualsEndIsEmpty pins that equal bounds
+// (the well-defined empty half-open interval) yield nothing without
+// panicking, matching Tree.Range. Reversed bounds are covered by
+// TestRangeDescendingStartAfterEndPanics.
+func TestRangeDescendingStartEqualsEndIsEmpty(t *testing.T) {
 	tree := New[int]()
 	for _, s := range []string{"a", "b", "c"} {
 		tree.Put([]byte(s), 0)
 	}
-	for _, bounds := range []struct{ s, e string }{
-		{"b", "b"},
-		{"c", "a"},
-	} {
-		count := 0
-		for range tree.RangeDescending([]byte(bounds.s), []byte(bounds.e)) {
-			count++
-		}
-		if count != 0 {
-			t.Fatalf("RangeDescending(%s,%s) yielded %d, want 0", bounds.s, bounds.e, count)
-		}
+	count := 0
+	for range tree.RangeDescending([]byte("b"), []byte("b")) {
+		count++
 	}
+	if count != 0 {
+		t.Fatalf("RangeDescending(b,b) yielded %d, want 0", count)
+	}
+}
+
+// TestRangeDescendingStartAfterEndPanics mirrors
+// TestRangeStartAfterEndPanics for the descending direction.
+func TestRangeDescendingStartAfterEndPanics(t *testing.T) {
+	tree := New[int]()
+	for _, s := range []string{"a", "b", "c"} {
+		tree.Put([]byte(s), 0)
+	}
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatalf("RangeDescending with start>end did not panic")
+		}
+		msg, _ := r.(string)
+		want := "art: RangeDescending called with reversed bounds (start > end)"
+		if msg != want {
+			t.Fatalf("RangeDescending panic = %q, want %q", msg, want)
+		}
+	}()
+	_ = tree.RangeDescending([]byte("c"), []byte("a"))
 }
 
 func TestRangeDescendingHandlesPrefixAndTerminal(t *testing.T) {

@@ -307,28 +307,29 @@ constructor as mandatory.
    ascending order; returning `false` stops traversal immediately. A
    `nil` bound is unbounded on that side. The yielded `key` slice
    aliases the tree's internal storage.
-5. **Panics**: none from `Range` itself; standard nil-receiver panic if
-   `t` is `nil` when the iterator is invoked.
+5. **Panics**: `art: Range called with reversed bounds (start > end)`
+   when both bounds are non-nil and `bytes.Compare(start, end) > 0`.
+   The panic is raised eagerly at the call to `Range`, before the
+   iterator is invoked, so the bug surfaces at the call site rather
+   than at the loop. Standard nil-receiver panic if `t` is `nil` when
+   the iterator is invoked.
 6. **Edge cases**:
    - `Range(nil, nil)` is equivalent to `All()`.
    - `Range(start, nil)` yields keys `>= start`.
    - `Range(nil, end)` yields keys `< end`.
    - `Range(start, end)` with `bytes.Compare(start, end) == 0` (equal
-     bounds) yields nothing.
-   - `Range(start, end)` with `bytes.Compare(start, end) > 0` (reversed
-     bounds) yields nothing silently.
-     🚩 **follow-up:** Goal #1 prescribes a panic for malformed input;
-     reversed bounds are silently treated as empty. Decide whether to
-     panic with `art: ...` or keep the user-friendly empty iteration.
-   - On an empty tree, yields nothing for any bounds.
+     bounds) yields nothing — the well-defined empty half-open
+     interval `[s, s)`. This is **not** considered malformed input.
+   - On an empty tree, yields nothing for any bounds (still subject
+     to the reversed-bounds panic for non-nil malformed inputs).
    - The empty-slice bound `[]byte{}` is *not* the same as `nil` here:
      `start == []byte{}` is a defined lower bound (every byte slice is
      `>= []byte{}`, so the iteration is unrestricted on the low side),
      but `bytes.Compare([]byte{}, end)` participates in the equal/
      reversed checks above. With `nil` the bound is treated as "no
      bound at all" and the comparison is skipped. In practice both
-     produce the same yield set; the difference matters only for the
-     reversed-bounds guard.
+     produce the same yield set; the difference matters only at the
+     reversed-bounds panic.
 
 ### `func (t *Tree[V]) RangeFrom(start []byte) iter.Seq2[[]byte, V]`
 
@@ -369,14 +370,16 @@ constructor as mandatory.
    descending order; returning `false` stops traversal immediately. A
    `nil` bound is unbounded on that side. Same key-slice aliasing as
    `All`.
-5. **Panics**: none from `RangeDescending` itself; standard nil-receiver
-   panic if `t` is `nil` when the iterator is invoked.
+5. **Panics**: `art: RangeDescending called with reversed bounds
+   (start > end)` when both bounds are non-nil and
+   `bytes.Compare(start, end) > 0`, raised eagerly at the call site
+   like `Range`. Standard nil-receiver panic if `t` is `nil` when the
+   iterator is invoked.
 6. **Edge cases**:
    - `RangeDescending(nil, nil)` is equivalent to `AllDescending()`.
-   - `RangeDescending(start, end)` with `bytes.Compare(start, end) >= 0`
-     yields nothing silently.
-     🚩 **follow-up:** same gap as `Range` — reversed/equal bounds are
-     silently treated as empty rather than panicking.
+   - `RangeDescending(start, end)` with `bytes.Compare(start, end) == 0`
+     yields nothing — same well-defined empty half-open interval
+     `[s, s)` as `Range`, not a malformed input.
    - On an empty tree, yields nothing.
 
 ### Methods on `LockedTree[V]`
@@ -655,21 +658,18 @@ document the constructor as mandatory.
 5. **Panics**: same as `Put` (kind switch); nil-pointer panic on
    zero-value receiver when the iterator is invoked.
 6. **Edge cases**:
+   - For every supported `K`, the encoded bounds are wrapped through
+     `bytes.Clone` so a zero-length encoding (the empty string) stays
+     a non-nil bound rather than collapsing to a tree-level
+     "unbounded" nil. Equal bounds (including `Range("", "")` for
+     strings) yield nothing — the half-open interval is empty.
    - For numeric `K`, encoded bounds are always non-nil fixed-width
-     slices, so `start == end` yields nothing and `start > end` yields
-     nothing silently (inheriting the underlying tree's reversed-bounds
-     guard).
-     🚩 **follow-up:** inherits the reversed-bounds gap from
-     `art.Tree.Range`; Goal #1 prescribes a panic for malformed input.
-   - For `K = string`, both empty-string bounds encode to `nil`
-     (because `append([]byte(nil), []byte("")...)` returns `nil`), so
-     `Range("", "")` is equivalent to `All()` rather than yielding
-     nothing — the underlying tree's reversed-bounds guard requires
-     both bounds to be non-nil. Non-empty-string equal/reversed bounds
-     yield nothing as expected.
-     🚩 **follow-up:** the empty-string-bounds case is silently
-     promoted to `All()`; either document the asymmetry or normalize
-     the encode path so equal bounds always yield nothing.
+     slices.
+   - Reversed bounds (`bytes.Compare(encoded_start, encoded_end) > 0`)
+     surface the underlying `art.Tree.Range` panic
+     `art: Range called with reversed bounds (start > end)`. For
+     numeric `K` this means `start > end` in `K`'s natural ordering;
+     for strings it is byte-wise comparison after encoding.
 
 ### `func (o *Ordered[K, V]) RangeFrom(start K) iter.Seq2[K, V]`
 
@@ -715,11 +715,12 @@ document the constructor as mandatory.
    order.
 5. **Panics**: same as `Range`.
 6. **Edge cases**:
-   - For numeric `K`, `start >= end` yields nothing silently.
-     🚩 **follow-up:** same gap as `Range`/`art.Tree.Range`.
-   - For `K = string`, `RangeDescending("", "")` is equivalent to
-     `AllDescending()` for the same encoded-nil reason as `Range`.
-     🚩 **follow-up:** same gap as `Range`'s empty-string case.
+   - Equal bounds yield nothing for every `K`, including
+     `RangeDescending("", "")` for strings (which uses the same
+     `bytes.Clone` encoding path as `Range` so the bound stays
+     non-nil).
+   - Reversed bounds raise the `art: RangeDescending called with
+     reversed bounds (start > end)` panic, eagerly at the call site.
 
 ---
 
@@ -729,19 +730,25 @@ The following gaps between the project's stated Goal #1 ("malformed
 inputs panic") and the current implementation are documented here for
 W2b (test backfill) and a future task to decide:
 
-1. **Reversed/equal range bounds yield empty silently** — `Tree.Range`,
-   `Tree.RangeDescending`, `Ordered.Range`, and `Ordered.RangeDescending`
-   all treat `bytes.Compare(start, end) >= 0` (or its decoded
-   equivalent) as "empty iteration" rather than a panic. Decision
-   needed: panic with a typed `art:`/`artmap:` message, or keep the
-   permissive behavior as a documented contract clause.
-2. **Zero-value `LockedTree[V]{}` panics generically** — methods on a
+1. **Zero-value `LockedTree[V]{}` panics generically** — methods on a
    zero-value `LockedTree` produce the standard runtime nil-pointer
    panic. Goal #1 prefers a typed `art: ...` message. Decision needed:
    add a guard in each method, or document `NewLocked` as mandatory.
-3. **Zero-value `Ordered[K, V]{}` panics generically** — same as #2 for
+2. **Zero-value `Ordered[K, V]{}` panics generically** — same as #1 for
    the `artmap` package, with the additional wrinkle that the encoder
-   and decoder are both nil. Decision needed: same options as #2.
+   and decoder are both nil. Decision needed: same options as #1.
+
+Resolved (kept here for changelog cross-reference):
+
+- *Reversed range bounds* (formerly: silently empty) — now panic with
+  `art: Range called with reversed bounds (start > end)` and
+  `art: RangeDescending called with reversed bounds (start > end)`.
+  Equal bounds still yield nothing because `[s, s)` is a well-defined
+  empty interval and not malformed input.
+- *`Ordered.Range("", "")` falling through to `All()`* — fixed by
+  switching the bounds-clone idiom from
+  `append([]byte(nil), encoded...)` to `bytes.Clone(encoded)`, which
+  preserves the non-nil-ness of a zero-length encoding.
 4. **Empty-string `Ordered[string, V].Range("", "")` and
    `RangeDescending("", "")` iterate everything** — the encoded bounds
    become `nil`/`nil` (because `append([]byte(nil), []byte("")...)`

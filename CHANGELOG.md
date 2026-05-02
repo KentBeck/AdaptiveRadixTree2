@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `INVARIANTS.md` and `invariants_test.go`: 13 numbered structural
+  rules (sorted children, terminal-key-equals-path, reshape on
+  Delete, capacity-boundary promotion/demotion, node48 index/edge
+  consistency, size-equals-leaf-count, leaf-key-stable-copy, clone
+  structural independence, eachAscending/Descending sortedness,
+  inline-key boundary), each paired 1:1 with a `TestInvariant_*`
+  test that asserts the rule directly rather than via a Get
+  round-trip. README and CONTRACT.md link to the new doc.
+
+### Changed (BEHAVIOR — potentially breaking)
+- `Tree.Range(start, end)` and `Tree.RangeDescending(start, end)` now
+  **panic** with a typed message when both bounds are non-nil and
+  `bytes.Compare(start, end) > 0` ("reversed bounds"). The old
+  behavior was silent empty iteration, which contradicted the
+  project's "malformed inputs panic" goal. The panic is raised
+  eagerly at the call site, before the iterator is invoked. Equal
+  bounds (`start == end`, the well-defined empty half-open interval
+  `[s, s)`) still yield nothing without panicking — they are not
+  considered malformed input. Messages: `art: Range called with
+  reversed bounds (start > end)` and `art: RangeDescending called
+  with reversed bounds (start > end)`.
+- `artmap.Ordered.Range("", "")` (and `RangeDescending("", "")`) now
+  yields nothing, matching the equal-bounds semantics for numeric
+  `K`. Previously it silently degenerated into `All()` because the
+  bounds-clone idiom `append([]byte(nil), encoded...)` returns
+  `nil` for a zero-length encoding. Switched to `bytes.Clone`,
+  which preserves the non-nil-ness of an empty slice. Reversed
+  bounds on `artmap.Ordered.Range` and `artmap.Ordered.RangeDescending`
+  now also panic eagerly with the underlying `art:` typed message.
+
 ### Added (docs)
 - `benchmarks.md`: new "Stringy-key sensitivity" section measuring
   Put/Get/GetMiss/Delete/Range across three string-key shapes (URL,
@@ -18,6 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with a per-implementation when-to-pick / when-to-avoid table, axis-by-axis
   decision rules, and a TL;DR. Numbers are unchanged; this is purely
   decision-support prose distilled from the existing per-op table.
+- `CONTRACT.md`: removed the resolved follow-ups for reversed bounds
+  and empty-string `Range`; remaining follow-ups are zero-value
+  `LockedTree[V]{}` and `Ordered[K, V]{}` panicking generically.
 
 ## [0.5.2] - 2026-04-26
 

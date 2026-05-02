@@ -57,8 +57,15 @@ func iterate[V any](n node, yield func([]byte, V) bool) bool {
 // Range returns an iterator over every (key, value) pair whose key
 // lies in the half-open interval [start, end), in ascending byte-wise
 // key order. A nil bound is treated as unbounded on that side, so
-// Range(nil, nil) is equivalent to All. Breaking out of the range
-// stops the traversal immediately.
+// Range(nil, nil) is equivalent to All. Equal bounds yield nothing
+// (an empty half-open interval). Breaking out of the range stops the
+// traversal immediately.
+//
+// Range panics with the typed message
+// `art: Range called with reversed bounds (start > end)` when both
+// bounds are non-nil and bytes.Compare(start, end) > 0. Reversed
+// bounds are caller error, not an empty-iteration shorthand; see
+// CONTRACT.md.
 //
 // The yielded key slice aliases the tree's internal storage under the
 // same contract as [Tree.All]: safe to retain while the entry remains
@@ -68,8 +75,11 @@ func iterate[V any](n node, yield func([]byte, V) bool) bool {
 // See [Tree.RangeFrom] and [Tree.RangeTo] for open-ended variants and
 // [Tree.RangeDescending] for the reverse walk of the same interval.
 func (t *Tree[V]) Range(start, end []byte) iter.Seq2[[]byte, V] {
+	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
+		panic("art: Range called with reversed bounds (start > end)")
+	}
 	return func(yield func([]byte, V) bool) {
-		if start != nil && end != nil && bytes.Compare(start, end) >= 0 {
+		if start != nil && end != nil && bytes.Compare(start, end) == 0 {
 			return
 		}
 		path := make([]byte, 0, 32)
@@ -223,15 +233,23 @@ func iterateDescending[V any](n node, yield func([]byte, V) bool) bool {
 // descending byte-wise key order. The bounds have the same semantics
 // as [Tree.Range] — start is inclusive, end is exclusive, and a nil
 // bound is unbounded on that side — so RangeDescending(nil, nil) is
-// equivalent to [Tree.AllDescending] and start >= end yields nothing.
+// equivalent to [Tree.AllDescending] and equal bounds yield nothing.
 // Breaking out of the range stops the traversal immediately.
+//
+// RangeDescending panics with the typed message
+// `art: RangeDescending called with reversed bounds (start > end)`
+// when both bounds are non-nil and bytes.Compare(start, end) > 0,
+// matching [Tree.Range]'s rejection of malformed bounds.
 //
 // The yielded key slice aliases the tree's internal storage under the
 // same contract as [Tree.All]. See [Tree.Range] for the ascending walk
 // of the same interval.
 func (t *Tree[V]) RangeDescending(start, end []byte) iter.Seq2[[]byte, V] {
+	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
+		panic("art: RangeDescending called with reversed bounds (start > end)")
+	}
 	return func(yield func([]byte, V) bool) {
-		if start != nil && end != nil && bytes.Compare(start, end) >= 0 {
+		if start != nil && end != nil && bytes.Compare(start, end) == 0 {
 			return
 		}
 		path := make([]byte, 0, 32)
