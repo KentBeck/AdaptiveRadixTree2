@@ -143,38 +143,57 @@ struct fields directly.
 Reproduce with
 `go test -bench=. -benchmem -benchtime=300ms ./tutorial/04-add-node4/`.
 
+### Per-node sizes
+
+`unsafe.Sizeof` reports:
+
+```
+Type      Bytes    What it holds
+node4       112    prefix slice, 4 sorted keys, 4 child slots, terminal, count
+node256   4 136    prefix slice, 256 child slots, terminal, count
+leaf         32    key slice header, value (V == int)
+ratio       37×    node256 / node4
+```
+
+Every inner-node demotion from node256 to node4 saves ~4 KB.
+
 ### Structural footprint
 
 ```
-Workload    Stage 3 inner   Stage 4 (n4 + n256)   improvement
-Dense           5               1 + 4                ~1.0×
-Sparse        234             141 + 93                2.1×
-URL           393             330 + 63                3.9×
+Workload    Stage 3 inner   Stage 4 (n4 + n256)
+Dense           5                 1 + 4
+Sparse        234               141 + 93
+URL           393               330 + 63
 ```
 
-Bytes-per-key (inner footprint + leaf overhead + key bytes +
-prefix bytes):
+Two numbers per workload below: **structural** (sum of
+unsafe.Sizeof contributions) and **heap** (actual
+`runtime.HeapAlloc` delta after building, including malloc
+rounding). Heap matches the `B/op` from `Put` benchmarks.
 
 ```
-Workload    Stage 3     Stage 4     improvement     btree
-Dense           50 B        48 B         1.0×        ~70 B
-Sparse         534 B       253 B         2.1×        ~70 B
-URL            890 B       230 B         3.9×        ~70 B
+Workload    Stage 3                       Stage 4                      heap improvement
+            structural    heap            structural    heap
+Dense           60 B        64 B             56 B        59 B           1.08×
+Sparse       1 015 B    1 186 B            448 B       516 B           2.30×
+URL          1 698 B    1 992 B            370 B       424 B           4.69×
 ```
 
-Stage 4 is *now under 4× of btree's footprint on URL*, and ~3.6×
-on Sparse. Dense was already tight (most nodes need to be node256
-anyway to hold the high-byte's 256 leaf children).
+Stage 4 is now within **6× of btree's heap footprint on URL**
+(424 B/key vs ~70 B/key) and ~7× on Sparse, down from chapter
+3's 28× and 17×.
 
-The Sparse story is the one to look at: 141 of the 234 inner
-nodes from chapter 3 became node4s. Those are the depth-1 nodes
-in the sparse tree, each holding ~4 leaves whose first byte
-matched. Each one shrank from ~2 080 B to ~80 B — about 26×
-smaller per node.
+The Sparse arithmetic, made concrete: 141 of the 234 inner nodes
+from chapter 3 became node4s. Each demoted node went from 4 136 B
+to 112 B — saved 4 024 B per node. Total inner-node savings:
+141 × 4 024 ≈ 567 KB on a 1 186 KB tree (chapter 3 heap), giving
+the 2.3× heap reduction observed. The 93 inner nodes that stayed
+node256 are the ones with > 4 children — depth-1 buckets that
+collected enough random keys to overflow node4.
 
-The URL story is similar but more dramatic. URL trees have many
-nodes with two or three branching children (host divergence, path
-divergence). 330 of the 393 inner nodes fit in node4.
+URL is the headline. 330 of the 393 inner nodes are node4s now.
+Per-node savings: 330 × 4 024 ≈ 1 328 KB on a 1 992 KB tree =
+the 4.69× heap reduction.
 
 ### Time per operation
 

@@ -1,20 +1,47 @@
 package lazyexpansion
 
 import (
-	"fmt"
+	"runtime"
 	"testing"
+	"unsafe"
 
 	stage1 "github.com/KentBeck/AdaptiveRadixTree2/tutorial/01-node256-only"
 	"github.com/KentBeck/AdaptiveRadixTree2/tutorial/bench"
 )
 
-// Stage 2 footprint accounting:
-//   - one inner node256 = [256]node + *leaf terminal = 257 * 8 = 2 056 B
-//   - one leaf = []byte slice header (24) + V (8 for int) = 32 B,
-//     plus the key bytes copied from the caller.
-const (
-	approxBytesPerInner = 256*8 + 8
-	approxBytesPerLeaf  = 24 + 8 // V == int in the bench workloads
+// measureLiveHeap returns the number of bytes the Go runtime reports
+// as live on the heap after build() finishes. Two GCs flush stale
+// allocations so the delta reflects only what build()'s output keeps
+// alive (the tree it returns, captured by the closure). This is the
+// honest counterpart to the structural-bytes calculation: it's what
+// the OS would actually see, including malloc rounding, slice header
+// overhead, and small per-allocation bookkeeping.
+func measureLiveHeap(build func() any) (heapBytes uint64, keepAlive any) {
+	runtime.GC()
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	keepAlive = build()
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+	if after.HeapAlloc > before.HeapAlloc {
+		heapBytes = after.HeapAlloc - before.HeapAlloc
+	}
+	return
+}
+
+// Stage 2 footprint constants are derived from unsafe.Sizeof rather
+// than hand-counted: a `node` slot in stage 2 is an interface (2 words
+// = 16 B on 64-bit), not a pointer, so a [256]node array is 4 KB, not
+// 2 KB. (The first version of this file got the math wrong by counting
+// the child slots as 8 B each.) Stage 1's node is a concrete struct
+// with [256]*node[V] -- pointer slots, 8 B each -- so it has its own
+// constant.
+var (
+	bytesPerInner       = int(unsafe.Sizeof(node256[int]{}))
+	bytesPerLeaf        = int(unsafe.Sizeof(leaf[int]{}))
+	stage1BytesPerInner = 256*8 + 8 // [256]*node[V] + *V
 )
 
 func reportFootprint[V any](b *testing.B, t *Tree[V], w bench.Workload) {
@@ -22,8 +49,8 @@ func reportFootprint[V any](b *testing.B, t *Tree[V], w bench.Workload) {
 	if len(w.Keys) == 0 {
 		return
 	}
-	innerBytes := t.CountInner() * approxBytesPerInner
-	leafFixed := t.CountLeaves() * approxBytesPerLeaf
+	innerBytes := t.CountInner() * bytesPerInner
+	leafFixed := t.CountLeaves() * bytesPerLeaf
 	keyBytes := 0
 	for _, k := range w.Keys {
 		keyBytes += len(k)
@@ -164,36 +191,57 @@ func BenchmarkAll_Dense_1k(b *testing.B)  { runAllBenches(b, bench.Dense(1_000))
 func BenchmarkAll_Sparse_1k(b *testing.B) { runAllBenches(b, bench.Sparse(1_000)) }
 func BenchmarkAll_URL_1k(b *testing.B)    { runAllBenches(b, bench.URL(1_000)) }
 
-// TestReportFootprint produces the bytes/key headline alongside the
-// stage 1 count so the side-by-side comparison shows up in `go test`
-// output even without -bench. Reports for inner-node count, leaf
-// count, and a rough total-bytes/key estimate (inner footprint +
-// leaf overhead + key bytes).
+// TestReportFootprint surfaces three numbers for each workload:
+//   - structural bytes/key (inner footprint + leaf overhead + key
+//     bytes), computed from unsafe.Sizeof.
+//   - actual live-heap bytes/key, captured via runtime.ReadMemStats
+//     around tree construction and a triggered GC. This is what the
+//     Go runtime actually reserves; it differs from the structural
+//     number by malloc rounding, slice header overhead, and small
+//     bookkeeping.
+//   - the ratio of stage 1 -> stage 2.
 func TestReportFootprint(t *testing.T) {
+	t.Logf("per-node sizes (unsafe.Sizeof): stage1.node=%d  stage2.node256=%d  stage2.leaf=%d",
+		stage1BytesPerInner, bytesPerInner, bytesPerLeaf)
+
 	for _, w := range []bench.Workload{
 		bench.Dense(1_000),
 		bench.Sparse(1_000),
 		bench.URL(1_000),
 	} {
-		s1 := stage1.New[int]()
-		s2 := New[int]()
-		for j, k := range w.Keys {
-			s1.Put(k, w.Vals[j])
-			s2.Put(k, w.Vals[j])
-		}
-		s1Bytes := s1.CountNodes() * approxBytesPerInner
+		// Stage 1
+		s1Heap, s1Tree := measureLiveHeap(func() any {
+			t := stage1.New[int]()
+			for j, k := range w.Keys {
+				t.Put(k, w.Vals[j])
+			}
+			return t
+		})
+		s1 := s1Tree.(*stage1.Tree[int])
+		s1Structural := s1.CountNodes() * stage1BytesPerInner
+
+		// Stage 2
+		s2Heap, s2Tree := measureLiveHeap(func() any {
+			t := New[int]()
+			for j, k := range w.Keys {
+				t.Put(k, w.Vals[j])
+			}
+			return t
+		})
+		s2 := s2Tree.(*Tree[int])
 		s2Inner := s2.CountInner()
 		s2Leaves := s2.CountLeaves()
 		keyBytes := 0
 		for _, k := range w.Keys {
 			keyBytes += len(k)
 		}
-		s2Bytes := s2Inner*approxBytesPerInner + s2Leaves*approxBytesPerLeaf + keyBytes
+		s2Structural := s2Inner*bytesPerInner + s2Leaves*bytesPerLeaf + keyBytes
 
-		t.Logf("%-13s  S1 inner=%-5d %s/key   |  S2 inner=%-4d leaves=%-4d %s/key  (%.1fx tighter)",
+		nKeys := len(w.Keys)
+		t.Logf("%-13s  S1 struct=%5d B/key heap=%5d B/key  |  S2 struct=%4d B/key heap=%4d B/key  (heap %.1fx tighter)",
 			w.Name,
-			s1.CountNodes(), fmt.Sprintf("%d", s1Bytes/len(w.Keys)),
-			s2Inner, s2Leaves, fmt.Sprintf("%d", s2Bytes/len(w.Keys)),
-			float64(s1Bytes)/float64(s2Bytes))
+			s1Structural/nKeys, int(s1Heap)/nKeys,
+			s2Structural/nKeys, int(s2Heap)/nKeys,
+			float64(s1Heap)/float64(s2Heap))
 	}
 }

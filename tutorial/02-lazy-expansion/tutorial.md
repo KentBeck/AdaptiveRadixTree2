@@ -242,28 +242,38 @@ per-decision impact.
 ### Structural footprint
 
 ```
-Workload     Stage 1       Stage 2          improvement
-                inner       inner+leaves
-Dense          1 011        11 + 1 000             33×
-Sparse        15 246       234 + 1 000             59×
-URL            8 085       834 + 1 000              9×
+Workload    Stage 1 inner    Stage 2 inner + leaves
+Dense          1 011               11 + 1 000
+Sparse        15 246              234 + 1 000
+URL            8 085              834 + 1 000
 ```
 
-Bytes-per-key (inner footprint + leaf overhead + key bytes,
-excluding the value):
+Per-node sizes (from `unsafe.Sizeof`): a stage-1 node is 2 056 B
+(`[256]*node + *V`); a stage-2 node256 is 4 104 B (`[256]node` —
+the slot is now an interface = 16 B each, not 8); a leaf is 32 B
+plus its key bytes.
+
+Two numbers per workload below: **structural** (sum of
+unsafe.Sizeof contributions for every live node) and **heap**
+(actual `runtime.HeapAlloc` delta after building the tree, which
+includes malloc rounding and per-allocation bookkeeping). Heap
+matches the `B/op` you see in the bench output for `Put`. The
+heap numbers are what your process actually pays.
 
 ```
-Workload     Stage 1     Stage 2     improvement     btree
-Dense        2 078 B        62 B          33×          ~70 B
-Sparse      31 345 B       529 B          59×          ~70 B
-URL         16 622 B     1 787 B           9×          ~70 B
+Workload    Stage 1                       Stage 2                      heap improvement
+            structural    heap            structural    heap
+Dense        2 078 B    2 337 B             85 B        93 B           25×
+Sparse      31 345 B   35 134 B          1 008 B    1 186 B           30×
+URL         16 622 B   18 636 B          3 495 B    4 136 B            4.5×
 ```
 
-Sparse, the chapter-1 disaster, dropped from ~31 KB/key to ~530
-B/key. Most of the inner-node mass was wasted; lazy expansion
-removed it. URL saw only a 9× improvement because long URL
-prefixes still demand long chains of node256s — that's chapter
-3's headline number.
+Sparse, the chapter-1 disaster, dropped from ~35 KB/key on the
+heap to ~1.2 KB/key — a 30× reduction in actual memory. URL saw
+only a 4.5× improvement because long URL prefixes still demand
+long chains of node256s, and a chain of one-child node256s costs
+the same 4 KB per node whether it has 1 child or 256. That's
+chapter 3's headline target.
 
 ### Time per operation
 
@@ -322,14 +332,13 @@ Two structural waste cases remain:
 
 1. **Long shared prefixes still cost one node256 per byte.** On
    URL keys sharing 33-byte hosts, every shared byte allocates an
-   inner node with one child. Chapter 3 introduces a `prefix []byte`
-   field on inner nodes so a single node can consume a run of
-   bytes that don't branch.
+   inner node with one child — 4 KB per node either way. Chapter
+   3 introduces a `prefix []byte` field on inner nodes so a single
+   node can consume a run of bytes that don't branch.
 2. **Even after path compression, every inner node still reserves
    256 child slots.** A node with 2 children pays for 254 nil
-   pointers. Chapters 4–7 introduce smaller node sizes that
-   allocate room for what's actually used.
+   interface slots. Chapters 4–7 introduce smaller node sizes
+   that allocate room for what's actually used.
 
-Chapter 3's headline target is the URL row above: from ~1 800
-B/key to something a small multiple of `~70 B/key` (btree's
-number).
+Chapter 3's headline target is the URL row above: from ~4 KB/key
+on the heap to something closer to `~70 B/key` (btree's number).

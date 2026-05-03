@@ -1,17 +1,41 @@
 package pathcompression
 
 import (
-	"fmt"
+	"runtime"
 	"testing"
+	"unsafe"
 
 	stage2 "github.com/KentBeck/AdaptiveRadixTree2/tutorial/02-lazy-expansion"
 	"github.com/KentBeck/AdaptiveRadixTree2/tutorial/bench"
 )
 
-const (
-	approxBytesPerInner = 256*8 + 8 // children + terminal pointer
-	approxBytesPerLeaf  = 24 + 8    // []byte header + V (int)
+// Stage 3 footprint constants (derived from unsafe.Sizeof so they
+// can't drift). Stage 2's node256 differs from stage 3's only by the
+// added prefix slice header, so each adds 24 B per inner node.
+var (
+	bytesPerInner       = int(unsafe.Sizeof(node256[int]{}))
+	bytesPerLeaf        = int(unsafe.Sizeof(leaf[int]{}))
+	stage2BytesPerInner = 256*16 + 8 // [256]node (interface) + *leaf
 )
+
+// measureLiveHeap returns the live-heap delta after build() runs and
+// returns its result (which the closure keeps alive). Two GCs around
+// the measurement flush stale allocations so the delta reflects only
+// the surviving tree.
+func measureLiveHeap(build func() any) (heapBytes uint64, keepAlive any) {
+	runtime.GC()
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	keepAlive = build()
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+	if after.HeapAlloc > before.HeapAlloc {
+		heapBytes = after.HeapAlloc - before.HeapAlloc
+	}
+	return
+}
 
 // reportFootprint adds prefix bytes to the inner-node and leaf
 // overhead from chapter 2 -- prefixes are heap-allocated separately
@@ -21,8 +45,8 @@ func reportFootprint[V any](b *testing.B, t *Tree[V], w bench.Workload) {
 	if len(w.Keys) == 0 {
 		return
 	}
-	innerBytes := t.CountInner() * approxBytesPerInner
-	leafFixed := t.CountLeaves() * approxBytesPerLeaf
+	innerBytes := t.CountInner() * bytesPerInner
+	leafFixed := t.CountLeaves() * bytesPerLeaf
 	prefixBytes := t.PrefixBytes()
 	keyBytes := 0
 	for _, k := range w.Keys {
@@ -162,34 +186,49 @@ func BenchmarkAll_Dense_1k(b *testing.B)  { runAllBenches(b, bench.Dense(1_000))
 func BenchmarkAll_Sparse_1k(b *testing.B) { runAllBenches(b, bench.Sparse(1_000)) }
 func BenchmarkAll_URL_1k(b *testing.B)    { runAllBenches(b, bench.URL(1_000)) }
 
-// TestReportFootprint surfaces the side-by-side bytes/key comparison
-// even without -bench. Stage 2 is shown alongside stage 3 so the
-// per-decision impact is visible in plain `go test` output.
+// TestReportFootprint surfaces three numbers per workload:
+//   - structural bytes/key (CountInner * unsafe.Sizeof, etc.)
+//   - actual live-heap bytes/key (runtime.ReadMemStats around build)
+//   - the heap-bytes ratio of stage 2 -> stage 3.
 func TestReportFootprint(t *testing.T) {
+	t.Logf("per-node sizes (unsafe.Sizeof): stage2.node256=%d  stage3.node256=%d  stage3.leaf=%d",
+		stage2BytesPerInner, bytesPerInner, bytesPerLeaf)
 	for _, w := range []bench.Workload{
 		bench.Dense(1_000),
 		bench.Sparse(1_000),
 		bench.URL(1_000),
 	} {
-		s2 := stage2.New[int]()
-		s3 := New[int]()
-		for j, k := range w.Keys {
-			s2.Put(k, w.Vals[j])
-			s3.Put(k, w.Vals[j])
-		}
+		s2Heap, s2Tree := measureLiveHeap(func() any {
+			t := stage2.New[int]()
+			for j, k := range w.Keys {
+				t.Put(k, w.Vals[j])
+			}
+			return t
+		})
+		s2 := s2Tree.(*stage2.Tree[int])
+
+		s3Heap, s3Tree := measureLiveHeap(func() any {
+			t := New[int]()
+			for j, k := range w.Keys {
+				t.Put(k, w.Vals[j])
+			}
+			return t
+		})
+		s3 := s3Tree.(*Tree[int])
+
 		keyBytes := 0
 		for _, k := range w.Keys {
 			keyBytes += len(k)
 		}
-		s2Bytes := s2.CountInner()*approxBytesPerInner +
-			s2.CountLeaves()*approxBytesPerLeaf + keyBytes
-		s3Bytes := s3.CountInner()*approxBytesPerInner +
-			s3.CountLeaves()*approxBytesPerLeaf + keyBytes + s3.PrefixBytes()
-		t.Logf("%-13s  S2 inner=%-4d %s/key   |  S3 inner=%-3d prefix=%-4dB %s/key  (%.1fx tighter)",
+		s2Structural := s2.CountInner()*stage2BytesPerInner +
+			s2.CountLeaves()*bytesPerLeaf + keyBytes
+		s3Structural := s3.CountInner()*bytesPerInner +
+			s3.CountLeaves()*bytesPerLeaf + keyBytes + s3.PrefixBytes()
+		nKeys := len(w.Keys)
+		t.Logf("%-13s  S2 struct=%4d B/key heap=%4d B/key  |  S3 struct=%4d B/key heap=%4d B/key  (heap %.2fx tighter)",
 			w.Name,
-			s2.CountInner(), fmt.Sprintf("%d", s2Bytes/len(w.Keys)),
-			s3.CountInner(), s3.PrefixBytes(),
-			fmt.Sprintf("%d", s3Bytes/len(w.Keys)),
-			float64(s2Bytes)/float64(s3Bytes))
+			s2Structural/nKeys, int(s2Heap)/nKeys,
+			s3Structural/nKeys, int(s3Heap)/nKeys,
+			float64(s2Heap)/float64(s3Heap))
 	}
 }

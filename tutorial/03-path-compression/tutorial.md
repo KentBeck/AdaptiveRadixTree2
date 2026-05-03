@@ -165,28 +165,37 @@ framework startup.)
 ### Structural footprint
 
 ```
-Workload    Stage 2 inner   Stage 3 inner   prefix bytes   improvement
-Dense           11               5               6 B            1.2×
-Sparse         234             234               0 B            1.0× (no shared prefixes)
-URL            834             393             441 B            2.0×
+Workload    Stage 2 inner   Stage 3 inner   prefix bytes
+Dense           11                5              6 B
+Sparse         234              234              0 B
+URL            834              393            441 B
 ```
 
-Bytes-per-key (inner footprint + leaf overhead + key bytes + prefix
-bytes):
+Per-node sizes (from `unsafe.Sizeof`): stage-2 node256 is 4 104 B;
+stage-3 node256 is 4 128 B (added 24 B for the prefix slice
+header); leaf is 32 B plus key bytes; prefix bytes live in
+separately-allocated slices.
+
+Two numbers per workload below: **structural** (sum of
+unsafe.Sizeof contributions) and **heap** (actual
+`runtime.HeapAlloc` delta after the build, including malloc
+rounding). Heap matches the `B/op` from `Put` benchmarks.
 
 ```
-Workload    Stage 2     Stage 3     improvement     btree
-Dense           62 B        50 B         1.2×        ~70 B
-Sparse         529 B       529 B         1.0×        ~70 B
-URL          1 787 B       881 B         2.0×        ~70 B
+Workload    Stage 2                       Stage 3                      heap improvement
+            structural    heap            structural    heap
+Dense           85 B        93 B             60 B        64 B            1.45×
+Sparse       1 008 B    1 186 B          1 013 B    1 186 B            1.00× (no shared prefix)
+URL          3 495 B    4 136 B          1 695 B    1 992 B            2.08×
 ```
 
 Sparse is the honest case where path compression buys nothing:
-random 16-byte keys diverge at byte 0 ~99.6% of the time, so there
-are no chains of one-child nodes to collapse. The bytes/key gap
-versus btree is now squarely down to **inner-node waste**: every
-node256 still reserves space for 256 children even when it uses 4.
-Chapters 4–7 are the fix.
+random 16-byte keys diverge at byte 0 ~99.6% of the time, so
+there are no chains of one-child nodes to collapse. The bytes/key
+gap versus btree (~70 B/key on the heap) is now squarely down to
+**inner-node waste**: every node256 still reserves space for 256
+interface slots even when it uses 4. At 4 128 B per node256, that
+waste dominates everything else. Chapters 4–7 are the fix.
 
 ### Time per operation
 
@@ -237,10 +246,10 @@ unchanged.
 ## What's still wrong
 
 Look at the bytes/key columns above. Even after path compression,
-**every inner node still reserves 256 child pointers** — 2 KB of
-nil-mostly array per node. Sparse uses 234 inner nodes for 1 000
-keys; that's 234 × 2 KB = 468 KB of mostly-empty pointers carried
-just so each node can index the alphabet directly.
+**every inner node still reserves 256 interface slots** — ~4 KB
+of nil-mostly array per node. Sparse uses 234 inner nodes for
+1 000 keys; that's 234 × ~4 KB ≈ 950 KB of mostly-empty interface
+slots carried just so each node can index the alphabet directly.
 
 The next four chapters chip away at this. They introduce three
 smaller node types — node4, node16, node48 — each tuned for a
