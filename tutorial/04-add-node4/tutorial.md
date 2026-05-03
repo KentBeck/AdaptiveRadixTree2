@@ -203,8 +203,11 @@ Three honest observations:
 - **All got dramatically faster on Sparse and URL.** On URL, 4.4×
   faster than chapter 3. Reason: chapter 3's `All` iterated 256
   child slots per inner node (mostly nil); chapter 4's `All` on a
-  node4 iterates only the 4 occupied slots. Most URL inner nodes
-  are node4s now, so most of those scans went from 256 to 4.
+  node4 iterates only the 4 occupied slots. On URL the inner-node
+  mix is 330 node4s + 63 node256s — **84 % of inner nodes are
+  node4s**, so 84 % of `All`'s per-node iteration cost dropped by
+  64×. On Sparse the mix is 141 node4s + 93 node256s (60 % node4s),
+  giving the smaller 2.2× All speedup.
 - **Put got faster on Sparse (1.8×) and URL (2.6×) and slightly
   slower on Dense (1.1×).** Faster because allocating an 80-byte
   node4 costs less malloc time than a 2 080-byte node256, and
