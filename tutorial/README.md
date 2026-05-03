@@ -19,7 +19,7 @@ the headline numbers.
 | 1 | [`01-node256-only/`](01-node256-only/tutorial.md) | One node type, full 256-fanout, no leaves, no prefix compression. The disaster baseline: ~31 KB per key on sparse workloads. | ✅ shipped |
 | 2 | [`02-lazy-expansion/`](02-lazy-expansion/tutorial.md) | Add a leaf type for tail-only paths. Sparse bytes/key drops 59×; All allocations drop to zero. | ✅ shipped |
 | 3 | [`03-path-compression/`](03-path-compression/tutorial.md) | `prefix []byte` on inner nodes; one node can consume a run of bytes that don't branch. URL bytes/key drops 2×; URL Get drops 2.8×; Stage 3 Get is faster than btree on every workload. | ✅ shipped |
-| 4 | `04-add-node4/` | Sorted-array small node + `nodeKind` switch dispatch between node256 and node4. Big space saving, modest `Get` slowdown. | 🚧 planned |
+| 4 | [`04-add-node4/`](04-add-node4/tutorial.md) | Add a 4-child sorted-array node and dispatch via type-switch helpers. URL bytes/key drops 3.9×; All on URL is 4.4× faster. Get gets slower (1.3–2.3×) — the dispatch cost. | ✅ shipped |
 | 5 | `05-introduce-polymorphism/` | Refactor: `innerNode` interface absorbs the dispatch. Behaviour unchanged; bench panel reports "no measurable delta — that's the win". Cites `polymorphism-failed.md` at the repo root. | 🚧 planned |
 | 6 | `06-add-node16/` | New struct, no switch updates needed. The polymorphism investment pays off. | 🚧 planned |
 | 7 | `07-add-node48/` | Final ladder: 4 / 16 / 48 / 256. This stage matches the production `art.Tree`'s shape. | 🚧 planned |
