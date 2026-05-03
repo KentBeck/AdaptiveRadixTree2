@@ -214,11 +214,12 @@ Three honest observations:
 
 - **Get got slower across the board** — between 1.3× and 2.3×,
   worst on Sparse. The cost is the type switch executed at every
-  inner node visit. On Sparse, where the walk is one or two
+  inner-node visit. On Sparse, where the walk is one or two
   inner nodes followed by a leaf compare, the type switch is the
-  work. Chapter 5 will replace these switches with method calls
-  on an `innerNode` interface and we will measure whether that's
-  faster.
+  work. We knew adding a second node type would cost dispatch;
+  the question for chapter 5 is whether a polymorphic interface
+  is faster than the switch. (Spoiler: it isn't, slightly. Not
+  the reason we'll do the refactor.)
 - **All got dramatically faster on Sparse and URL.** On URL, 4.4×
   faster than chapter 3. Reason: chapter 3's `All` iterated 256
   child slots per inner node (mostly nil); chapter 4's `All` on a
