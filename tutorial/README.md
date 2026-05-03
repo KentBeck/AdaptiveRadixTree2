@@ -17,7 +17,7 @@ the headline numbers.
 |---|---|---|---|
 | 0 | [`00-what-is-a-trie/`](00-what-is-a-trie/tutorial.md) | Prose primer: what a trie is, why byte-by-byte descent, where it shines and where it doesn't. No code. | ✅ shipped |
 | 1 | [`01-node256-only/`](01-node256-only/tutorial.md) | One node type, full 256-fanout, no leaves, no prefix compression. The disaster baseline: ~31 KB per key on sparse workloads. | ✅ shipped |
-| 2 | `02-lazy-expansion/` | Add a leaf type for tail-only paths. Bytes/key drops sharply on sparse workloads. | 🚧 planned |
+| 2 | [`02-lazy-expansion/`](02-lazy-expansion/tutorial.md) | Add a leaf type for tail-only paths. Sparse bytes/key drops 59×; All allocations drop to zero. | ✅ shipped |
 | 3 | `03-path-compression/` | `prefix []byte` on inner nodes; nodes consume runs of bytes that don't branch. Another order of magnitude on URL keys. | 🚧 planned |
 | 4 | `04-add-node4/` | Sorted-array small node + `nodeKind` switch dispatch between node256 and node4. Big space saving, modest `Get` slowdown. | 🚧 planned |
 | 5 | `05-introduce-polymorphism/` | Refactor: `innerNode` interface absorbs the dispatch. Behaviour unchanged; bench panel reports "no measurable delta — that's the win". Cites `polymorphism-failed.md` at the repo root. | 🚧 planned |
