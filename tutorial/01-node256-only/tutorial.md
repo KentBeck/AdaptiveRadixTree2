@@ -136,8 +136,8 @@ chapter 8 fixes it with a reusable path buffer.
 ## The disaster, measured
 
 Workload sizes are 1 000 entries each. Numbers were taken on a
-4-core 64-bit machine; you should reproduce them with
-`go test -bench=. -benchmem ./tutorial/01-node256-only/`.
+4-core 64-bit machine; reproduce with
+`go test -bench=. -benchmem -benchtime=300ms ./tutorial/01-node256-only/`.
 
 ### Structural footprint
 
@@ -168,27 +168,27 @@ is the gap that motivates chapters 2 through 7.
 ### Time per operation (vs `google/btree`)
 
 ```
-Op       Workload   Stage 1            google/btree     winner
-──────────────────────────────────────────────────────────────
-Put       Dense       703 ns/op         89 ns/op        btree (8×)
-Put       Sparse   11 003 ns/op        169 ns/op        btree (65×)
-Put       URL      12 232 ns/op        192 ns/op        btree (64×)
-Get       Dense        8.6 ns/op       124 ns/op        Stage 1 (14×)
-Get       Sparse     113   ns/op       139 ns/op        Stage 1 (slightly)
-Get       URL        180   ns/op       143 ns/op        btree (slightly)
-All       Dense    211 µs/op             4 µs/op        btree (50×)
-All       Sparse 3 029 µs/op             4 µs/op        btree (820×)
-All       URL    2 006 µs/op             3 µs/op        btree (590×)
+Op    Workload    Stage 1            google/btree     winner
+─────────────────────────────────────────────────────────────
+Put    Dense        719 µs            120 µs           btree (6×)
+Put    Sparse    24 036 µs            196 µs           btree (122×)
+Put    URL       18 020 µs            210 µs           btree (86×)
+Get    Dense          8.8 ns          109 ns           Stage 1 (12×)
+Get    Sparse       142   ns          128 ns           btree (slightly)
+Get    URL          199   ns          140 ns           btree (1.4×)
+All    Dense        197 µs              4 µs           btree (50×)
+All    Sparse     3 835 µs              4 µs           btree (1 060×)
+All    URL        1 784 µs              4 µs           btree (490×)
 ```
 
 The interesting cells:
 
-- **Get on Dense is 14× faster than btree.** The trie does 8
-  array indexes; btree does a tree of binary searches.  When keys
+- **Get on Dense is 12× faster than btree.** The trie does 8
+  array indexes; btree does a tree of binary searches. When keys
   are short and cache-friendly, the trie wins lookups handily —
   this is the whole reason ART exists.
 - **Put is awful.** Allocating ~16 node256s per Put on Sparse
-  costs ~16 allocations × ~2 KB each. Most of the 11 µs is
+  costs ~16 allocations × ~2 KB each. Most of the 24 ms is
   `runtime.mallocgc` and zeroing memory. Lazy expansion (chapter
   2) collapses each chain to a single leaf.
 - **All is awful.** The recursion sweeps every one of the

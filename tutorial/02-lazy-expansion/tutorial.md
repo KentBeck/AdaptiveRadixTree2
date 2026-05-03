@@ -235,9 +235,9 @@ same invariant the production `art.Tree.All` relies on.
 ## What lazy expansion bought, measured
 
 Same workloads as chapter 1, same machine, same Go version. Run
-`go test -bench=. -benchmem ./tutorial/02-lazy-expansion/` to
-reproduce. Stage 2 is benchmarked alongside Stage 1 for the per-
-decision impact.
+`go test -bench=. -benchmem -benchtime=300ms ./tutorial/02-lazy-expansion/`
+to reproduce. Stage 2 is benchmarked alongside Stage 1 for the
+per-decision impact.
 
 ### Structural footprint
 
@@ -268,35 +268,35 @@ prefixes still demand long chains of node256s — that's chapter
 ### Time per operation
 
 ```
-Op       Workload    Stage 1         Stage 2         btree
-Put      Dense        1 014 µs        107 µs (9.5×)   107 µs
-Put      Sparse      20 994 µs        740 µs (28×)    184 µs
-Put      URL          5 809 µs      2 735 µs (2.1×)   218 µs
-Get      Dense           73 ns        107 ns (0.7×)   158 ns
-Get      Sparse         383 ns         95 ns (4.0×)   265 ns
-Get      URL            690 ns      1 311 ns (0.5×)   540 ns
-All      Dense          234 µs        5.8 µs (40×)    3.6 µs
-All      Sparse       3 030 µs         87 µs (35×)    5.5 µs
-All      URL          1 754 µs        252 µs (7×)     3.2 µs
+Op    Workload     Stage 1            Stage 2          btree
+Put    Dense          709 µs            99 µs (7.2×)    119 µs
+Put    Sparse       9 708 µs           447 µs (22×)     176 µs
+Put    URL          6 203 µs         2 467 µs (2.5×)    202 µs
+Get    Dense            9.1 ns          17.2 ns (0.5×)  107 ns
+Get    Sparse         145   ns          10.9 ns (13×)   134 ns
+Get    URL            213   ns         199   ns (1.07×) 140 ns
+All    Dense          200 µs            5.6 µs (36×)      4 µs
+All    Sparse       3 686 µs           50   µs (74×)      4 µs
+All    URL          1 762 µs          215   µs (8×)       4 µs
 ```
 
 Three outcomes worth pointing at:
 
-- **Put on Dense matches btree.** Stage 1 was 9.5× slower; Stage
-  2 is dead even. Lazy expansion removed the per-Put allocation
-  blizzard.
-- **Get on Sparse is 4× faster than Stage 1 and 2.8× faster than
+- **Get on Sparse is 13× faster than Stage 1 and 12× faster than
   btree.** Stage 1 walked 16 levels (16 cache misses); Stage 2
   walks one or two before reaching a leaf, then does a single
   `bytes.Equal` on the full key. Fewer cache misses dominate.
-- **Get on Dense and URL are *slower* than Stage 1.** Two costs
-  rise: the type assertion at every loop iteration is a small but
-  measurable interface check, and the leaf compare reads the full
-  key rather than just walking node-by-node. On Dense where the
-  chapter-1 walk was already ~73 ns, those costs show up as
-  +47%; on URL where keys are 40 bytes the `bytes.Equal` itself
-  is the work. Chapter 3 will recover this and more by replacing
-  the type assertion's cost with shorter walks.
+- **Get on Dense is *slower* than Stage 1.** Two costs rise: the
+  interface type assertion at every loop iteration, and the leaf
+  compare reads the full key rather than just walking
+  node-by-node. On Dense where the chapter-1 walk was already
+  ~9 ns, the new overhead doubles the time. Chapter 3 recovers
+  this on Dense by collapsing the chain of leading-zero nodes
+  into a single prefix, cutting the walk *and* keeping the leaf
+  compare on the same short key.
+- **Put on Dense nearly matches btree.** Stage 1 was 6× slower;
+  Stage 2 is within 17%. Lazy expansion removed the per-Put
+  allocation blizzard.
 
 ### Allocations
 
