@@ -207,9 +207,9 @@ Put    URL         2 396 µs          929 µs (2.6×)   197 µs
 Get    Dense          17.7 ns         13.5 ns (1.3×) 113 ns
 Get    Sparse         10.9 ns         10.8 ns (1.0×) 129 ns
 Get    URL           200   ns         71   ns (2.8×) 137 ns
-All    Dense           5.8 µs          5.3 µs           4 µs
-All    Sparse         54   µs         51   µs           3.5 µs
-All    URL          194   µs         94   µs (2.1×)     3.7 µs
+Range  Dense           5.8 µs          5.3 µs           4 µs
+Range  Sparse         54   µs         51   µs           3.5 µs
+Range  URL          194   µs         94   µs (2.1×)     3.7 µs
 ```
 
 Three highlights:
@@ -261,7 +261,7 @@ But two node types means two cases in every dispatch — and four
 will mean four. Chapter 5 between 4 and 16 will refactor that
 dispatch from a `nodeKind` switch to method calls on an
 `innerNode` interface, so the third and fourth additions cost no
-new code in `Put`/`Get`/`Delete`/`All`.
+new code in `Put`/`Get`/`Delete`/`Range`.
 
 Chapter 4 introduces node4 with the awkward two-case dispatch
 deliberately, so chapter 5's refactor has something to refactor.
