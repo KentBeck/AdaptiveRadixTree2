@@ -1,7 +1,6 @@
 package addnode16
 
 import (
-	"bytes"
 	"runtime"
 	"testing"
 	"unsafe"
@@ -105,7 +104,7 @@ func runGetBenches(b *testing.B, w bench.Workload) {
 	})
 }
 
-func runAllBenches(b *testing.B, w bench.Workload) {
+func runRangeBenches(b *testing.B, w bench.Workload) {
 	s5 := stage5.New[int]()
 	s6 := New[int]()
 	bt := bench.NewBtree()
@@ -118,7 +117,7 @@ func runAllBenches(b *testing.B, w bench.Workload) {
 		b.ReportAllocs()
 		var sink int
 		for i := 0; i < b.N; i++ {
-			for _, v := range s5.All() {
+			for _, v := range s5.Range(nil, nil) {
 				sink ^= v
 			}
 		}
@@ -128,7 +127,7 @@ func runAllBenches(b *testing.B, w bench.Workload) {
 		b.ReportAllocs()
 		var sink int
 		for i := 0; i < b.N; i++ {
-			for _, v := range s6.All() {
+			for _, v := range s6.Range(nil, nil) {
 				sink ^= v
 			}
 		}
@@ -155,9 +154,9 @@ func BenchmarkGet_Dense_1k(b *testing.B)  { runGetBenches(b, bench.Dense(1_000))
 func BenchmarkGet_Sparse_1k(b *testing.B) { runGetBenches(b, bench.Sparse(1_000)) }
 func BenchmarkGet_URL_1k(b *testing.B)    { runGetBenches(b, bench.URL(1_000)) }
 
-func BenchmarkAll_Dense_1k(b *testing.B)  { runAllBenches(b, bench.Dense(1_000)) }
-func BenchmarkAll_Sparse_1k(b *testing.B) { runAllBenches(b, bench.Sparse(1_000)) }
-func BenchmarkAll_URL_1k(b *testing.B)    { runAllBenches(b, bench.URL(1_000)) }
+func BenchmarkRange_Dense_1k(b *testing.B)  { runRangeBenches(b, bench.Dense(1_000)) }
+func BenchmarkRange_Sparse_1k(b *testing.B) { runRangeBenches(b, bench.Sparse(1_000)) }
+func BenchmarkRange_URL_1k(b *testing.B)    { runRangeBenches(b, bench.URL(1_000)) }
 
 // TestReportFootprint surfaces the inner-node mix shift across
 // chapter 5 -> chapter 6. Watch the URL row: many of stage 5's
@@ -197,16 +196,15 @@ func TestReportFootprint(t *testing.T) {
 	}
 }
 
-// runMid1pctBenches measures iteration of the *middle* 1 % of the
-// sorted keys: a window from the 49.5th to the 50.5th percentile
-// of the keyspace. For btree this is a true sub-range walk via
-// AscendRange. For ART chapters without Range, the window is
-// hit by walking All and skipping until k >= lo, yielding while
-// k < hi, breaking when k >= hi -- so the cost is dominated by
-// the unavoidable pre-window descent. Chapter 8 introduces Range
-// and uses it directly here, which is the closest comparable
-// shape to btree's AscendRange.
-func runMid1pctBenches(b *testing.B, w bench.Workload) {
+// runRangeWindowBenches measures iteration of the *middle* 1 % of
+// the sorted keys: a window from the 49.5th to the 50.5th
+// percentile of the keyspace. For btree this is a sub-range walk
+// via AscendRange; for chapter 6's ART it is Range(lo, hi). The
+// trie's Range still walks every node and filters at the leaf,
+// so the cost is dominated by the unavoidable full descent.
+// Chapter 8 will make Range prune subtrees by prefix and close
+// the gap to btree.
+func runRangeWindowBenches(b *testing.B, w bench.Workload) {
 	prev := stage5.New[int]()
 	curr := New[int]()
 	bt := bench.NewBtree()
@@ -217,7 +215,7 @@ func runMid1pctBenches(b *testing.B, w bench.Workload) {
 	}
 	// Materialize sorted keys once to compute window bounds.
 	sorted := make([][]byte, 0, len(w.Keys))
-	for k := range curr.All() {
+	for k := range curr.Range(nil, nil) {
 		sorted = append(sorted, append([]byte(nil), k...))
 	}
 	lo := sorted[len(sorted)*495/1000]
@@ -227,13 +225,7 @@ func runMid1pctBenches(b *testing.B, w bench.Workload) {
 		b.ReportAllocs()
 		var sink int
 		for i := 0; i < b.N; i++ {
-			for k, v := range prev.All() {
-				if bytes.Compare(k, hi) >= 0 {
-					break
-				}
-				if bytes.Compare(k, lo) < 0 {
-					continue
-				}
+			for _, v := range prev.Range(lo, hi) {
 				sink ^= v
 			}
 		}
@@ -243,13 +235,7 @@ func runMid1pctBenches(b *testing.B, w bench.Workload) {
 		b.ReportAllocs()
 		var sink int
 		for i := 0; i < b.N; i++ {
-			for k, v := range curr.All() {
-				if bytes.Compare(k, hi) >= 0 {
-					break
-				}
-				if bytes.Compare(k, lo) < 0 {
-					continue
-				}
+			for _, v := range curr.Range(lo, hi) {
 				sink ^= v
 			}
 		}
@@ -268,6 +254,6 @@ func runMid1pctBenches(b *testing.B, w bench.Workload) {
 	})
 }
 
-func BenchmarkMid1pct_Dense_1k(b *testing.B)  { runMid1pctBenches(b, bench.Dense(1_000)) }
-func BenchmarkMid1pct_Sparse_1k(b *testing.B) { runMid1pctBenches(b, bench.Sparse(1_000)) }
-func BenchmarkMid1pct_URL_1k(b *testing.B)    { runMid1pctBenches(b, bench.URL(1_000)) }
+func BenchmarkRangeWindow_Dense_1k(b *testing.B)  { runRangeWindowBenches(b, bench.Dense(1_000)) }
+func BenchmarkRangeWindow_Sparse_1k(b *testing.B) { runRangeWindowBenches(b, bench.Sparse(1_000)) }
+func BenchmarkRangeWindow_URL_1k(b *testing.B)    { runRangeWindowBenches(b, bench.URL(1_000)) }

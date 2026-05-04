@@ -14,7 +14,7 @@ that promise:
 | `art.go` | `growToNode256` rebound from `*node4 -> *node256` to `*node16 -> *node256`; `shrinkToNode4` rebound from `*node256 -> *node4` to `*node16 -> *node4` | 2 lines |
 | `art.go` | `CountByKind` widened to `(n4, n16, n256 int)` | 5 lines |
 
-Everything else — `Put`, `Get`, `Delete`, `All`, `splitTwoLeaves`,
+Everything else — `Put`, `Get`, `Delete`, `Range`, `splitTwoLeaves`,
 `splitPrefixedNode`, `consumePrefix`, `longestCommonPrefix`,
 `collapseEmpty`, `mergePrefixIntoChild` — is character-for-character
 unchanged from chapter 5. That's what the polymorphism investment
@@ -138,14 +138,14 @@ Put    URL         347 µs         274 µs            -21%
 Get    Dense        29 ns          24 ns            -17%
 Get    Sparse       27 ns          35 ns            +27%
 Get    URL          99 ns         118 ns            +19%
-All    Dense       5.0 µs         5.0 µs            tied
-All    Sparse       36 µs          16 µs            -56%
-All    URL          38 µs          23 µs            -40%
+Range  Dense       5.0 µs         5.0 µs            tied
+Range  Sparse       36 µs          16 µs            -56%
+Range  URL          38 µs          23 µs            -40%
 ```
 
-Put and All got faster on Sparse and URL. Smaller per-node mallocs
+Put and Range got faster on Sparse and URL. Smaller per-node mallocs
 (node16's 320 B vs node256's 4 144 B) is the main driver for Put;
-fewer slots to scan per node is the driver for All.
+fewer slots to scan per node is the driver for Range.
 
 The honest cost is on `Get`: Sparse goes from 27 ns to 35 ns and
 URL from 99 ns to 118 ns. **That's the tradeoff we deliberately

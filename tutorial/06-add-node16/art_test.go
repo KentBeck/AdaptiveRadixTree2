@@ -44,7 +44,7 @@ func TestPutGetDelete(t *testing.T) {
 	}
 }
 
-func TestAllSorted(t *testing.T) {
+func TestRangeSorted(t *testing.T) {
 	tree := New[int]()
 	keys := []string{"hello", "help", "hi", "h", "apple", "april", ""}
 	for i, k := range keys {
@@ -53,11 +53,11 @@ func TestAllSorted(t *testing.T) {
 	want := append([]string(nil), keys...)
 	sort.Strings(want)
 	var got []string
-	for k := range tree.All() {
+	for k := range tree.Range(nil, nil) {
 		got = append(got, string(k))
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("All order = %v, want %v", got, want)
+		t.Fatalf("Range order = %v, want %v", got, want)
 	}
 }
 
@@ -143,18 +143,18 @@ func TestDemotionPreservesSortOrder(t *testing.T) {
 		t.Fatalf("expected demotion to node16")
 	}
 	var got []byte
-	for k := range tree.All() {
+	for k := range tree.Range(nil, nil) {
 		got = append(got, k[0])
 	}
 	for i := 1; i < len(got); i++ {
 		if got[i] <= got[i-1] {
-			t.Fatalf("All order broken at %d: %v", i, got)
+			t.Fatalf("Range order broken at %d: %v", i, got)
 		}
 	}
 }
 
 func TestNode16SortedInsertion(t *testing.T) {
-	// Insert keys that fit in a node16 in scrambled order; All
+	// Insert keys that fit in a node16 in scrambled order; Range
 	// must still yield sorted.
 	tree := New[int]()
 	for _, b := range []byte{0x40, 0x10, 0x80, 0x20, 0x60, 0x05, 0xa0, 0x70, 0xb0} {
@@ -164,12 +164,12 @@ func TestNode16SortedInsertion(t *testing.T) {
 		t.Fatalf("expected node16 root")
 	}
 	var got []byte
-	for k := range tree.All() {
+	for k := range tree.Range(nil, nil) {
 		got = append(got, k[0])
 	}
 	want := []byte{0x05, 0x10, 0x20, 0x40, 0x60, 0x70, 0x80, 0xa0, 0xb0}
 	if !bytes.Equal(got, want) {
-		t.Fatalf("All order = %v, want %v", got, want)
+		t.Fatalf("Range order = %v, want %v", got, want)
 	}
 }
 

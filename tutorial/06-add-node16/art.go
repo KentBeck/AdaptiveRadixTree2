@@ -3,7 +3,7 @@
 // a new struct (and its eleven innerNode methods) plus two
 // surgical edits -- node4.addOrGrowChild now grows to node16, and
 // node256.reshape gains a demote-to-node16 case. Put, Get, Delete,
-// All, splitTwoLeaves, splitPrefixedNode, consumePrefix,
+// Range, splitTwoLeaves, splitPrefixedNode, consumePrefix,
 // longestCommonPrefix, collapseEmpty, and mergePrefixIntoChild are
 // unchanged from chapter 5.
 //
@@ -653,13 +653,30 @@ func deleteFrom[V any](current node, key []byte, depth int, size *int) (node, bo
 	return n.reshape(), true
 }
 
-// ---- All --------------------------------------------------------------------
+// ---- Range ------------------------------------------------------------------
 
-func (t *Tree[V]) All() iter.Seq2[[]byte, V] {
+// Range returns an iter.Seq2 of all (key, value) pairs whose keys
+// fall in the half-open interval [from, to), in ascending byte
+// order. A nil bound is unbounded on that side, so Range(nil, nil)
+// yields every entry.
+//
+// Iterating children in ascending byte order at every node yields
+// keys in sorted order for free: there is no comparison and no
+// balancing. This is the property that makes a trie a sorted map.
+func (t *Tree[V]) Range(from, to []byte) iter.Seq2[[]byte, V] {
 	return func(yield func([]byte, V) bool) {
-		if t.root != nil {
-			iterate[V](t.root, yield)
+		if t.root == nil {
+			return
 		}
+		iterate[V](t.root, func(k []byte, v V) bool {
+			if from != nil && bytes.Compare(k, from) < 0 {
+				return true
+			}
+			if to != nil && bytes.Compare(k, to) >= 0 {
+				return true
+			}
+			return yield(k, v)
+		})
 	}
 }
 
