@@ -9,7 +9,7 @@ We did this because chapter 4 was already feeling crowded with
 two cases per helper, and we know two more node types are coming
 (node16, node48). Method dispatch through an interface makes those
 additions land as **new struct files with zero edits to `Put`,
-`Get`, `Delete`, or `All`**. That's the change we want to make
+`Get`, `Delete`, or `Range`**. That's the change we want to make
 easy. Chapter 6 collects the easy change.
 
 The numbers below show what the refactor cost — not because the
@@ -36,7 +36,7 @@ type innerNode interface {
 ```
 
 Eleven methods. Both `*node4` and `*node256` implement all of
-them. `Put`, `Get`, `Delete`, and `All` use only the methods on
+them. `Put`, `Get`, `Delete`, and `Range` use only the methods on
 this interface; they have no idea what concrete type they're
 operating on.
 
@@ -231,9 +231,9 @@ Put    URL         339 µs          380 µs         +12%
 Get    Dense        23 ns           26 ns         +13%
 Get    Sparse       24 ns           29 ns         +24%
 Get    URL          89 ns           99 ns         +10%
-All    Dense       4.98 µs         5.20 µs         +4% (+ 7 allocs/op)
-All    Sparse     27   µs         39   µs        +43% (+ 236 allocs/op)
-All    URL        23   µs         38   µs        +63% (+ 395 allocs/op)
+Range  Dense       4.98 µs         5.20 µs         +4% (+ 7 allocs/op)
+Range  Sparse     27   µs         39   µs        +43% (+ 236 allocs/op)
+Range  URL        23   µs         38   µs        +63% (+ 395 allocs/op)
 ```
 
 Two distinct costs:
@@ -250,7 +250,7 @@ Two distinct costs:
   on the caller's stack and allocates it. Chapter 4's
   `eachAscending` was a free function with concrete-type case
   bodies; the compiler could inline the cases and keep closures
-  on the stack. The new All allocations (~one per inner node
+  on the stack. The new Range allocations (~one per inner node
   visited) come from this. They're small — tens of bytes each —
   but they are visible.
 
@@ -268,7 +268,7 @@ inner-node interface
 ```
 
 The decision was: spend ~5–25% on hot-path latency and ~one
-allocation per inner-node visit during `All`, in exchange for
+allocation per inner-node visit during `Range`, in exchange for
 deleting nine type-switch helpers, splitting `reshape` along
 type boundaries, and **making the chapter 6 / chapter 7 diffs
 new-file-only**.
@@ -292,7 +292,7 @@ Adding `node16` in chapter 6 is, end to end:
 3. Decide which inner-node sizes promote and demote into node16,
    and update `growToNode16` / `shrinkToNode4` boundaries.
 
-`Put`, `Get`, `Delete`, `All`, `splitTwoLeaves`,
+`Put`, `Get`, `Delete`, `Range`, `splitTwoLeaves`,
 `splitPrefixedNode`, `consumePrefix`, `longestCommonPrefix`,
 `collapseEmpty`, `mergePrefixIntoChild` — none of them changes.
 That's the easy change chapter 5 made possible.

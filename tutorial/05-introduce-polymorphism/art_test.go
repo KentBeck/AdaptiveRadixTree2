@@ -79,7 +79,7 @@ func TestEmptyKey(t *testing.T) {
 	}
 }
 
-func TestAllSorted(t *testing.T) {
+func TestRangeSorted(t *testing.T) {
 	tree := New[int]()
 	keys := []string{"hello", "help", "hi", "h", "apple", "april", ""}
 	for i, k := range keys {
@@ -88,11 +88,11 @@ func TestAllSorted(t *testing.T) {
 	want := append([]string(nil), keys...)
 	sort.Strings(want)
 	var got []string
-	for k := range tree.All() {
+	for k := range tree.Range(nil, nil) {
 		got = append(got, string(k))
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("All order = %v, want %v", got, want)
+		t.Fatalf("Range order = %v, want %v", got, want)
 	}
 }
 
@@ -137,12 +137,12 @@ func TestDemotionPreservesSortOrder(t *testing.T) {
 		t.Fatalf("demotion did not happen")
 	}
 	var got []byte
-	for k := range tree.All() {
+	for k := range tree.Range(nil, nil) {
 		got = append(got, k[0])
 	}
 	want := []byte{0x10, 0x20, 0x40, 0x80}
 	if !bytes.Equal(got, want) {
-		t.Fatalf("All order after demotion = %v, want %v", got, want)
+		t.Fatalf("Range order after demotion = %v, want %v", got, want)
 	}
 }
 

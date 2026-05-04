@@ -10,7 +10,7 @@
 // and that's the point: the refactor is not a performance play.
 // Its return-on-investment shows up in chapter 6 (adding node16) and
 // chapter 7 (adding node48), where each new node type lands as a
-// new struct file with no edits to Put / Get / Delete / All.
+// new struct file with no edits to Put / Get / Delete / Range.
 //
 // "Make the change easy, then make the easy change." This is the
 // "make the change easy" step.
@@ -521,13 +521,30 @@ func deleteFrom[V any](current node, key []byte, depth int, size *int) (node, bo
 	return n.reshape(), true
 }
 
-// ---- All --------------------------------------------------------------------
+// ---- Range ------------------------------------------------------------------
 
-func (t *Tree[V]) All() iter.Seq2[[]byte, V] {
+// Range returns an iter.Seq2 of all (key, value) pairs whose keys
+// fall in the half-open interval [from, to), in ascending byte
+// order. A nil bound is unbounded on that side, so Range(nil, nil)
+// yields every entry.
+//
+// The interface-driven walk built in this chapter still visits
+// every leaf and filters bounds at the yield site; chapter 8 will
+// prune subtrees by prefix instead.
+func (t *Tree[V]) Range(from, to []byte) iter.Seq2[[]byte, V] {
 	return func(yield func([]byte, V) bool) {
-		if t.root != nil {
-			iterate[V](t.root, yield)
+		if t.root == nil {
+			return
 		}
+		iterate[V](t.root, func(k []byte, v V) bool {
+			if from != nil && bytes.Compare(k, from) < 0 {
+				return true
+			}
+			if to != nil && bytes.Compare(k, to) >= 0 {
+				return true
+			}
+			return yield(k, v)
+		})
 	}
 }
 
