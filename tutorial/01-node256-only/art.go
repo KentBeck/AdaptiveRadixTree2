@@ -18,6 +18,7 @@
 package nodeonly256
 
 import (
+	"bytes"
 	"iter"
 )
 
@@ -141,17 +142,28 @@ func isEmpty[V any](n *node[V]) bool {
 	return true
 }
 
-// All yields every (key, value) pair in ascending byte-wise key
-// order.
+// Range returns an iter.Seq2 of all (key, value) pairs whose keys
+// fall in the half-open interval [from, to), in ascending byte
+// order. A nil bound is unbounded on that side, so Range(nil, nil)
+// yields every entry.
 //
 // Iterating children in ascending byte order at every node yields
 // keys in sorted order for free: there is no comparison and no
 // balancing. This is the property that makes a trie a sorted map.
-func (t *Tree[V]) All() iter.Seq2[[]byte, V] {
+func (t *Tree[V]) Range(from, to []byte) iter.Seq2[[]byte, V] {
 	return func(yield func([]byte, V) bool) {
-		if t.root != nil {
-			walk(t.root, nil, yield)
+		if t.root == nil {
+			return
 		}
+		walk(t.root, nil, func(k []byte, v V) bool {
+			if from != nil && bytes.Compare(k, from) < 0 {
+				return true
+			}
+			if to != nil && bytes.Compare(k, to) >= 0 {
+				return true
+			}
+			return yield(k, v)
+		})
 	}
 }
 

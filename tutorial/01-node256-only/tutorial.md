@@ -104,12 +104,17 @@ children). The parent uses the second flag to decide whether to
 detach. Without this pruning, deleting `"hello"` would leave a
 six-deep chain of empty `node256`s in the tree forever.
 
-## All yields in sorted order for free
+## Range yields in sorted order for free
 
 ```go
-func (t *Tree[V]) All() iter.Seq2[[]byte, V] {
+func (t *Tree[V]) Range(from, to []byte) iter.Seq2[[]byte, V] {
     return func(yield func([]byte, V) bool) {
-        if t.root != nil { walk(t.root, nil, yield) }
+        if t.root == nil { return }
+        walk(t.root, nil, func(k []byte, v V) bool {
+            if from != nil && bytes.Compare(k, from) < 0 { return true }
+            if to != nil && bytes.Compare(k, to) >= 0 { return true }
+            return yield(k, v)
+        })
     }
 }
 
@@ -128,10 +133,17 @@ func walk[V any](n *node[V], path []byte, yield func([]byte, V) bool) bool {
 }
 ```
 
-Iterating `b` from 0 to 255 visits children in ascending byte
-order. The yielded keys are byte-wise sorted with no comparison
-and no balancing tree. The `make + copy` per yield is wasteful;
-chapter 8 fixes it with a reusable path buffer.
+`Range(from, to)` yields every (key, value) pair whose key falls
+in the half-open interval `[from, to)`; a `nil` bound is unbounded
+on that side, so `Range(nil, nil)` walks the whole tree. The
+recursion in `walk` iterates `b` from 0 to 255 at every node, so
+children are visited in ascending byte order and the yielded keys
+are byte-wise sorted with no comparison and no balancing tree. In
+this chapter the bounds are enforced at the leaf, after the full
+descent; chapter 8 will prune subtrees by prefix so out-of-range
+work is skipped instead of filtered. The `make + copy` per yield
+is also wasteful; chapter 8 fixes that with a reusable path
+buffer.
 
 ## The disaster, measured
 
@@ -176,9 +188,9 @@ Put    URL       18 020 µs            210 µs           btree (86×)
 Get    Dense          8.8 ns          109 ns           Stage 1 (12×)
 Get    Sparse       142   ns          128 ns           btree (slightly)
 Get    URL          199   ns          140 ns           btree (1.4×)
-All    Dense        197 µs              4 µs           btree (50×)
-All    Sparse     3 835 µs              4 µs           btree (1 060×)
-All    URL        1 784 µs              4 µs           btree (490×)
+Range  Dense        197 µs              4 µs           btree (50×)
+Range  Sparse     3 835 µs              4 µs           btree (1 060×)
+Range  URL        1 784 µs              4 µs           btree (490×)
 ```
 
 The interesting cells:
@@ -191,11 +203,12 @@ The interesting cells:
   costs ~16 allocations × ~2 KB each. Most of the 24 ms is
   `runtime.mallocgc` and zeroing memory. Lazy expansion (chapter
   2) collapses each chain to a single leaf.
-- **All is awful.** The recursion sweeps every one of the
+- **Range is awful.** The recursion sweeps every one of the
   thousands of empty child slots on every node256. Even on Dense
-  (where there are only ~1 000 nodes), `All` does 1 000 × 256
-  ≈ 256 000 nil checks. Smaller node types (chapters 4 — 7)
-  reduce that to scanning only the children that exist.
+  (where there are only ~1 000 nodes), `Range(nil, nil)` does
+  1 000 × 256 ≈ 256 000 nil checks. Smaller node types
+  (chapters 4 — 7) reduce that to scanning only the children that
+  exist.
 
 ### Allocations
 
