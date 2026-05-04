@@ -20,12 +20,15 @@ ascending order of `K`, not insertion order or hash order. The
 operations are familiar:
 
 ```
-Put(k, v) // insert or replace
-Get(k)    // (v, ok)
-Delete(k) // remove if present
-Len()     // count
-All()     // iterator in ascending key order
+Put(k, v)       // insert or replace
+Get(k)          // (v, ok)
+Delete(k)       // remove if present
+Len()           // count
+Range(from, to) // iterator in ascending key order, from <= k < to
 ```
+
+Either bound on `Range` may be omitted (nil) to mean "unbounded on
+that side", so `Range(nil, nil)` walks every key.
 
 Two well-known data structures cover this surface:
 
