@@ -41,7 +41,7 @@ func TestPutGetDelete(t *testing.T) {
 	}
 }
 
-func TestAllSorted(t *testing.T) {
+func TestRangeSorted(t *testing.T) {
 	tree := New[int]()
 	keys := []string{"hello", "help", "hi", "h", "apple", "april", ""}
 	for i, k := range keys {
@@ -50,11 +50,11 @@ func TestAllSorted(t *testing.T) {
 	want := append([]string(nil), keys...)
 	sort.Strings(want)
 	var got []string
-	for k := range tree.All() {
+	for k := range tree.Range(nil, nil) {
 		got = append(got, string(k))
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("All order = %v, want %v", got, want)
+		t.Fatalf("Range order = %v, want %v", got, want)
 	}
 }
 
@@ -131,12 +131,12 @@ func TestDemotionPreservesSortOrder(t *testing.T) {
 		t.Fatalf("expected n48 after demotion")
 	}
 	var got []byte
-	for k := range tree.All() {
+	for k := range tree.Range(nil, nil) {
 		got = append(got, k[0])
 	}
 	for i := 1; i < len(got); i++ {
 		if got[i] <= got[i-1] {
-			t.Fatalf("All order broken at %d after n48 demotion: %v", i, got)
+			t.Fatalf("Range order broken at %d after n48 demotion: %v", i, got)
 		}
 	}
 }
@@ -178,7 +178,7 @@ func TestNode48RemoveChildSwap(t *testing.T) {
 }
 
 func TestNode48InsertionScrambled(t *testing.T) {
-	// Insert 30 keys in scrambled order; All must yield sorted.
+	// Insert 30 keys in scrambled order; Range must yield sorted.
 	tree := New[int]()
 	keys := []byte{
 		0x40, 0x10, 0x80, 0x20, 0x60, 0x05, 0xa0, 0x70, 0xb0,
@@ -195,10 +195,10 @@ func TestNode48InsertionScrambled(t *testing.T) {
 	want := append([]byte(nil), keys...)
 	sort.Slice(want, func(i, j int) bool { return want[i] < want[j] })
 	var got []byte
-	for k := range tree.All() {
+	for k := range tree.Range(nil, nil) {
 		got = append(got, k[0])
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatalf("All order = %v, want %v", got, want)
+		t.Fatalf("Range order = %v, want %v", got, want)
 	}
 }

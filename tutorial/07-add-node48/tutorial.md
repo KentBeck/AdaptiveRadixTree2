@@ -16,7 +16,7 @@ The diff shape mirrors chapter 6 exactly: one new struct file
 | `growToNode256` rebound to take `*node48`; `shrinkToNode16` rebound to take `*node48` | ~10 |
 | `CountByKind` widened to four return values | 5 |
 
-`Put`, `Get`, `Delete`, `All`, `splitTwoLeaves`,
+`Put`, `Get`, `Delete`, `Range`, `splitTwoLeaves`,
 `splitPrefixedNode`, `consumePrefix`, `longestCommonPrefix`,
 `collapseEmpty`, and `mergePrefixIntoChild` are unchanged from
 chapter 6 character-for-character.
@@ -125,7 +125,7 @@ Stage 7 is now within **1.3× of btree's heap on Sparse-5k**.
 Op    Stage 6        Stage 7        change       btree
 Put     1 107 µs       826 µs        -25%        1 392 µs
 Get        30 ns        31 ns        +3%           211 ns
-All      129 µs        108 µs        -16%          21 µs
+Range    129 µs        108 µs        -16%          21 µs
 ```
 
 Put is **1.7× faster than btree** at 5k Sparse and 25% faster
@@ -142,9 +142,9 @@ Put    URL         275 µs          301 µs          +9%
 Get    Dense        27 ns           27 ns          tied
 Get    Sparse/1k    33 ns           35 ns          +5%
 Get    URL         115 ns          128 ns         +11%
-All    Dense       5.8 µs          5.4 µs          -7%
-All    Sparse/1k    16 µs           16 µs          tied
-All    URL          24 µs           23 µs          -4%
+Range  Dense       5.8 µs          5.4 µs          -7%
+Range  Sparse/1k    16 µs           16 µs          tied
+Range  URL          24 µs           23 µs          -4%
 ```
 
 Heap is unchanged at 1k size because the inner-node mix didn't
