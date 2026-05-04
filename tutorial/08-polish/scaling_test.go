@@ -1,9 +1,11 @@
 package polish
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"runtime"
+	"sort"
 	"testing"
 	"time"
 
@@ -61,8 +63,8 @@ func TestScalingAnnex(t *testing.T) {
 		t.Logf("\n== %s workload ==", spec.name)
 		t.Logf("%-10s  %-32s  %-32s",
 			"keys",
-			"stage 8 (Put µs/k | Get ns | heap B/k | iter1% ns/k)",
-			"btree   (Put µs/k | Get ns | heap B/k | iter1% ns/k)")
+			"stage 8 (Put µs/k | Get ns | heap B/k | mid1% ns/k)",
+			"btree   (Put µs/k | Get ns | heap B/k | mid1% ns/k)")
 
 		for _, n := range spec.sizes {
 			if n > cap {
@@ -70,27 +72,38 @@ func TestScalingAnnex(t *testing.T) {
 			}
 			w := spec.make(n)
 
-			s8 := measureStage8(w)
-			bt := measureBtree(w)
+			// Compute window bounds once per workload by sorting the
+			// keys directly. Both measurement helpers see the same
+			// (lo, hi) so the comparison is apples-to-apples.
+			sortedKeys := make([][]byte, len(w.Keys))
+			copy(sortedKeys, w.Keys)
+			sort.Slice(sortedKeys, func(i, j int) bool {
+				return bytes.Compare(sortedKeys[i], sortedKeys[j]) < 0
+			})
+			lo := sortedKeys[len(sortedKeys)*495/1000]
+			hi := sortedKeys[len(sortedKeys)*505/1000]
+
+			s8 := measureStage8(w, lo, hi)
+			bt := measureBtree(w, lo, hi)
 
 			t.Logf("%-10s  %-32s  %-32s",
 				humanize(n),
-				fmt.Sprintf("%6.2f | %6.0f | %6.0f | %5.0f", s8.putUsPerKey, s8.getNs, s8.heapBPerKey, s8.iter1pctNsPerKey),
-				fmt.Sprintf("%6.2f | %6.0f | %6.0f | %5.0f", bt.putUsPerKey, bt.getNs, bt.heapBPerKey, bt.iter1pctNsPerKey))
+				fmt.Sprintf("%6.2f | %6.0f | %6.0f | %5.0f", s8.putUsPerKey, s8.getNs, s8.heapBPerKey, s8.mid1pctNsPerKey),
+				fmt.Sprintf("%6.2f | %6.0f | %6.0f | %5.0f", bt.putUsPerKey, bt.getNs, bt.heapBPerKey, bt.mid1pctNsPerKey))
 		}
 	}
 }
 
 type scalePoint struct {
-	putUsPerKey      float64
-	getNs            float64
-	heapBPerKey      float64
-	iter1pctNsPerKey float64 // ns per yielded key when iterating len(keys)/100 via All
+	putUsPerKey     float64
+	getNs           float64
+	heapBPerKey     float64
+	mid1pctNsPerKey float64 // ns per yielded key when iterating the middle 1 % via Range / AscendRange
 }
 
 const getSampleSeconds = 1.0
 
-func measureStage8(w bench.Workload) scalePoint {
+func measureStage8(w bench.Workload, lo, hi []byte) scalePoint {
 	runtime.GC()
 	runtime.GC()
 	var before runtime.MemStats
@@ -116,33 +129,25 @@ func measureStage8(w bench.Workload) scalePoint {
 		_, _ = t.Get(w.Keys[i%len(w.Keys)])
 	})
 
-	target := len(w.Keys) / 100
-	if target < 1 {
-		target = 1
-	}
-	iterNs := timeIter1pct(func() int {
+	iterNs := timeMid1pct(func() int {
 		yielded := 0
-		for k, v := range t.All() {
-			_ = k
+		for _, v := range t.Range(lo, hi) {
 			_ = v
 			yielded++
-			if yielded >= target {
-				break
-			}
 		}
 		return yielded
 	})
 
 	runtime.KeepAlive(t)
 	return scalePoint{
-		putUsPerKey:      float64(putElapsed.Microseconds()) / float64(len(w.Keys)),
-		getNs:            getNs,
-		heapBPerKey:      heap,
-		iter1pctNsPerKey: iterNs,
+		putUsPerKey:     float64(putElapsed.Microseconds()) / float64(len(w.Keys)),
+		getNs:           getNs,
+		heapBPerKey:     heap,
+		mid1pctNsPerKey: iterNs,
 	}
 }
 
-func measureBtree(w bench.Workload) scalePoint {
+func measureBtree(w bench.Workload, lo, hi []byte) scalePoint {
 	runtime.GC()
 	runtime.GC()
 	var before runtime.MemStats
@@ -168,33 +173,29 @@ func measureBtree(w bench.Workload) scalePoint {
 		_, _ = t.Get(bench.BtreeItem{Key: w.Keys[i%len(w.Keys)]})
 	})
 
-	target := len(w.Keys) / 100
-	if target < 1 {
-		target = 1
-	}
-	iterNs := timeIter1pct(func() int {
+	iterNs := timeMid1pct(func() int {
 		yielded := 0
-		t.Ascend(func(it bench.BtreeItem) bool {
+		t.AscendRange(bench.BtreeItem{Key: lo}, bench.BtreeItem{Key: hi}, func(it bench.BtreeItem) bool {
 			yielded++
-			return yielded < target
+			return true
 		})
 		return yielded
 	})
 
 	runtime.KeepAlive(t)
 	return scalePoint{
-		putUsPerKey:      float64(putElapsed.Microseconds()) / float64(len(w.Keys)),
-		getNs:            getNs,
-		heapBPerKey:      heap,
-		iter1pctNsPerKey: iterNs,
+		putUsPerKey:     float64(putElapsed.Microseconds()) / float64(len(w.Keys)),
+		getNs:           getNs,
+		heapBPerKey:     heap,
+		mid1pctNsPerKey: iterNs,
 	}
 }
 
-// timeIter1pct runs the partial-iteration closure repeatedly for a
-// fixed wall-clock window and returns ns per yielded key. Each call
-// to op iterates len(keys)/100 yields and returns how many it
-// yielded.
-func timeIter1pct(op func() int) float64 {
+// timeMid1pct runs the middle-1%-iteration closure repeatedly for
+// a fixed wall-clock window and returns ns per yielded key. Each
+// call to op iterates the (lo, hi) window and returns how many keys
+// were yielded.
+func timeMid1pct(op func() int) float64 {
 	deadline := time.Now().Add(time.Duration(getSampleSeconds * float64(time.Second)))
 	totalYielded := 0
 	start := time.Now()
