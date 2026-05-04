@@ -1,6 +1,7 @@
 package nodeonly256
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
@@ -140,14 +141,18 @@ func BenchmarkAll_Dense_1k(b *testing.B)  { runAllBenches(b, bench.Dense(1_000))
 func BenchmarkAll_Sparse_1k(b *testing.B) { runAllBenches(b, bench.Sparse(1_000)) }
 func BenchmarkAll_URL_1k(b *testing.B)    { runAllBenches(b, bench.URL(1_000)) }
 
-// runAll1pctBenches measures partial iteration: walk the sorted
-// keys via All and stop after len(keys)/100 yields. This isolates
-// the cost of *starting* iteration plus the cost of *yielding* the
-// first 1% of keys -- a different shape from full-tree All, and
-// the closest analogue to "iterate a small window" before chapter
-// 8 introduces Range. Numbers per outer iteration; divide by
-// target yields if you want per-key.
-func runAll1pctBenches(b *testing.B, w bench.Workload) {
+// runMid1pctBenches measures iteration of the *middle* 1 % of the
+// sorted keys: a window from the 49.5th to the 50.5th percentile
+// of the keyspace. For btree this is a true sub-range walk via
+// AscendRange. For chapter 1's ART (no Range), the only way to
+// iterate a window is to walk All and skip until we reach lo,
+// yield while in [lo, hi), then break -- which makes the cost
+// dominated by the unavoidable pre-window descent.
+//
+// The measurement is a deliberate before/after to chapter 8, where
+// Range with prefix-pruning will replace the All+skip walk and
+// close the gap to btree.
+func runMid1pctBenches(b *testing.B, w bench.Workload) {
 	stage1 := New[int]()
 	for j, k := range w.Keys {
 		stage1.Put(k, w.Vals[j])
@@ -156,22 +161,26 @@ func runAll1pctBenches(b *testing.B, w bench.Workload) {
 	for j, k := range w.Keys {
 		bt.ReplaceOrInsert(bench.BtreeItem{Key: k, Val: w.Vals[j]})
 	}
-	target := len(w.Keys) / 100
-	if target < 1 {
-		target = 1
+	// Materialize sorted keys once to compute window bounds.
+	sorted := make([][]byte, 0, len(w.Keys))
+	for k := range stage1.All() {
+		sorted = append(sorted, append([]byte(nil), k...))
 	}
+	lo := sorted[len(sorted)*495/1000]
+	hi := sorted[len(sorted)*505/1000]
 
 	b.Run("Stage1", func(b *testing.B) {
 		b.ReportAllocs()
 		var sink int
 		for i := 0; i < b.N; i++ {
-			yielded := 0
-			for _, v := range stage1.All() {
-				sink ^= v
-				yielded++
-				if yielded >= target {
+			for k, v := range stage1.All() {
+				if bytes.Compare(k, hi) >= 0 {
 					break
 				}
+				if bytes.Compare(k, lo) < 0 {
+					continue
+				}
+				sink ^= v
 			}
 		}
 		_ = sink
@@ -180,20 +189,18 @@ func runAll1pctBenches(b *testing.B, w bench.Workload) {
 		b.ReportAllocs()
 		var sink int
 		for i := 0; i < b.N; i++ {
-			yielded := 0
-			bt.Ascend(func(it bench.BtreeItem) bool {
+			bt.AscendRange(bench.BtreeItem{Key: lo}, bench.BtreeItem{Key: hi}, func(it bench.BtreeItem) bool {
 				sink ^= it.Val
-				yielded++
-				return yielded < target
+				return true
 			})
 		}
 		_ = sink
 	})
 }
 
-func BenchmarkAll1pct_Dense_1k(b *testing.B)  { runAll1pctBenches(b, bench.Dense(1_000)) }
-func BenchmarkAll1pct_Sparse_1k(b *testing.B) { runAll1pctBenches(b, bench.Sparse(1_000)) }
-func BenchmarkAll1pct_URL_1k(b *testing.B)    { runAll1pctBenches(b, bench.URL(1_000)) }
+func BenchmarkMid1pct_Dense_1k(b *testing.B)  { runMid1pctBenches(b, bench.Dense(1_000)) }
+func BenchmarkMid1pct_Sparse_1k(b *testing.B) { runMid1pctBenches(b, bench.Sparse(1_000)) }
+func BenchmarkMid1pct_URL_1k(b *testing.B)    { runMid1pctBenches(b, bench.URL(1_000)) }
 
 // TestReportFootprint exists outside Go's bench framework so the
 // disaster headline numbers (bytes/key, nodes/key) are produced even

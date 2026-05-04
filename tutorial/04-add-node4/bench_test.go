@@ -1,6 +1,7 @@
 package addnode4
 
 import (
+	"bytes"
 	"runtime"
 	"testing"
 	"unsafe"
@@ -247,9 +248,16 @@ func TestReportFootprint(t *testing.T) {
 	}
 }
 
-// runAll1pctBenches measures partial iteration: walk the sorted
-// keys via All and stop after len(keys)/100 yields.
-func runAll1pctBenches(b *testing.B, w bench.Workload) {
+// runMid1pctBenches measures iteration of the *middle* 1 % of the
+// sorted keys: a window from the 49.5th to the 50.5th percentile
+// of the keyspace. For btree this is a true sub-range walk via
+// AscendRange. For ART chapters without Range, the window is
+// hit by walking All and skipping until k >= lo, yielding while
+// k < hi, breaking when k >= hi -- so the cost is dominated by
+// the unavoidable pre-window descent. Chapter 8 introduces Range
+// and uses it directly here, which is the closest comparable
+// shape to btree's AscendRange.
+func runMid1pctBenches(b *testing.B, w bench.Workload) {
 	prev := stage3.New[int]()
 	curr := New[int]()
 	bt := bench.NewBtree()
@@ -258,22 +266,26 @@ func runAll1pctBenches(b *testing.B, w bench.Workload) {
 		curr.Put(k, w.Vals[j])
 		bt.ReplaceOrInsert(bench.BtreeItem{Key: k, Val: w.Vals[j]})
 	}
-	target := len(w.Keys) / 100
-	if target < 1 {
-		target = 1
+	// Materialize sorted keys once to compute window bounds.
+	sorted := make([][]byte, 0, len(w.Keys))
+	for k := range curr.All() {
+		sorted = append(sorted, append([]byte(nil), k...))
 	}
+	lo := sorted[len(sorted)*495/1000]
+	hi := sorted[len(sorted)*505/1000]
 
 	b.Run("Stage3", func(b *testing.B) {
 		b.ReportAllocs()
 		var sink int
 		for i := 0; i < b.N; i++ {
-			yielded := 0
-			for _, v := range prev.All() {
-				sink ^= v
-				yielded++
-				if yielded >= target {
+			for k, v := range prev.All() {
+				if bytes.Compare(k, hi) >= 0 {
 					break
 				}
+				if bytes.Compare(k, lo) < 0 {
+					continue
+				}
+				sink ^= v
 			}
 		}
 		_ = sink
@@ -282,13 +294,14 @@ func runAll1pctBenches(b *testing.B, w bench.Workload) {
 		b.ReportAllocs()
 		var sink int
 		for i := 0; i < b.N; i++ {
-			yielded := 0
-			for _, v := range curr.All() {
-				sink ^= v
-				yielded++
-				if yielded >= target {
+			for k, v := range curr.All() {
+				if bytes.Compare(k, hi) >= 0 {
 					break
 				}
+				if bytes.Compare(k, lo) < 0 {
+					continue
+				}
+				sink ^= v
 			}
 		}
 		_ = sink
@@ -297,17 +310,15 @@ func runAll1pctBenches(b *testing.B, w bench.Workload) {
 		b.ReportAllocs()
 		var sink int
 		for i := 0; i < b.N; i++ {
-			yielded := 0
-			bt.Ascend(func(it bench.BtreeItem) bool {
+			bt.AscendRange(bench.BtreeItem{Key: lo}, bench.BtreeItem{Key: hi}, func(it bench.BtreeItem) bool {
 				sink ^= it.Val
-				yielded++
-				return yielded < target
+				return true
 			})
 		}
 		_ = sink
 	})
 }
 
-func BenchmarkAll1pct_Dense_1k(b *testing.B)  { runAll1pctBenches(b, bench.Dense(1_000)) }
-func BenchmarkAll1pct_Sparse_1k(b *testing.B) { runAll1pctBenches(b, bench.Sparse(1_000)) }
-func BenchmarkAll1pct_URL_1k(b *testing.B)    { runAll1pctBenches(b, bench.URL(1_000)) }
+func BenchmarkMid1pct_Dense_1k(b *testing.B)  { runMid1pctBenches(b, bench.Dense(1_000)) }
+func BenchmarkMid1pct_Sparse_1k(b *testing.B) { runMid1pctBenches(b, bench.Sparse(1_000)) }
+func BenchmarkMid1pct_URL_1k(b *testing.B)    { runMid1pctBenches(b, bench.URL(1_000)) }
