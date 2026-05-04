@@ -183,9 +183,10 @@ Four patterns hold across all three workloads:
    trie shallow, ART's `Range` is only 2–3× slower than btree's
    `AscendRange`. On Sparse and URL, where the trie is deeper and
    the per-yield interface dispatch dominates, the gap is 5–10×.
-   In every case, ART's `Range` is dramatically faster than its
-   own pre-Range chapters' All-with-skip-and-break (the per-chapter
-   `BenchmarkMid1pct_*` numbers in chapters 1–7 confirm this).
+   In every case, ART's polished `Range` is dramatically faster
+   than the naive walk-and-filter `Range` of earlier chapters (the
+   per-chapter `BenchmarkMid1pct_*` numbers in chapters 1–7 confirm
+   this).
 
 The two implementations are not interchangeable. Picking between
 them is a workload-shape question:
