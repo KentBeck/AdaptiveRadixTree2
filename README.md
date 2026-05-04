@@ -19,7 +19,7 @@ Because keys are indexed byte by byte, ART iterates keys in sorted (byte-wise le
 
 The data structure was introduced by Leis, Kemper, and Neumann in ["The Adaptive Radix Tree: ARTful Indexing for Main-Memory Databases"](https://db.in.tum.de/~leis/papers/ART.pdf) (ICDE 2013).
 
-If you'd like to *build* an ART from scratch, decision by decision, see the literate tutorial in [`tutorial/`](tutorial/README.md). Each chapter is a self-contained Go package with its own implementation, tests, and benchmarks against `google/btree` and the previous chapter — chapter 1 is the simplest possible trie (`node256`-only) and the disaster baseline; chapter 8 is the fully-tuned `art.Tree`.
+If you'd like to *build* an ART from scratch, decision by decision, see the literate tutorial in [`tutorial/`](tutorial/README.md). Each chapter is a self-contained Go package with its own implementation, tests, and benchmarks against `google/btree` and the previous chapter — chapter 1 is the simplest possible trie (`node256`-only) and the disaster baseline; chapter 8 is the fully-tuned `art.Tree`. The tutorial's [scaling annex](tutorial/BENCHMARKS.md) tracks the chapter-8 implementation against `google/btree` from 1 000 to 100 000 000 keys.
 
 ## Features
 
