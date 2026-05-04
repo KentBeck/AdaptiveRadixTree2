@@ -258,18 +258,29 @@ func reshape[V any](n *node256[V]) node {
 	return n
 }
 
-// All yields every (key, value) pair in ascending byte-wise key
-// order.
+// Range returns an iter.Seq2 of all (key, value) pairs whose keys
+// fall in the half-open interval [from, to), in ascending byte
+// order. A nil bound is unbounded on that side, so Range(nil, nil)
+// yields every entry.
 //
 // The pleasant change from chapter 1: leaves carry the full key, so
-// All can yield the leaf's key directly without building a path
+// Range can yield the leaf's key directly without building a path
 // buffer along the way. That eliminates the per-yield allocation
 // and copy that chapter 1 paid.
-func (t *Tree[V]) All() iter.Seq2[[]byte, V] {
+func (t *Tree[V]) Range(from, to []byte) iter.Seq2[[]byte, V] {
 	return func(yield func([]byte, V) bool) {
-		if t.root != nil {
-			iterate(t.root, yield)
+		if t.root == nil {
+			return
 		}
+		iterate(t.root, func(k []byte, v V) bool {
+			if from != nil && bytes.Compare(k, from) < 0 {
+				return true
+			}
+			if to != nil && bytes.Compare(k, to) >= 0 {
+				return true
+			}
+			return yield(k, v)
+		})
 	}
 }
 

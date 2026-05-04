@@ -204,13 +204,24 @@ again. A whole chain can dissolve into a single leaf, which is
 exactly what should happen after `Delete("help")` from a tree
 containing only `{"hello", "help"}`.
 
-## All yields the leaf's key directly
+## Range yields the leaf's key directly
 
 Chapter 1 had to allocate-and-copy the path on every yield because
 the key only existed as the path of edges traversed. Here, every
 leaf carries its own key — yield it directly.
 
 ```go
+func (t *Tree[V]) Range(from, to []byte) iter.Seq2[[]byte, V] {
+    return func(yield func([]byte, V) bool) {
+        if t.root == nil { return }
+        iterate(t.root, func(k []byte, v V) bool {
+            if from != nil && bytes.Compare(k, from) < 0 { return true }
+            if to != nil && bytes.Compare(k, to) >= 0 { return true }
+            return yield(k, v)
+        })
+    }
+}
+
 func iterate[V any](n node, yield func([]byte, V) bool) bool {
     if l, ok := n.(*leaf[V]); ok {
         return yield(l.key, l.value)
@@ -228,9 +239,15 @@ func iterate[V any](n node, yield func([]byte, V) bool) bool {
 }
 ```
 
-The terminal yields *first* because its key is a strict prefix of
+`Range(from, to)` yields every (key, value) pair whose key falls
+in the half-open interval `[from, to)`; a `nil` bound is unbounded
+on that side, so `Range(nil, nil)` walks the whole tree. The
+terminal yields *first* because its key is a strict prefix of
 every child's key, and prefixes sort earlier byte-wise. This is the
-same invariant the production `art.Tree.All` relies on.
+same invariant the production `art.Tree.Range` (and its `All()`
+shorthand) relies on. In this chapter the bounds are enforced at
+the leaf, after the full descent; chapter 8 will make `Range` prune
+subtrees by prefix instead of walking every leaf and filtering.
 
 ## What lazy expansion bought, measured
 
@@ -285,9 +302,9 @@ Put    URL          6 203 µs         2 467 µs (2.5×)    202 µs
 Get    Dense            9.1 ns          17.2 ns (0.5×)  107 ns
 Get    Sparse         145   ns          10.9 ns (13×)   134 ns
 Get    URL            213   ns         199   ns (1.07×) 140 ns
-All    Dense          200 µs            5.6 µs (36×)      4 µs
-All    Sparse       3 686 µs           50   µs (74×)      4 µs
-All    URL          1 762 µs          215   µs (8×)       4 µs
+Range  Dense          200 µs            5.6 µs (36×)      4 µs
+Range  Sparse       3 686 µs           50   µs (74×)      4 µs
+Range  URL          1 762 µs          215   µs (8×)       4 µs
 ```
 
 Three outcomes worth pointing at:
@@ -315,9 +332,9 @@ Op        Workload     Stage 1 allocs   Stage 2 allocs   btree allocs
 Put       Dense          2 011               2 012             113
 Put       Sparse        16 246               2 235              83
 Put       URL            9 085               2 835              86
-All       Dense          1 001                   0               0
-All       Sparse         2 247                   0               0
-All       URL            1 431                   0               0
+Range     Dense          1 001                   0               0
+Range     Sparse         2 247                   0               0
+Range     URL            1 431                   0               0
 ```
 
 Put-Sparse allocations dropped from ~16 / key to ~2 / key (one

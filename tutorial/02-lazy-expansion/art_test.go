@@ -115,7 +115,7 @@ func TestPrefixOfRelationship(t *testing.T) {
 	}
 }
 
-func TestAllSorted(t *testing.T) {
+func TestRangeSorted(t *testing.T) {
 	tree := New[int]()
 	keys := []string{"hello", "help", "hi", "h", "apple", "april", ""}
 	for i, k := range keys {
@@ -125,15 +125,15 @@ func TestAllSorted(t *testing.T) {
 	sort.Strings(want)
 
 	var got []string
-	for k := range tree.All() {
+	for k := range tree.Range(nil, nil) {
 		got = append(got, string(k))
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("All order = %v, want %v", got, want)
+		t.Fatalf("Range order = %v, want %v", got, want)
 	}
 }
 
-func TestAllAgainstManyKeys(t *testing.T) {
+func TestRangeAgainstManyKeys(t *testing.T) {
 	tree := New[int]()
 	keys := [][]byte{
 		{0x10, 0x20}, {0x10, 0x21}, {0x10, 0x10},
@@ -143,7 +143,7 @@ func TestAllAgainstManyKeys(t *testing.T) {
 		tree.Put(k, i)
 	}
 	var got [][]byte
-	for k := range tree.All() {
+	for k := range tree.Range(nil, nil) {
 		got = append(got, append([]byte(nil), k...))
 	}
 	want := append([][]byte(nil), keys...)
