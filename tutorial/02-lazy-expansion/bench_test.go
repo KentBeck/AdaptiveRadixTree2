@@ -191,6 +191,73 @@ func BenchmarkAll_Dense_1k(b *testing.B)  { runAllBenches(b, bench.Dense(1_000))
 func BenchmarkAll_Sparse_1k(b *testing.B) { runAllBenches(b, bench.Sparse(1_000)) }
 func BenchmarkAll_URL_1k(b *testing.B)    { runAllBenches(b, bench.URL(1_000)) }
 
+// runAll1pctBenches measures partial iteration: walk the sorted
+// keys via All and stop after len(keys)/100 yields. Same shape as
+// the All benches but bounded -- isolates the cost of starting
+// iteration plus yielding the first 1% of keys.
+func runAll1pctBenches(b *testing.B, w bench.Workload) {
+	s1 := stage1.New[int]()
+	s2 := New[int]()
+	bt := bench.NewBtree()
+	for j, k := range w.Keys {
+		s1.Put(k, w.Vals[j])
+		s2.Put(k, w.Vals[j])
+		bt.ReplaceOrInsert(bench.BtreeItem{Key: k, Val: w.Vals[j]})
+	}
+	target := len(w.Keys) / 100
+	if target < 1 {
+		target = 1
+	}
+
+	b.Run("Stage1", func(b *testing.B) {
+		b.ReportAllocs()
+		var sink int
+		for i := 0; i < b.N; i++ {
+			yielded := 0
+			for _, v := range s1.All() {
+				sink ^= v
+				yielded++
+				if yielded >= target {
+					break
+				}
+			}
+		}
+		_ = sink
+	})
+	b.Run("Stage2", func(b *testing.B) {
+		b.ReportAllocs()
+		var sink int
+		for i := 0; i < b.N; i++ {
+			yielded := 0
+			for _, v := range s2.All() {
+				sink ^= v
+				yielded++
+				if yielded >= target {
+					break
+				}
+			}
+		}
+		_ = sink
+	})
+	b.Run("BTree", func(b *testing.B) {
+		b.ReportAllocs()
+		var sink int
+		for i := 0; i < b.N; i++ {
+			yielded := 0
+			bt.Ascend(func(it bench.BtreeItem) bool {
+				sink ^= it.Val
+				yielded++
+				return yielded < target
+			})
+		}
+		_ = sink
+	})
+}
+
+func BenchmarkAll1pct_Dense_1k(b *testing.B)  { runAll1pctBenches(b, bench.Dense(1_000)) }
+func BenchmarkAll1pct_Sparse_1k(b *testing.B) { runAll1pctBenches(b, bench.Sparse(1_000)) }
+func BenchmarkAll1pct_URL_1k(b *testing.B)    { runAll1pctBenches(b, bench.URL(1_000)) }
+
 // TestReportFootprint surfaces three numbers for each workload:
 //   - structural bytes/key (inner footprint + leaf overhead + key
 //     bytes), computed from unsafe.Sizeof.

@@ -196,3 +196,68 @@ func TestReportFootprint(t *testing.T) {
 			float64(s7Heap)/float64(s8Heap))
 	}
 }
+
+// runAll1pctBenches measures partial iteration: walk the sorted
+// keys via All and stop after len(keys)/100 yields.
+func runAll1pctBenches(b *testing.B, w bench.Workload) {
+	prev := stage7.New[int]()
+	curr := New[int]()
+	bt := bench.NewBtree()
+	for j, k := range w.Keys {
+		prev.Put(k, w.Vals[j])
+		curr.Put(k, w.Vals[j])
+		bt.ReplaceOrInsert(bench.BtreeItem{Key: k, Val: w.Vals[j]})
+	}
+	target := len(w.Keys) / 100
+	if target < 1 {
+		target = 1
+	}
+
+	b.Run("Stage7", func(b *testing.B) {
+		b.ReportAllocs()
+		var sink int
+		for i := 0; i < b.N; i++ {
+			yielded := 0
+			for _, v := range prev.All() {
+				sink ^= v
+				yielded++
+				if yielded >= target {
+					break
+				}
+			}
+		}
+		_ = sink
+	})
+	b.Run("Stage8", func(b *testing.B) {
+		b.ReportAllocs()
+		var sink int
+		for i := 0; i < b.N; i++ {
+			yielded := 0
+			for _, v := range curr.All() {
+				sink ^= v
+				yielded++
+				if yielded >= target {
+					break
+				}
+			}
+		}
+		_ = sink
+	})
+	b.Run("BTree", func(b *testing.B) {
+		b.ReportAllocs()
+		var sink int
+		for i := 0; i < b.N; i++ {
+			yielded := 0
+			bt.Ascend(func(it bench.BtreeItem) bool {
+				sink ^= it.Val
+				yielded++
+				return yielded < target
+			})
+		}
+		_ = sink
+	})
+}
+
+func BenchmarkAll1pct_Dense_1k(b *testing.B)  { runAll1pctBenches(b, bench.Dense(1_000)) }
+func BenchmarkAll1pct_Sparse_1k(b *testing.B) { runAll1pctBenches(b, bench.Sparse(1_000)) }
+func BenchmarkAll1pct_URL_1k(b *testing.B)    { runAll1pctBenches(b, bench.URL(1_000)) }
