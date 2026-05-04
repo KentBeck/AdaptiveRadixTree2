@@ -51,7 +51,7 @@ type node256[V any] struct {
 ```
 
 The new invariant: **`node4.keys[:numChildren]` is sorted ascending
-by edge byte.** Sorted storage is what lets `All` yield children
+by edge byte.** Sorted storage is what lets `Range` yield children
 in byte order without a sort step at iteration time. `node256`
 gets the same property for free because the array index *is* the
 byte; node4 has to maintain it explicitly during `addChild`.
@@ -134,9 +134,9 @@ because the dispatch is hidden in the helpers — but the dispatch
 cost is real, as the bench numbers below show, and **every new
 node type means a new case in every helper**.
 
-`Put`, `Get`, `Delete`, `All` are otherwise unchanged from chapter
-3 in shape — they just call the helpers instead of accessing
-struct fields directly.
+`Put`, `Get`, `Delete`, `Range` are otherwise unchanged from
+chapter 3 in shape — they just call the helpers instead of
+accessing struct fields directly.
 
 ## What node4 buys, measured
 
@@ -205,9 +205,9 @@ Put    URL           888 µs          343 µs (2.6×)    196 µs
 Get    Dense          13.5 ns         21.6 ns (0.6×)  108 ns
 Get    Sparse         11.0 ns         24.8 ns (0.4×)  127 ns
 Get    URL            65   ns         83   ns (0.8×)  133 ns
-All    Dense           5.3 µs          6.0 µs (0.9×)    4 µs
-All    Sparse         54   µs         24   µs (2.2×)    4 µs
-All    URL            92   µs         21   µs (4.4×)    4 µs
+Range  Dense           5.3 µs          6.0 µs (0.9×)    4 µs
+Range  Sparse         54   µs         24   µs (2.2×)    4 µs
+Range  URL            92   µs         21   µs (4.4×)    4 µs
 ```
 
 Three honest observations:
@@ -220,14 +220,14 @@ Three honest observations:
   the question for chapter 5 is whether a polymorphic interface
   is faster than the switch. (Spoiler: it isn't, slightly. Not
   the reason we'll do the refactor.)
-- **All got dramatically faster on Sparse and URL.** On URL, 4.4×
-  faster than chapter 3. Reason: chapter 3's `All` iterated 256
-  child slots per inner node (mostly nil); chapter 4's `All` on a
-  node4 iterates only the 4 occupied slots. On URL the inner-node
-  mix is 330 node4s + 63 node256s — **84 % of inner nodes are
-  node4s**, so 84 % of `All`'s per-node iteration cost dropped by
-  64×. On Sparse the mix is 141 node4s + 93 node256s (60 % node4s),
-  giving the smaller 2.2× All speedup.
+- **Range got dramatically faster on Sparse and URL.** On URL,
+  4.4× faster than chapter 3. Reason: chapter 3's `Range` iterated
+  256 child slots per inner node (mostly nil); chapter 4's `Range`
+  on a node4 iterates only the 4 occupied slots. On URL the
+  inner-node mix is 330 node4s + 63 node256s — **84 % of inner
+  nodes are node4s**, so 84 % of `Range`'s per-node iteration cost
+  dropped by 64×. On Sparse the mix is 141 node4s + 93 node256s
+  (60 % node4s), giving the smaller 2.2× Range speedup.
 - **Put got faster on Sparse (1.8×) and URL (2.6×) and slightly
   slower on Dense (1.1×).** Faster because allocating an 80-byte
   node4 costs less malloc time than a 2 080-byte node256, and

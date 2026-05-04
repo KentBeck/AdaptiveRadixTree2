@@ -40,7 +40,7 @@ func (*leaf[V]) isNode() {}
 // node256.
 //
 //   - keys[:numChildren] is sorted ascending by edge byte. Sorted
-//     storage is load-bearing for All (children appear in byte
+//     storage is load-bearing for Range (children appear in byte
 //     order without a separate sort) and for the bench-marker
 //     ascending-iteration tests.
 //   - children[i] is the child reached by edge keys[i].
@@ -137,7 +137,7 @@ func (n *node4[V]) removeChild(b byte) {
 // ---- dispatch helpers -------------------------------------------------------
 // Each helper inspects the concrete inner-node type and calls the
 // type-specific primitive. Every operation file (Put, Get, Delete,
-// All) dispatches through these. Chapter 5 will replace the
+// Range) dispatches through these. Chapter 5 will replace the
 // switches with method calls on an `innerNode` interface.
 
 func nodePrefix[V any](n node) []byte {
@@ -251,7 +251,7 @@ func numChildren[V any](n node) int {
 }
 
 // eachAscending yields (edge, child) pairs in ascending edge-byte
-// order. Used by All and the only-child reshape walk.
+// order. Used by Range and the only-child reshape walk.
 func eachAscending[V any](n node, yield func(byte, node) bool) bool {
 	switch r := n.(type) {
 	case *node4[V]:
@@ -572,17 +572,30 @@ func reshape[V any](current node) node {
 	return current
 }
 
-// ---- All --------------------------------------------------------------------
+// ---- Range ------------------------------------------------------------------
 
-// All yields every (key, value) pair in ascending byte-wise key
-// order. Same shape as chapters 2 and 3; the only change is that
+// Range returns an iter.Seq2 of all (key, value) pairs whose keys
+// fall in the half-open interval [from, to), in ascending byte
+// order. A nil bound is unbounded on that side, so Range(nil, nil)
+// yields every entry.
+//
+// Same shape as chapters 2 and 3; the only change is that
 // children-iteration goes through eachAscending so each node type
 // can yield in its own native order.
-func (t *Tree[V]) All() iter.Seq2[[]byte, V] {
+func (t *Tree[V]) Range(from, to []byte) iter.Seq2[[]byte, V] {
 	return func(yield func([]byte, V) bool) {
-		if t.root != nil {
-			iterate[V](t.root, yield)
+		if t.root == nil {
+			return
 		}
+		iterate[V](t.root, func(k []byte, v V) bool {
+			if from != nil && bytes.Compare(k, from) < 0 {
+				return true
+			}
+			if to != nil && bytes.Compare(k, to) >= 0 {
+				return true
+			}
+			return yield(k, v)
+		})
 	}
 }
 

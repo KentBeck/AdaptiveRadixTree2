@@ -69,7 +69,7 @@ func TestEmptyKey(t *testing.T) {
 	}
 }
 
-func TestAllSorted(t *testing.T) {
+func TestRangeSorted(t *testing.T) {
 	tree := New[int]()
 	keys := []string{"hello", "help", "hi", "h", "apple", "april", ""}
 	for i, k := range keys {
@@ -78,11 +78,11 @@ func TestAllSorted(t *testing.T) {
 	want := append([]string(nil), keys...)
 	sort.Strings(want)
 	var got []string
-	for k := range tree.All() {
+	for k := range tree.Range(nil, nil) {
 		got = append(got, string(k))
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("All order = %v, want %v", got, want)
+		t.Fatalf("Range order = %v, want %v", got, want)
 	}
 }
 
@@ -146,7 +146,7 @@ func TestDemotesAtFourthChild(t *testing.T) {
 func TestDemotionPreservesSortOrder(t *testing.T) {
 	// node256 is byte-indexed so its iteration is naturally sorted.
 	// node4 stores keys in an array that *must* also be sorted to
-	// preserve All's invariant. Demotion has to keep the sort.
+	// preserve Range's invariant. Demotion has to keep the sort.
 	tree := New[int]()
 	for _, b := range []byte{0x80, 0x10, 0xff, 0x40, 0x20} {
 		tree.Put([]byte{b}, int(b))
@@ -156,28 +156,28 @@ func TestDemotionPreservesSortOrder(t *testing.T) {
 		t.Fatalf("demotion did not happen")
 	}
 	var got []byte
-	for k := range tree.All() {
+	for k := range tree.Range(nil, nil) {
 		got = append(got, k[0])
 	}
 	want := []byte{0x10, 0x20, 0x40, 0x80}
 	if !bytes.Equal(got, want) {
-		t.Fatalf("All order after demotion = %v, want %v", got, want)
+		t.Fatalf("Range order after demotion = %v, want %v", got, want)
 	}
 }
 
 func TestNode4SortedInsertion(t *testing.T) {
-	// Insert 4 keys in scrambled order; All must yield them sorted.
+	// Insert 4 keys in scrambled order; Range must yield them sorted.
 	tree := New[int]()
 	for _, b := range []byte{0x40, 0x10, 0x80, 0x20} {
 		tree.Put([]byte{b}, int(b))
 	}
 	var got []byte
-	for k := range tree.All() {
+	for k := range tree.Range(nil, nil) {
 		got = append(got, k[0])
 	}
 	want := []byte{0x10, 0x20, 0x40, 0x80}
 	if !bytes.Equal(got, want) {
-		t.Fatalf("All on scrambled inserts = %v, want %v", got, want)
+		t.Fatalf("Range on scrambled inserts = %v, want %v", got, want)
 	}
 }
 
