@@ -6,11 +6,12 @@ across Sparse, Dense, and URL workloads are within a small
 multiple of `google/btree` on every operation.
 
 Chapter 8 closes the gap with three small polishes — each one a
-focused diff against chapter 7 — and then introduces `Range` to
-exercise the most interesting of them. The chapter ends with a
-reading guide pointing at the parent `art.Tree` source: every
-file, what to look for in it, and how it differs from this
-chapter.
+focused diff against chapter 7 — and then *upgrades* `Range` to
+prune entire subtrees instead of walking every leaf and
+filtering, exercising the most interesting of those polishes.
+The chapter ends with a reading guide pointing at the parent
+`art.Tree` source: every file, what to look for in it, and how
+it differs from this chapter.
 
 ## Polish #1 — Inline-key buffer
 
@@ -130,19 +131,21 @@ the type.
 
 ## Polish #3 — `Range` with a reused path buffer
 
-`All` works because every leaf carries its own key (since chapter
-2). But `Range` cannot use that shortcut alone: efficient
-`Range(start, end)` must *prune* whole subtrees that lie entirely
-outside the range, and pruning needs the byte-path consumed from
-the root to the current node so that a subtree's
-high/low-bound can be compared against `start`/`end` without
-visiting any of its leaves.
+The naive `Range` from chapters 1–7 walks every leaf in order and
+filters at the leaf — every leaf carries its own key (since
+chapter 2), so no path-tracking is needed. That works, but it
+visits 100% of the leaves even when the caller asked for a narrow
+window. Efficient `Range(start, end)` must *prune* whole subtrees
+that lie entirely outside the range, and pruning needs the
+byte-path consumed from the root to the current node so that a
+subtree's high/low-bound can be compared against `start`/`end`
+without visiting any of its leaves.
 
-The naive approach allocates the path slice fresh at every
-recursion level, or copies it on every yield. The polish: thread
-a single `*[]byte` buffer through the recursion, growing it as
-the descent enters each node's prefix and shrinking it back to
-the caller's length on the way out.
+The naive pruning approach allocates the path slice fresh at
+every recursion level, or copies it on every yield. The polish:
+thread a single `*[]byte` buffer through the recursion, growing
+it as the descent enters each node's prefix and shrinking it
+back to the caller's length on the way out.
 
 ```go
 func iterateRange[V any](n node, path *[]byte, start, end []byte, yield func([]byte, V) bool) bool {
@@ -183,23 +186,30 @@ allocation-free predicates that decide whether a child's whole
 subtree falls outside the range based on the path-so-far + the
 edge byte alone.
 
-**Measured impact** (Range over the middle 10% of each workload,
-1 000 keys, vs `google/btree`):
+**Measured impact** (`Range(lo, hi)` over the middle 1% of each
+workload, 1 000 keys, naive walk-and-filter from chapter 7 vs
+the pruning Range above, with `google/btree` for reference):
 
-| Workload | Stage 8 Range | btree Range |
-|---|---|---|
-| Dense | 4.9 µs / 7 allocs | 1.1 µs / 0 allocs |
-| Sparse | 6.2 µs / 31 allocs | 1.0 µs / 0 allocs |
-| URL | 7.0 µs / 50 allocs | 1.1 µs / 0 allocs |
+| Workload | Stage 7 naive Range | Stage 8 pruning Range | Speedup | btree Range |
+|---|---|---|---|---|
+| Dense  |  8.76 µs /   8 allocs | 1.72 µs /  6 allocs |  5.1× | 0.13 µs / 0 allocs |
+| Sparse | 16.36 µs / 237 allocs | 1.24 µs /  8 allocs | 13.2× | 0.13 µs / 0 allocs |
+| URL    | 23.43 µs / 396 allocs | 0.97 µs / 15 allocs | 24.2× | 0.18 µs / 0 allocs |
 
-The path-buffer reuse worked — there are zero per-yield
+That is the speedup Polish #3 buys: 5–24× wall-clock against the
+naive walk-and-filter, depending on how much of the keyspace the
+window actually overlaps. Sparse and URL win biggest because
+their full traversals do far more inner-node work, and the
+pruning predicate skips almost all of it.
+
+The path-buffer reuse worked too — there are zero per-yield
 allocations, and the single shared buffer is amortised to ~zero
 allocs per call. **The remaining allocations are closure escapes
 on every inner-node visit**, the same chapter-5 interface-dispatch
-cost that affects `All`. (One closure per `eachAscending` call,
-captured because the call goes through the `innerNode`
-interface and the compiler cannot prove the closure stays on the
-stack.)
+cost that the naive `Range` already paid. (One closure per
+`eachAscending` call, captured because the call goes through the
+`innerNode` interface and the compiler cannot prove the closure
+stays on the stack.)
 
 `btree` doesn't pay this cost because its iteration uses a
 concrete-type recursion. ART's polymorphic dispatch is the price
@@ -224,14 +234,19 @@ have not invented a faster version.
   byte-order-preserving encoders for numeric / string `K`. Worth
   reading if you ever need a `map[int64]V` with sorted iteration.
   See the `artmap/` subpackage.
-- **`AllDescending`, `RangeDescending`.** Mirror of `All` and
-  `Range` walking children in reverse. Mechanical — the sort
-  invariant guarantees correctness in either direction.
+- **`RangeDescending`** (and the production `AllDescending`
+  shorthand). Mirror of `Range` walking children in reverse.
+  Mechanical — the sort invariant guarantees correctness in
+  either direction.
 - **`Clone`, `Clear`.** Standard sorted-map methods. `Clone` is a
   shallow walk that builds a fresh structure pointing at the same
   leaves; `Clear` drops the root pointer and resets `size`.
 
 ## Reading guide
+
+> Production `art.Tree` exposes `All()` as a shorthand for
+> `Range(nil, nil)`; the tutorial uses only `Range` to keep the
+> iteration story unified across chapters.
 
 The production `art.Tree` lives at the root of the repo. Each
 file is small (the largest is ~16 KB). Here is what to look for:
@@ -239,12 +254,12 @@ file is small (the largest is ~16 KB). Here is what to look for:
 | Parent file | What it has | What's the same as chapter 8 | What's different |
 |---|---|---|---|
 | `doc.go` | Package overview | Empty — same shape | (nothing in source) |
-| `types.go` | All node types + `innerNode` interface + `Tree[V]` + `New` + `Len` | Same shape; node4/16/48/256 all embed `innerHeader`; `node` interface; `*leaf[V]` with inline buffer | Adds `kind() nodeKind` method to the `node` interface for cheap leaf-vs-inner branching; `eachDescending` exists alongside `eachAscending`; `shallow()` is on `innerNode` for `Clone` |
-| `helpers.go` | `newLeaf`, `splitTwoLeaves` (`newNode4With`), `splitPrefixedNode` (`splitPrefixedInner`), `consumePrefix`, `longestCommonPrefix`, `clearTerminalIfMatches`, `terminalValue` | All present; same shape | Slightly cleaner naming; some helpers split between size accounting and the recursive logic |
+| `types.go` | Every node type + `innerNode` interface + `Tree[V]` + `New` + `Len` | Same shape; node4/16/48/256 all embed `innerHeader`; `node` interface; `*leaf[V]` with inline buffer | Adds `kind() nodeKind` method to the `node` interface for cheap leaf-vs-inner branching; `eachDescending` exists alongside `eachAscending`; `shallow()` is on `innerNode` for `Clone` |
+| `helpers.go` | `newLeaf`, `splitTwoLeaves` (`newNode4With`), `splitPrefixedNode` (`splitPrefixedInner`), `consumePrefix`, `longestCommonPrefix`, `clearTerminalIfMatches`, `terminalValue` | Every helper present; same shape | Slightly cleaner naming; some helpers split between size accounting and the recursive logic |
 | `put.go` | `Tree.Put` and `putInto`, `putIntoInner` | Recursive shape identical | Splits `putInto` (handles leaf and prefix split) from `putIntoInner` (handles in-node insert/recurse). Same logic, smaller functions |
 | `get.go` | `Tree.Get` | Loop body identical | — |
 | `delete.go` | `Tree.Delete` and `deleteFrom` | Recursive shape identical | Reshape lives on each inner-node type via the interface, same as chapter 5 onward |
-| `iterate.go` | `Tree.All`, `Tree.AllDescending`, `Tree.Range`, `Tree.RangeDescending`, `Tree.RangeFrom`, `Tree.RangeTo` + `iterate`, `iterateDescending`, `iterateRange`, `iterateRangeDescending`, `keyInRange`, `subtreeBeforeWithByte`, `subtreeAtOrAfterWithByte` | `Range` is *exactly* chapter 8's `iterateRange` | Adds the descending variants and the `Range(start, nil)` / `Range(nil, end)` shorthands; `Range` panics on reversed bounds (a documented choice — see `CONTRACT.md`) |
+| `iterate.go` | `Tree.Range`, `Tree.RangeDescending`, `Tree.RangeFrom`, `Tree.RangeTo` (plus the `Range(nil, nil)` shorthands noted in the callout above) + `iterate`, `iterateDescending`, `iterateRange`, `iterateRangeDescending`, `keyInRange`, `subtreeBeforeWithByte`, `subtreeAtOrAfterWithByte` | `Range` is *exactly* chapter 8's `iterateRange` | Adds the descending variants and the `Range(start, nil)` / `Range(nil, end)` shorthands; `Range` panics on reversed bounds (a documented choice — see `CONTRACT.md`) |
 | `sorted.go` | `Min`, `Max`, `Ceiling`, `Floor`, `Clone`, `Clear` + their helpers | Not in tutorial | Worth reading. `Ceiling`/`Floor` are the most subtle: they walk down toward the target and cut to a sibling subtree's `Min`/`Max` when the path diverges |
 | `locked.go` | `LockedTree[V]` and `NewLocked` | Not in tutorial | A `sync.RWMutex`-guarded wrapper. Constructor enforces non-nil tree; methods panic with a typed message on a zero-value `LockedTree[V]{}` |
 | `artmap/codec.go` | Byte-order-preserving encoders for every supported `K` | Not in tutorial | The clever code is in the encoder for signed integers (XOR sign bit) and floats (XOR sign bit and, for negatives, all bits) |

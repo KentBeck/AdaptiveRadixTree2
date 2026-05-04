@@ -1,8 +1,8 @@
 // Package polish is chapter 8 of the literate tutorial. It is the
 // final polish chapter: chapter 7's data structure plus three
 // targeted refinements that close the gap to the production
-// art.Tree, and one new feature (Range) that exercises the most
-// interesting of those refinements.
+// art.Tree. The third refinement upgrades Range from the naive
+// walk-and-filter shape used in chapters 1-7 to a pruning walk.
 //
 // The polishes:
 //
@@ -17,11 +17,15 @@
 //     bodies). Embedding a single innerHeader struct lets Go's
 //     method-promotion rules satisfy the interface for free.
 //
-//  3. Range with a reused path buffer. iterateRange threads a
-//     single []byte through the recursion, growing it as the
-//     descent enters each prefix and shrinking it back on the way
-//     out. Every other range-iteration approach allocates per
-//     yield; this one is zero-alloc.
+//  3. Range with a reused path buffer. The naive Range from
+//     chapters 1-7 walks every leaf and filters at the leaf;
+//     iterateRange instead prunes whole subtrees that fall
+//     outside [start, end). Pruning needs the byte path consumed
+//     from the root, so iterateRange threads a single []byte
+//     through the recursion, growing it as the descent enters
+//     each prefix and shrinking it back on the way out. Every
+//     other range-iteration approach allocates per yield; this
+//     one is zero-alloc.
 //
 // Each polish is shown below as a small diff against chapter 7
 // and benchmarked against it. The end of the chapter is a reading
@@ -852,31 +856,6 @@ func deleteFrom[V any](current node, key []byte, depth int, size *int) (node, bo
 		n.replaceChild(b, newChild)
 	}
 	return n.reshape(), true
-}
-
-// ---- All --------------------------------------------------------------------
-
-func (t *Tree[V]) All() iter.Seq2[[]byte, V] {
-	return func(yield func([]byte, V) bool) {
-		if t.root != nil {
-			iterate[V](t.root, yield)
-		}
-	}
-}
-
-func iterate[V any](n node, yield func([]byte, V) bool) bool {
-	if l, ok := n.(*leaf[V]); ok {
-		return yield(l.key, l.value)
-	}
-	r := n.(innerNode)
-	if term, ok := r.getTerminal().(*leaf[V]); ok {
-		if !yield(term.key, term.value) {
-			return false
-		}
-	}
-	return r.eachAscending(func(_ byte, c node) bool {
-		return iterate[V](c, yield)
-	})
 }
 
 // ---- Range ------------------------------------------------------------------

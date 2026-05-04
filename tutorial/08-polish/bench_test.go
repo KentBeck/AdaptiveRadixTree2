@@ -1,7 +1,6 @@
 package polish
 
 import (
-	"bytes"
 	"runtime"
 	"testing"
 	"unsafe"
@@ -120,7 +119,7 @@ func runRangeBenches(b *testing.B, w bench.Workload) {
 	}
 	// Pick range bounds that cover roughly the middle 10% of sorted keys.
 	sorted := make([][]byte, 0, len(w.Keys))
-	for k := range s8.All() {
+	for k := range s8.Range(nil, nil) {
 		sorted = append(sorted, append([]byte(nil), k...))
 	}
 	lo := sorted[len(sorted)*45/100]
@@ -157,7 +156,11 @@ func BenchmarkGet_Dense_1k(b *testing.B)  { runGetBenches(b, bench.Dense(1_000))
 func BenchmarkGet_Sparse_1k(b *testing.B) { runGetBenches(b, bench.Sparse(1_000)) }
 func BenchmarkGet_URL_1k(b *testing.B)    { runGetBenches(b, bench.URL(1_000)) }
 
-// Range benches: only stage 8 has Range, so we compare to btree directly.
+// Range benches over the middle 10% window. Stage 7 is omitted
+// here because its Range is the same shape as chapter 8's
+// (chapter 7 has the naive walk-and-filter); the Polish #3
+// comparison lives in BenchmarkMid1pct below, which exercises
+// pruning at a tighter window where the speedup is sharpest.
 func BenchmarkRange_Dense_1k(b *testing.B)  { runRangeBenches(b, bench.Dense(1_000)) }
 func BenchmarkRange_Sparse_1k(b *testing.B) { runRangeBenches(b, bench.Sparse(1_000)) }
 func BenchmarkRange_URL_1k(b *testing.B)    { runRangeBenches(b, bench.URL(1_000)) }
@@ -201,12 +204,11 @@ func TestReportFootprint(t *testing.T) {
 // runMid1pctBenches measures iteration of the *middle* 1 % of the
 // sorted keys: a window from the 49.5th to the 50.5th percentile
 // of the keyspace. For btree this is a true sub-range walk via
-// AscendRange. For ART chapters without Range, the window is
-// hit by walking All and skipping until k >= lo, yielding while
-// k < hi, breaking when k >= hi -- so the cost is dominated by
-// the unavoidable pre-window descent. Chapter 8 introduces Range
-// and uses it directly here, which is the closest comparable
-// shape to btree's AscendRange.
+// AscendRange. Chapter 7's Range walks every leaf and filters at
+// the leaf, so the cost is dominated by the unavoidable full
+// descent. Chapter 8's Range prunes whole subtrees outside
+// [lo, hi) using the path-buffer machinery in iterateRange, which
+// is the closest comparable shape to btree's AscendRange.
 func runMid1pctBenches(b *testing.B, w bench.Workload) {
 	prev := stage7.New[int]()
 	curr := New[int]()
@@ -218,7 +220,7 @@ func runMid1pctBenches(b *testing.B, w bench.Workload) {
 	}
 	// Materialize sorted keys once to compute window bounds.
 	sorted := make([][]byte, 0, len(w.Keys))
-	for k := range curr.All() {
+	for k := range curr.Range(nil, nil) {
 		sorted = append(sorted, append([]byte(nil), k...))
 	}
 	lo := sorted[len(sorted)*495/1000]
@@ -228,13 +230,7 @@ func runMid1pctBenches(b *testing.B, w bench.Workload) {
 		b.ReportAllocs()
 		var sink int
 		for i := 0; i < b.N; i++ {
-			for k, v := range prev.All() {
-				if bytes.Compare(k, hi) >= 0 {
-					break
-				}
-				if bytes.Compare(k, lo) < 0 {
-					continue
-				}
+			for _, v := range prev.Range(lo, hi) {
 				sink ^= v
 			}
 		}
