@@ -12,29 +12,36 @@ same shape as the production `art.Tree`) against
 [`google/btree`](https://github.com/google/btree) across map sizes
 from **1 000 to 100 000 000** keys, on each of the three workloads.
 
-For each cell, three numbers:
+For each cell, four numbers:
 
-- **Put µs/key** — wall-clock time per `Put`, averaged over the
+- **Put µs/k** — wall-clock time per `Put`, averaged over the
   whole build phase.
 - **Get ns** — wall-clock time per `Get`, sampled over a 1 second
   hot-loop after the build.
-- **heap B/key** — process heap delta after the build, divided by
+- **heap B/k** — process heap delta after the build, divided by
   the key count. Captured via `runtime.ReadMemStats` after a
   triggered GC.
+- **iter1% ns/k** — wall-clock time per yielded key when iterating
+  the first 1 % of the sorted keys via `All` + early break.
+  Sampled over a 1 second hot-loop. This is the partial-iteration
+  cost — the cost of *starting* iteration plus *yielding* a small
+  window.
 
-These three together summarise the cost of *holding* a sorted map
-at a given size and the cost of *touching* it. The two
-implementations differ in shape (trie vs B-tree) so absolute
-numbers diverge across the columns; the trends tell the story.
+These four together summarise the cost of *holding* a sorted map
+at a given size, the cost of *touching* it, and the cost of
+*walking* a small slice of it. The two implementations differ in
+shape (trie vs B-tree) so absolute numbers diverge across the
+columns; the trends tell the story.
 
 ## Methodology
 
 Captured by `TestScalingAnnex` in
 [`08-polish/scaling_test.go`](08-polish/scaling_test.go), which
 builds each (workload, size, implementation) cell exactly once,
-times the build, GCs, snapshots heap, then samples Get for a
-fixed wall-clock window. No bench-framework iteration loop — at
-the 100M scale, building the tree once is already minutes.
+times the build, GCs, snapshots heap, then samples Get and partial
+iteration for fixed wall-clock windows. No bench-framework
+iteration loop — at the 100M scale, building the tree once is
+already minutes.
 
 Per-workload size caps reflect each workload's memory footprint
 on a 16 GB box:
@@ -61,7 +68,7 @@ cd tutorial && go test ./08-polish/ -run TestScalingAnnex -v -huge -timeout 30m
 
 The harness reports per-cell results to `t.Log`. The tables
 below are copied from one captured run on a 16 GB Linux box with
-Go 1.23. The full run took 277 seconds.
+Go 1.23. The full run took 326 seconds.
 
 ## Sparse — random 16-byte keys, no shared prefixes
 
@@ -70,28 +77,33 @@ fan out to ~250 children; deeper nodes settle into the smaller
 node types. This is the workload where the chapter 6 (node16) and
 chapter 7 (node48) decisions earn their keep.
 
-| keys | Stage 8 Put µs/key | Stage 8 Get ns | Stage 8 heap B/key | btree Put µs/key | btree Get ns | btree heap B/key |
-|------|-------------------:|---------------:|-------------------:|-----------------:|-------------:|-----------------:|
-|  1k  |  0.19 |   37 | 116 | 0.22 |   138 |  46 |
-| 10k  |  0.16 |   30 | 105 | 0.28 |   227 |  48 |
-| 100k |  0.25 |   63 | 117 | 0.49 |   412 |  49 |
-|  1M  |  0.37 |  149 | 107 | 0.91 |   966 |  48 |
-| 10M  |  0.55 |  223 | 122 | 2.01 |  2361 |  48 |
-| 30M  |  0.73 |  335 | 117 | 2.73 |  3126 |  49 |
-| 100M | OOM   | OOM  | OOM | (would need ~14 GB free; the test machine had ~11 GB available at the cell) |
+| keys | Stage 8 Put µs/k | Stage 8 Get ns | Stage 8 heap B/k | Stage 8 iter1% ns/k | btree Put µs/k | btree Get ns | btree heap B/k | btree iter1% ns/k |
+|------|---------:|---------:|---------:|---------:|---------:|---------:|---------:|---------:|
+|  1k  | 0.38 |   38 | 117 |  29 | 0.49 |   145 |  46 | 11 |
+| 10k  | 0.15 |   26 | 105 |  14 | 0.31 |   232 |  48 |  4 |
+| 100k | 0.24 |   63 | 117 |  19 | 0.46 |   434 |  49 |  5 |
+|  1M  | 0.39 |  162 | 107 |  28 | 0.95 |  1106 |  48 |  4 |
+| 10M  | 0.58 |  237 | 122 |  55 | 2.19 |  2296 |  48 |  8 |
+| 30M  | 0.80 |  336 | 117 | 126 | 2.96 |  3132 |  49 |  9 |
+| 100M | OOM  | OOM  | OOM | OOM | (would need ~14 GB free; the test machine had ~11 GB available at the cell) |
 
 **Stage 8 Get is 3.7×–10× faster than btree.** The advantage grows
 with map size: at 1k keys the trie is 3.7× ahead; at 30M it is
-9.3× ahead. The trie's lookup is k cache lines (k = key length =
-16) regardless of N; btree's is `log_b(N)` comparisons each
-reading multiple cache lines. As N grows, the trie's advantage
-compounds.
+9.3× ahead.
 
 **Stage 8 uses ~2.4× the heap.** ~110–120 B/key vs btree's
 ~48 B/key, both essentially flat across sizes.
 
-**Stage 8 Put is 1.2×–3.7× faster than btree.** Smaller node
-mallocs amortised across the build.
+**Stage 8 Put is 1.2×–3.7× faster than btree.**
+
+**Stage 8 iter1% is 3×–14× *slower* than btree.** This is the
+honest cost of the trie's polymorphic dispatch on random-key
+iteration: each yielded key crosses one or more interface
+boundaries, and each `eachAscending` call escapes a closure.
+btree's iteration is a concrete-type recursion through a packed
+array — one allocation amortised across the whole walk. The gap
+widens with N because deeper trees mean more inner-node visits
+per yield.
 
 ## Dense — contiguous 8-byte big-endian integers
 
@@ -101,25 +113,24 @@ trailing byte or two. This is the workload where path compression
 adaptive node sizes contribute little because the leaf-bearing
 nodes still use node256 to hold 256 sequential leaves.
 
-| keys | Stage 8 Put µs/key | Stage 8 Get ns | Stage 8 heap B/key | btree Put µs/key | btree Get ns | btree heap B/key |
-|------|-------------------:|---------------:|-------------------:|-----------------:|-------------:|-----------------:|
-|  1k  |  0.16 |  30 | 84 | 0.19 | 121 | 68 |
-| 10k  |  0.09 |  27 | 83 | 0.18 | 147 | 68 |
-| 100k |  0.10 |  37 | 83 | 0.21 | 178 | 69 |
-|  1M  |  0.10 |  43 | 83 | 0.22 | 205 | 69 |
-| 10M  |  0.10 |  41 | 83 | 0.27 | 235 | 69 |
-| 100M |  0.14 |  47 | 83 | 0.29 | 249 | 69 |
+| keys | Stage 8 Put µs/k | Stage 8 Get ns | Stage 8 heap B/k | Stage 8 iter1% ns/k | btree Put µs/k | btree Get ns | btree heap B/k | btree iter1% ns/k |
+|------|---------:|---------:|---------:|---------:|---------:|---------:|---------:|---------:|
+|  1k  | 0.14 |  24 |  84 | 26 | 0.12 | 118 | 68 | 11 |
+| 10k  | 0.07 |  24 |  83 |  7 | 0.14 | 157 | 68 |  5 |
+| 100k | 0.11 |  30 |  83 |  5 | 0.22 | 191 | 69 |  5 |
+|  1M  | 0.10 |  37 |  83 |  5 | 0.23 | 205 | 69 |  5 |
+| 10M  | 0.12 |  32 |  83 |  6 | 0.26 | 240 | 69 |  5 |
+| 100M | 0.14 |  40 |  83 |  6 | 0.29 | 257 | 69 |  5 |
 
-**Stage 8 Get is essentially flat at 27–47 ns across 5 orders of
-magnitude.** That's the trie's structural property: each new level
-of map size adds at most one node-traversal, and on Dense keys
-the height grows by ~1 every 256× in size. btree's Get scales as
-expected — 121 → 249 ns — adding work for every level of B-tree
-height.
+**Stage 8 Get is essentially flat at 24–40 ns across 5 orders of
+magnitude.** btree's Get scales as expected — 118 → 257 ns. At
+100M keys, **Stage 8 is 6.4× faster than btree on Get** with only
+1.2× more heap.
 
-**Stage 8 is 5.3× faster than btree on Get at 100M** (47 ns vs
-249 ns), with only 1.2× more heap (83 B/key vs 69 B/key). This is
-ART at its best: dense prefix-sharing keys, large N.
+**Stage 8 iter1% is competitive with btree on Dense** — both
+sit at 5–11 ns/key once the workload is big enough to dilute
+setup overhead. Dense tries are friendly to iteration because
+prefix sharing means few inner-node visits per yielded key.
 
 **Stage 8 Put is faster than btree at every size**, by 1.2× to
 2× depending on N.
@@ -131,37 +142,36 @@ suffixes at the leaves. Roughly 25–80 bytes per key. This is the
 workload that drove path compression's headline number (chapter
 3, 2× tighter heap) and node16's (chapter 6, 3× tighter heap).
 
-| keys | Stage 8 Put µs/key | Stage 8 Get ns | Stage 8 heap B/key | btree Put µs/key | btree Get ns | btree heap B/key |
-|------|-------------------:|---------------:|-------------------:|-----------------:|-------------:|-----------------:|
-|  1k  |  0.49 |  122 | 175 | 0.24 |  138 | 48 |
-| 10k  |  0.37 |  163 | 173 | 0.36 |  266 | 47 |
-| 100k |  0.51 |  245 | 175 | 0.60 |  511 | 48 |
-|  1M  |  0.80 |  509 | 173 | 1.10 | 1243 | 49 |
-| 10M  |  1.18 |  944 | 171 | 2.47 | 2536 | 48 |
-| 100M | OOM   | OOM  | OOM | (would need ~24 GB; the test machine has 16 GB) |
+| keys | Stage 8 Put µs/k | Stage 8 Get ns | Stage 8 heap B/k | Stage 8 iter1% ns/k | btree Put µs/k | btree Get ns | btree heap B/k | btree iter1% ns/k |
+|------|---------:|---------:|---------:|---------:|---------:|---------:|---------:|---------:|
+|  1k  | 0.51 | 127 | 175 | 48 | 0.24 |  152 | 48 | 11 |
+| 10k  | 0.34 | 161 | 173 | 24 | 0.32 |  254 | 47 |  4 |
+| 100k | 0.51 | 233 | 175 | 22 | 0.57 |  504 | 48 |  5 |
+|  1M  | 0.82 | 523 | 173 | 52 | 1.24 | 1404 | 49 |  5 |
+| 10M  | 1.23 | 973 | 171 | 75 | 2.57 | 2752 | 48 |  9 |
+| 100M | OOM  | OOM | OOM | OOM | (would need ~24 GB; the test machine has 16 GB) |
 
-**Stage 8 Get is 1.1×–2.7× faster than btree across sizes**, with
-the gap widening as N grows. URL keys' length means each Get does
-more work per node (the prefix compare), so the trie's
-per-traversal cost is higher than on Sparse — but the advantage
-over btree's longer comparisons is also larger.
+**Stage 8 Get is 1.1×–2.8× faster than btree across sizes**, with
+the gap widening as N grows.
 
 **Stage 8 uses ~3.6× the heap** of btree on URL — the worst ratio
-across the three workloads. URL keys' length plus moderate
-fanout at every depth means more inner nodes per key.
+across the three workloads.
 
-**Stage 8 Put is 1.4×–2.1× faster than btree** at 100k and above;
-slower at 1k where the trie's structural setup overhead doesn't
-amortise.
+**Stage 8 Put is 1.2×–2.1× faster than btree** at 100k and above.
+
+**Stage 8 iter1% is 4×–10× slower than btree** on URL. Same cause
+as Sparse: each yielded URL key requires walking through several
+inner nodes (host divergence, path divergence, then leaf), each
+incurring a closure escape. btree iterates a packed array.
 
 ## What the numbers say
 
-Three patterns hold across all three workloads:
+Four patterns hold across all three workloads:
 
 1. **Get latency is ART's strongest suit and it scales beautifully.**
-   Dense Get is 27–47 ns from 1k to 100M (essentially flat). Sparse
-   Get rises slowly with map height. URL Get is consistently 1.5–
-   2.5× faster than btree. The trie's worst-case lookup is k
+   Dense Get is 24–40 ns from 1k to 100M (essentially flat). Sparse
+   Get rises slowly with map height. URL Get is consistently 1.1–
+   2.8× faster than btree. The trie's worst-case lookup is k
    pointer-chases for a key of length k; the absolute number is
    small and stays small as N grows.
 2. **Put is competitive with btree at every size**, faster on the
@@ -170,24 +180,37 @@ Three patterns hold across all three workloads:
 3. **Heap is the trie's honest cost.** Stage 8 uses 1.2–3.6× the
    heap of btree, with the ratio depending mainly on key length.
    Btree wins this column.
+4. **Partial iteration favours btree.** btree's packed-array
+   iteration runs ~5 ns/key essentially regardless of workload or
+   size. ART's polymorphic-dispatch iteration costs 5–125 ns/key
+   depending on key length and tree depth, with the gap widening
+   as N grows. btree wins this column too.
 
-The two implementations are not interchangeable. ART is the
-right choice when **lookup latency dominates** (cache, dedup,
-set-membership, lookup tables in hot paths) **and** the working
-set fits in memory at the trie's bytes-per-key budget. Btree
-wins when **memory is tight** or when **iteration throughput**
-dominates (each chapter's per-`All` table shows btree faster, and
-the production `art.Tree`'s `Range` is also slower than btree's —
-see chapter 8 for the details).
+The two implementations are not interchangeable. Picking between
+them is a workload-shape question:
+
+| | ART wins | btree wins |
+|---|---|---|
+| Get | ✓ (always) | |
+| Put | ✓ (mostly) | |
+| Heap | | ✓ |
+| Iteration | | ✓ |
+
+ART is the right choice when **lookup latency dominates** (cache,
+dedup, set-membership, lookup tables in hot paths) **and** the
+working set fits in memory at the trie's bytes-per-key budget.
+Btree wins when **memory is tight** or when **iteration
+throughput dominates** — both reads and writes are on
+sequential-access shapes that tries do not match.
 
 ## Caveats
 
 - Numbers depend on hardware (CPU, RAM, NUMA), Go version, and
   GC tuning. The trends are robust; absolute numbers are not.
-- The Get sample is hot — the working set has just been built and
-  is warm in the cache. Real workloads hit cold trees more often.
-  Expect Get to be 2–5× slower under cache pressure at the larger
-  sizes.
+- The Get and iter1% samples are hot — the working set has just
+  been built and is warm in the cache. Real workloads hit cold
+  trees more often. Expect both numbers to be 2–5× slower under
+  cache pressure at the larger sizes.
 - The heap measurement excludes the user's keys, which the trie
   copies (so they are double-counted on the trie side if you
   account for them in your own data structure too). If you care
