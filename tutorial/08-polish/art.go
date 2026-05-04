@@ -675,7 +675,7 @@ type Tree[V any] struct {
 	size int
 }
 
-func New[V any]() *Tree[V] { return &Tree[V]{} }
+func New[V any]() *Tree[V]  { return &Tree[V]{} }
 func (t *Tree[V]) Len() int { return t.size }
 
 // ---- Put --------------------------------------------------------------------

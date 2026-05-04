@@ -175,9 +175,9 @@ func (n *node4[V]) reshape() node {
 
 // node256 is the full-fanout inner node.
 type node256[V any] struct {
-	prefix       []byte
-	children     [256]node
-	terminal     node
+	prefix      []byte
+	children    [256]node
+	terminal    node
 	numChildren uint16
 }
 
@@ -247,8 +247,8 @@ func (n *node256[V]) reshape() node {
 // terminal, and children as the supplied node16.
 func growToNode256[V any](n *node16[V]) *node256[V] {
 	grown := &node256[V]{
-		prefix:       n.prefix,
-		terminal:     n.terminal,
+		prefix:      n.prefix,
+		terminal:    n.terminal,
 		numChildren: uint16(n.numChildren),
 	}
 	for i := uint8(0); i < n.numChildren; i++ {
@@ -263,8 +263,8 @@ func growToNode256[V any](n *node16[V]) *node256[V] {
 // so the copy preserves the sort.
 func shrinkToNode4[V any](n *node16[V]) *node4[V] {
 	shrunk := &node4[V]{
-		prefix:       n.prefix,
-		terminal:     n.terminal,
+		prefix:      n.prefix,
+		terminal:    n.terminal,
 		numChildren: n.numChildren,
 	}
 	for i := uint8(0); i < n.numChildren; i++ {
@@ -474,7 +474,7 @@ type Tree[V any] struct {
 	size int
 }
 
-func New[V any]() *Tree[V] { return &Tree[V]{} }
+func New[V any]() *Tree[V]  { return &Tree[V]{} }
 func (t *Tree[V]) Len() int { return t.size }
 
 // ---- Put --------------------------------------------------------------------
