@@ -79,7 +79,7 @@ func (t *Tree[V]) Range(start, end []byte) iter.Seq2[[]byte, V] {
 		panic("art: Range called with reversed bounds (start > end)")
 	}
 	return func(yield func([]byte, V) bool) {
-		if start != nil && end != nil && bytes.Compare(start, end) == 0 {
+		if start != nil && end != nil && bytes.Equal(start, end) {
 			return
 		}
 		path := make([]byte, 0, 32)
@@ -249,7 +249,7 @@ func (t *Tree[V]) RangeDescending(start, end []byte) iter.Seq2[[]byte, V] {
 		panic("art: RangeDescending called with reversed bounds (start > end)")
 	}
 	return func(yield func([]byte, V) bool) {
-		if start != nil && end != nil && bytes.Compare(start, end) == 0 {
+		if start != nil && end != nil && bytes.Equal(start, end) {
 			return
 		}
 		path := make([]byte, 0, 32)
