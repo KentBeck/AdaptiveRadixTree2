@@ -23,24 +23,24 @@ the leaf's value field.
 
 The leaf grows by 24 bytes:
 
-```go
+```go {src=art.go decls=inlineKeyMax,leaf,newLeaf}
 const inlineKeyMax = 24
 
 type leaf[V any] struct {
-    key    []byte
-    value  V
-    inline [inlineKeyMax]byte
+	key    []byte
+	value  V
+	inline [inlineKeyMax]byte
 }
 
 func newLeaf[V any](key []byte, value V) *leaf[V] {
-    l := &leaf[V]{value: value}
-    if len(key) <= inlineKeyMax {
-        n := copy(l.inline[:], key)
-        l.key = l.inline[:n]
-    } else {
-        l.key = append([]byte(nil), key...)
-    }
-    return l
+	l := &leaf[V]{value: value}
+	if len(key) <= inlineKeyMax {
+		n := copy(l.inline[:], key)
+		l.key = l.inline[:n]
+	} else {
+		l.key = append([]byte(nil), key...)
+	}
+	return l
 }
 ```
 
@@ -94,22 +94,25 @@ Sixteen one-liner methods. They differ only in the receiver type.
 That's the signature for "extract a base struct and let Go's
 method-promotion rules satisfy the interface."
 
-```go
+```go {src=art.go decls=innerHeader,innerHeader.getPrefix,innerHeader.setPrefix,innerHeader.getTerminal,innerHeader.setTerminal,node4}
 type innerHeader struct {
-    prefix   []byte
-    terminal node
+	prefix   []byte
+	terminal node
 }
 
 func (h *innerHeader) getPrefix() []byte  { return h.prefix }
+
 func (h *innerHeader) setPrefix(p []byte) { h.prefix = p }
+
 func (h *innerHeader) getTerminal() node  { return h.terminal }
+
 func (h *innerHeader) setTerminal(t node) { h.terminal = t }
 
 type node4[V any] struct {
-    innerHeader
-    keys        [4]byte
-    children    [4]node
-    numChildren uint8
+	innerHeader
+	keys        [4]byte
+	children    [4]node
+	numChildren uint8
 }
 ```
 
@@ -147,37 +150,38 @@ thread a single `*[]byte` buffer through the recursion, growing
 it as the descent enters each node's prefix and shrinking it
 back to the caller's length on the way out.
 
-```go
+```go {src=art.go decl=iterateRange}
 func iterateRange[V any](n node, path *[]byte, start, end []byte, yield func([]byte, V) bool) bool {
-    if l, ok := n.(*leaf[V]); ok {
-        if keyInRange(l.key, start, end) {
-            return yield(l.key, l.value)
-        }
-        return true
-    }
-    r := n.(innerNode)
-    before := len(*path)
-    *path = append(*path, r.getPrefix()...)
-    nodeLen := len(*path)
-
-    if term, ok := r.getTerminal().(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
-        if !yield(term.key, term.value) {
-            *path = (*path)[:before]
-            return false
-        }
-    }
-    cont := r.eachAscending(func(b byte, child node) bool {
-        if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
-            return true
-        }
-        if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
-            return false
-        }
-        *path = append((*path)[:nodeLen], b)
-        return iterateRange[V](child, path, start, end, yield)
-    })
-    *path = (*path)[:before]
-    return cont
+	if l, ok := n.(*leaf[V]); ok {
+		if keyInRange(l.key, start, end) {
+			return yield(l.key, l.value)
+		}
+		return true
+	}
+	r := n.(innerNode)
+	before := len(*path)
+	*path = append(*path, r.getPrefix()...)
+	nodeLen := len(*path)
+	if term, ok := r.getTerminal().(*leaf[V]); ok && keyInRange((*path)[:nodeLen], start, end) {
+		if !yield(term.key, term.value) {
+			*path = (*path)[:before]
+			return false
+		}
+	}
+	cont := r.eachAscending(func(b byte, child node) bool {
+		// Skip subtrees whose entire byte range falls below start
+		// or above end without ever materialising their full path.
+		if subtreeBeforeWithByte((*path)[:nodeLen], b, start) {
+			return true
+		}
+		if subtreeAtOrAfterWithByte((*path)[:nodeLen], b, end) {
+			return false
+		}
+		*path = append((*path)[:nodeLen], b)
+		return iterateRange[V](child, path, start, end, yield)
+	})
+	*path = (*path)[:before]
+	return cont
 }
 ```
 

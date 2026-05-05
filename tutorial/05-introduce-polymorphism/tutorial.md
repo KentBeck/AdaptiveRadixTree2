@@ -19,19 +19,19 @@ is the *quality of the decision*, not the size of the speedup.
 
 ## What the interface looks like
 
-```go
+```go {src=art.go decl=innerNode}
 type innerNode interface {
-    node
-    getPrefix() []byte
-    setPrefix(p []byte)
-    getTerminal() node
-    setTerminal(t node)
-    findChild(b byte) node
-    addOrGrowChild(b byte, child node) innerNode
-    replaceChild(b byte, child node)
-    removeChild(b byte)
-    eachAscending(yield func(byte, node) bool) bool
-    reshape() node
+	node
+	getPrefix() []byte
+	setPrefix(p []byte)
+	getTerminal() node
+	setTerminal(t node)
+	findChild(b byte) node
+	addOrGrowChild(b byte, child node) innerNode
+	replaceChild(b byte, child node)
+	removeChild(b byte)
+	eachAscending(yield func(byte, node) bool) bool
+	reshape() node
 }
 ```
 
@@ -157,21 +157,26 @@ func reshape[V any](current node) node {
 Chapter 5 splits the responsibilities. Each concrete type's
 `reshape()` knows only its own collapse-and-demote rules:
 
-```go
+```go {src=art.go decl=node4.reshape}
 func (n *node4[V]) reshape() node {
-    if n.numChildren == 0 {
-        return collapseEmpty(n.terminal)
-    }
-    if n.numChildren == 1 && n.terminal == nil {
-        only := n.children[0]
-        if l, ok := only.(*leaf[V]); ok {
-            return l
-        }
-        return mergePrefixIntoChild(n.prefix, n.keys[0], only.(innerNode))
-    }
-    return n
+	if n.numChildren == 0 {
+		return collapseEmpty(n.terminal)
+	}
+	if n.numChildren == 1 && n.terminal == nil {
+		only := n.children[0]
+		if l, ok := only.(*leaf[V]); ok {
+			return l
+		}
+		return mergePrefixIntoChild(n.prefix, n.keys[0], only.(innerNode))
+	}
+	return n
 }
+```
 
+`node256.reshape` has the same shape with one extra branch — the
+demotion to node4 once it falls to four children:
+
+```go
 func (n *node256[V]) reshape() node {
     if n.numChildren == 0 {
         return collapseEmpty(n.terminal)

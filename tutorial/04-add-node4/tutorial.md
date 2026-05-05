@@ -33,20 +33,20 @@ switches and remember how many of them there are.
 
 Two node types now:
 
-```go
+```go {src=art.go decls=node4,node256}
 type node4[V any] struct {
-    prefix      []byte
-    keys        [4]byte
-    children    [4]node
-    terminal    *leaf[V]
-    numChildren uint8
+	prefix      []byte
+	keys        [4]byte
+	children    [4]node
+	terminal    *leaf[V]
+	numChildren uint8
 }
 
 type node256[V any] struct {
-    prefix      []byte
-    children    [256]node
-    terminal    *leaf[V]
-    numChildren uint16
+	prefix      []byte
+	children    [256]node
+	terminal    *leaf[V]
+	numChildren uint16
 }
 ```
 
@@ -58,7 +58,7 @@ byte; node4 has to maintain it explicitly during `addChild`.
 
 Promotion when a `node4` exceeds capacity:
 
-```go
+```go {src=art.go}
 case *node4[V]:
     if r.numChildren < node4Capacity {
         r.addChild(b, child)
@@ -72,7 +72,7 @@ case *node4[V]:
 
 Demotion when a `node256` falls to ≤ 4 children, in `reshape`:
 
-```go
+```go {src=art.go}
 if r, ok := current.(*node256[V]); ok && r.numChildren <= node4Capacity {
     return shrinkToNode4[V](r)
 }
@@ -86,44 +86,51 @@ demoted node4 inherits sorted keys for free.
 Every operation that used to access `n.prefix`, `n.terminal`, or
 `n.children[b]` now goes through a typed helper:
 
-```go
+```go {src=art.go decls=nodePrefix,nodeFindChild,nodeAddOrGrowChild}
 func nodePrefix[V any](n node) []byte {
-    switch r := n.(type) {
-    case *node4[V]:   return r.prefix
-    case *node256[V]: return r.prefix
-    }
-    panic("nodePrefix: unknown inner-node type")
+	switch r := n.(type) {
+	case *node4[V]:
+		return r.prefix
+	case *node256[V]:
+		return r.prefix
+	}
+	panic("nodePrefix: unknown inner-node type")
 }
 
 func nodeFindChild[V any](n node, b byte) node {
-    switch r := n.(type) {
-    case *node4[V]:   return r.findChild(b)
-    case *node256[V]: return r.children[b]
-    }
-    panic("nodeFindChild: unknown inner-node type")
+	switch r := n.(type) {
+	case *node4[V]:
+		return r.findChild(b)
+	case *node256[V]:
+		return r.children[b]
+	}
+	panic("nodeFindChild: unknown inner-node type")
 }
 
 func nodeAddOrGrowChild[V any](n node, b byte, child node) node {
-    switch r := n.(type) {
-    case *node4[V]:
-        if r.numChildren < node4Capacity {
-            r.addChild(b, child)
-            return r
-        }
-        grown := growToNode256[V](r)
-        grown.children[b] = child
-        grown.numChildren++
-        return grown
-    case *node256[V]:
-        r.children[b] = child
-        r.numChildren++
-        return r
-    }
-    panic("nodeAddOrGrowChild: unknown inner-node type")
+	switch r := n.(type) {
+	case *node4[V]:
+		if r.numChildren < node4Capacity {
+			r.addChild(b, child)
+			return r
+		}
+		grown := growToNode256[V](r)
+		grown.children[b] = child
+		grown.numChildren++
+		return grown
+	case *node256[V]:
+		r.children[b] = child
+		r.numChildren++
+		return r
+	}
+	panic("nodeAddOrGrowChild: unknown inner-node type")
 }
-
-// ... and seven more like these.
 ```
+
+(There are seven more dispatch helpers like these — `setNodePrefix`,
+`nodeTerminal`, `setNodeTerminal`, `nodeReplaceChild`,
+`nodeRemoveChild`, `numChildren`, `eachAscending`. Each is a
+two-case type switch; the shape is uniform.)
 
 Nine helpers in total: `nodePrefix`, `setNodePrefix`,
 `nodeTerminal`, `setNodeTerminal`, `nodeFindChild`,
@@ -147,24 +154,28 @@ Reproduce with
 
 `unsafe.Sizeof` reports:
 
+<!-- bench:nodesizes:start -->
 ```
 Type      Bytes    What it holds
 node4       112    prefix slice, 4 sorted keys, 4 child slots, terminal, count
-node256   4 136    prefix slice, 256 child slots, terminal, count
+node256    4136    prefix slice, 256 child slots, terminal, count
 leaf         32    key slice header, value (V == int)
-ratio       37×    node256 / node4
+ratio       36x    node256 / node4
 ```
+<!-- bench:nodesizes:end -->
 
 Every inner-node demotion from node256 to node4 saves ~4 KB.
 
 ### Structural footprint
 
+<!-- bench:innernodemix:start -->
 ```
 Workload    Stage 3 inner   Stage 4 (n4 + n256)
-Dense           5                 1 + 4
-Sparse        234               141 + 93
-URL           393               330 + 63
+Dense             5             1 + 4
+Sparse          234           141 + 93
+URL             393           330 + 63
 ```
+<!-- bench:innernodemix:end -->
 
 Two numbers per workload below: **structural** (sum of
 unsafe.Sizeof contributions) and **heap** (actual
@@ -266,19 +277,19 @@ to every dispatch helper.
 Chapter 5 introduces an `innerNode` interface with one method per
 operation:
 
-```go
+```go {src=../05-introduce-polymorphism/art.go decl=innerNode}
 type innerNode interface {
-    node
-    findChild(b byte) node
-    addOrGrowChild(b byte, child node) innerNode
-    replaceChild(b byte, child node)
-    removeChild(b byte)
-    getPrefix() []byte
-    setPrefix(p []byte)
-    getTerminal() node
-    setTerminal(t node)
-    eachAscending(yield func(byte, node) bool) bool
-    reshape() node
+	node
+	getPrefix() []byte
+	setPrefix(p []byte)
+	getTerminal() node
+	setTerminal(t node)
+	findChild(b byte) node
+	addOrGrowChild(b byte, child node) innerNode
+	replaceChild(b byte, child node)
+	removeChild(b byte)
+	eachAscending(yield func(byte, node) bool) bool
+	reshape() node
 }
 ```
 

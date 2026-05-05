@@ -110,3 +110,18 @@ performance leaderboard. Each chapter's headline is "what did this
 decision cost or save?", measured against the previous chapter, in
 the workload where the decision matters most. The tutorial's goal
 is *understanding*, not winning a benchmark.
+
+## Reading the whole thing as one document
+
+To assemble all chapters plus the appendix into a single markdown
+file (and a self-contained styled HTML), run:
+
+```
+python3 tutorial/build_book.py
+```
+
+The script writes `tutorial/_book/art-tutorial.md` and
+`tutorial/_book/art-tutorial.html`. The output directory is
+gitignored — it is meant for local reading, not commit. Re-run any
+time after editing chapters or after `go test ./... -update-prose`
+refreshes the bench regions.

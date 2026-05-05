@@ -18,11 +18,11 @@ how long the shared prefix is.
 
 ## What changes
 
-```go
+```go {src=art.go decl=node256}
 type node256[V any] struct {
-    prefix   []byte         // NEW: bytes consumed before children are consulted
-    children [256]node
-    terminal *leaf[V]
+	prefix   []byte
+	children [256]node
+	terminal *leaf[V]
 }
 ```
 
@@ -66,16 +66,16 @@ node — even when `len(n.prefix) == 0`. On Sparse keys, where
 almost every prefix is empty, the naive version is **6× slower**
 than chapter 2 on `Get`. The fix is a single short-circuit:
 
-```go
+```go {src=art.go decl=consumePrefix}
 func consumePrefix(prefix, key []byte, depth int) (int, bool) {
-    if len(prefix) == 0 {
-        return depth, true
-    }
-    end := depth + len(prefix)
-    if end > len(key) || !bytes.Equal(prefix, key[depth:end]) {
-        return 0, false
-    }
-    return end, true
+	if len(prefix) == 0 {
+		return depth, true
+	}
+	end := depth + len(prefix)
+	if end > len(key) || !bytes.Equal(prefix, key[depth:end]) {
+		return 0, false
+	}
+	return end, true
 }
 ```
 
@@ -88,24 +88,24 @@ consequences when they fall on the hottest path.
 
 The interesting cases are in `splitPrefixedNode`:
 
-```go
+```go {src=art.go decl=splitPrefixedNode}
 func splitPrefixedNode[V any](n *node256[V], key []byte, value V, depth, common int, size *int) node {
-    sharedPrefix := append([]byte(nil), n.prefix[:common]...)
-    oldBranch := n.prefix[common]
-    n.prefix = append([]byte(nil), n.prefix[common+1:]...)
+	sharedPrefix := append([]byte(nil), n.prefix[:common]...)
+	oldBranch := n.prefix[common]
+	n.prefix = append([]byte(nil), n.prefix[common+1:]...)
 
-    parent := &node256[V]{prefix: sharedPrefix}
-    parent.children[oldBranch] = n
+	parent := &node256[V]{prefix: sharedPrefix}
+	parent.children[oldBranch] = n
 
-    *size++
-    newLeaf := &leaf[V]{key: append([]byte(nil), key...), value: value}
-    cut := depth + common
-    if cut == len(key) {
-        parent.terminal = newLeaf
-    } else {
-        parent.children[key[cut]] = newLeaf
-    }
-    return parent
+	*size++
+	newLeaf := &leaf[V]{key: append([]byte(nil), key...), value: value}
+	cut := depth + common
+	if cut == len(key) {
+		parent.terminal = newLeaf
+	} else {
+		parent.children[key[cut]] = newLeaf
+	}
+	return parent
 }
 ```
 
@@ -129,7 +129,7 @@ bytes.
 
 The new collapse:
 
-```go
+```go {src=art.go}
 if count == 1 && n.terminal == nil {
     if l, ok := only.(*leaf[V]); ok {
         return l                                     // hoist the leaf
@@ -164,12 +164,14 @@ framework startup.)
 
 ### Structural footprint
 
+<!-- bench:innernodemix:start -->
 ```
 Workload    Stage 2 inner   Stage 3 inner   prefix bytes
-Dense           11                5              6 B
-Sparse         234              234              0 B
-URL            834              393            441 B
+Dense            11               5            6 B
+Sparse          234             234            0 B
+URL             834             393          441 B
 ```
+<!-- bench:innernodemix:end -->
 
 Per-node sizes (from `unsafe.Sizeof`): stage-2 node256 is 4 104 B;
 stage-3 node256 is 4 128 B (added 24 B for the prefix slice

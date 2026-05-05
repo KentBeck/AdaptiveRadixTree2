@@ -19,6 +19,7 @@ go.work.sum
 # Build output
 /bin/
 /dist/
+tutorial/_book/
 
 # Editor / OS
 .idea/
