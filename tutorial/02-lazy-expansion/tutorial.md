@@ -56,6 +56,17 @@ sizes (chapters 4–7) can be dispatched without a switch.
 
 ## Put walks down, splitting on collision
 
+`Put` is the same one-line entry point as chapter 1; the work
+moves into a free `putInto` helper that recurses on `(current,
+depth)` so it can return the (possibly different) node that
+should occupy the slot it was called on:
+
+```go {src=art.go decl=Put}
+func (t *Tree[V]) Put(key []byte, value V) {
+	t.root = putInto(t.root, key, value, 0, &t.size)
+}
+```
+
 The three cases in `putInto` map directly to the three structural
 states a child slot can be in:
 
