@@ -54,6 +54,42 @@ an explicit type assertion. Chapter 5 will introduce a sibling
 interface `innerNode` with real methods so that the four ART node
 sizes (chapters 4–7) can be dispatched without a switch.
 
+## Get walks down, comparing at the leaf
+
+```go {src=art.go decl=Get}
+func (t *Tree[V]) Get(key []byte) (V, bool) {
+	var zero V
+	current := t.root
+	depth := 0
+	for current != nil {
+		if l, ok := current.(*leaf[V]); ok {
+			if bytes.Equal(l.key, key) {
+				return l.value, true
+			}
+			return zero, false
+		}
+		n := current.(*node256[V])
+		if depth == len(key) {
+			if n.terminal == nil {
+				return zero, false
+			}
+			return n.terminal.value, true
+		}
+		current = n.children[key[depth]]
+		depth++
+	}
+	return zero, false
+}
+```
+
+The shape of a Get is now: descend until you reach a leaf or run
+out of edges, then either compare the leaf's full key or return
+the terminal. The compare is a single `bytes.Equal` on a slice up
+to `len(key)`. We will see in the bench numbers that on short keys
+this trade — fewer descents but one full-key compare — costs a
+little time on Dense (the descent was already cheap) and saves a
+lot on Sparse (the descent was 16 cache misses).
+
 ## Put walks down, splitting on collision
 
 `Put` is the same one-line entry point as chapter 1; the work
@@ -147,42 +183,6 @@ For two URL keys sharing `"https://api.example.com/v1/users/"` —
 33 bytes — the loop builds a chain of 33 `node256`s. Lazy
 expansion does not save us from URL-shaped prefix sharing; that's
 chapter 3's job.
-
-## Get walks down, comparing at the leaf
-
-```go {src=art.go decl=Get}
-func (t *Tree[V]) Get(key []byte) (V, bool) {
-	var zero V
-	current := t.root
-	depth := 0
-	for current != nil {
-		if l, ok := current.(*leaf[V]); ok {
-			if bytes.Equal(l.key, key) {
-				return l.value, true
-			}
-			return zero, false
-		}
-		n := current.(*node256[V])
-		if depth == len(key) {
-			if n.terminal == nil {
-				return zero, false
-			}
-			return n.terminal.value, true
-		}
-		current = n.children[key[depth]]
-		depth++
-	}
-	return zero, false
-}
-```
-
-The shape of a Get is now: descend until you reach a leaf or run
-out of edges, then either compare the leaf's full key or return
-the terminal. The compare is a single `bytes.Equal` on a slice up
-to `len(key)`. We will see in the bench numbers that on short keys
-this trade — fewer descents but one full-key compare — costs a
-little time on Dense (the descent was already cheap) and saves a
-lot on Sparse (the descent was 16 cache misses).
 
 ## Delete now collapses
 

@@ -30,32 +30,6 @@ node's path — which is the byte sequence consumed from the root.
 `*V` rather than `V` so the zero value of `V` doesn't collide with
 "no entry here".
 
-## Put walks down, allocating as needed
-
-```go {src=art.go decl=Put}
-func (t *Tree[V]) Put(key []byte, value V) {
-	if t.root == nil {
-		t.root = &node[V]{}
-	}
-	n := t.root
-	for _, b := range key {
-		if n.children[b] == nil {
-			n.children[b] = &node[V]{}
-		}
-		n = n.children[b]
-	}
-	if n.terminal == nil {
-		t.size++
-	}
-	v := value
-	n.terminal = &v
-}
-```
-
-There is no resize, no rebalance, no comparison. Every byte of
-`key` becomes one step downward. Every step costs a pointer
-dereference and possibly an allocation.
-
 ## Get walks down, returning early on a missing edge
 
 ```go {src=art.go decl=Get}
@@ -83,6 +57,32 @@ fast at lookup precisely because the alphabet *is* the index. That
 speed is why later chapters keep `node256` around for the cases
 where it earns its keep — a hot, dense sub-trie — instead of
 replacing it everywhere.
+
+## Put walks down, allocating as needed
+
+```go {src=art.go decl=Put}
+func (t *Tree[V]) Put(key []byte, value V) {
+	if t.root == nil {
+		t.root = &node[V]{}
+	}
+	n := t.root
+	for _, b := range key {
+		if n.children[b] == nil {
+			n.children[b] = &node[V]{}
+		}
+		n = n.children[b]
+	}
+	if n.terminal == nil {
+		t.size++
+	}
+	v := value
+	n.terminal = &v
+}
+```
+
+There is no resize, no rebalance, no comparison. Every byte of
+`key` becomes one step downward. Every step costs a pointer
+dereference and possibly an allocation.
 
 ## Delete walks down, then prunes back up
 
