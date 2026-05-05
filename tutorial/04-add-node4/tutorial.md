@@ -33,7 +33,7 @@ switches and remember how many of them there are.
 
 Two node types now:
 
-```go
+```go {src=art.go}
 type node4[V any] struct {
     prefix      []byte
     keys        [4]byte
@@ -58,7 +58,7 @@ byte; node4 has to maintain it explicitly during `addChild`.
 
 Promotion when a `node4` exceeds capacity:
 
-```go
+```go {src=art.go}
 case *node4[V]:
     if r.numChildren < node4Capacity {
         r.addChild(b, child)
@@ -72,7 +72,7 @@ case *node4[V]:
 
 Demotion when a `node256` falls to ≤ 4 children, in `reshape`:
 
-```go
+```go {src=art.go}
 if r, ok := current.(*node256[V]); ok && r.numChildren <= node4Capacity {
     return shrinkToNode4[V](r)
 }
@@ -86,19 +86,23 @@ demoted node4 inherits sorted keys for free.
 Every operation that used to access `n.prefix`, `n.terminal`, or
 `n.children[b]` now goes through a typed helper:
 
-```go
+```go {src=art.go}
 func nodePrefix[V any](n node) []byte {
     switch r := n.(type) {
-    case *node4[V]:   return r.prefix
-    case *node256[V]: return r.prefix
+    case *node4[V]:
+        return r.prefix
+    case *node256[V]:
+        return r.prefix
     }
     panic("nodePrefix: unknown inner-node type")
 }
 
 func nodeFindChild[V any](n node, b byte) node {
     switch r := n.(type) {
-    case *node4[V]:   return r.findChild(b)
-    case *node256[V]: return r.children[b]
+    case *node4[V]:
+        return r.findChild(b)
+    case *node256[V]:
+        return r.children[b]
     }
     panic("nodeFindChild: unknown inner-node type")
 }
@@ -147,13 +151,15 @@ Reproduce with
 
 `unsafe.Sizeof` reports:
 
+<!-- bench:nodesizes:start -->
 ```
 Type      Bytes    What it holds
 node4       112    prefix slice, 4 sorted keys, 4 child slots, terminal, count
-node256   4 136    prefix slice, 256 child slots, terminal, count
+node256    4136    prefix slice, 256 child slots, terminal, count
 leaf         32    key slice header, value (V == int)
-ratio       37×    node256 / node4
+ratio       36x    node256 / node4
 ```
+<!-- bench:nodesizes:end -->
 
 Every inner-node demotion from node256 to node4 saves ~4 KB.
 
@@ -266,17 +272,17 @@ to every dispatch helper.
 Chapter 5 introduces an `innerNode` interface with one method per
 operation:
 
-```go
+```go {src=../05-introduce-polymorphism/art.go}
 type innerNode interface {
     node
-    findChild(b byte) node
-    addOrGrowChild(b byte, child node) innerNode
-    replaceChild(b byte, child node)
-    removeChild(b byte)
     getPrefix() []byte
     setPrefix(p []byte)
     getTerminal() node
     setTerminal(t node)
+    findChild(b byte) node
+    addOrGrowChild(b byte, child node) innerNode
+    replaceChild(b byte, child node)
+    removeChild(b byte)
     eachAscending(yield func(byte, node) bool) bool
     reshape() node
 }
