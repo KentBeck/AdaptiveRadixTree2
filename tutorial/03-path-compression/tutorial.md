@@ -164,12 +164,14 @@ framework startup.)
 
 ### Structural footprint
 
+<!-- bench:innernodemix:start -->
 ```
 Workload    Stage 2 inner   Stage 3 inner   prefix bytes
-Dense           11                5              6 B
-Sparse         234              234              0 B
-URL            834              393            441 B
+Dense            11               5            6 B
+Sparse          234             234            0 B
+URL             834             393          441 B
 ```
+<!-- bench:innernodemix:end -->
 
 Per-node sizes (from `unsafe.Sizeof`): stage-2 node256 is 4 104 B;
 stage-3 node256 is 4 128 B (added 24 B for the prefix slice

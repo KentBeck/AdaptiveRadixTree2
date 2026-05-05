@@ -181,13 +181,15 @@ The footprint here is *just* the inner-node memory: 256 child
 pointers + the terminal pointer per node, on a 64-bit machine.
 The reader's keys and values are not counted.
 
+<!-- bench:footprint:start -->
 ```
 Workload    nodes/key  bytes/key   per node
 ─────────────────────────────────────────────
-Dense        1.01      ~2.0 KB     2 056 B
-Sparse      15.25     ~31.3 KB     2 056 B
-URL          8.09     ~16.6 KB     2 056 B
+Dense        1.01        2.0 KB      2056 B
+Sparse      15.25       30.6 KB      2056 B
+URL          8.09       16.2 KB      2056 B
 ```
+<!-- bench:footprint:end -->
 
 Sparse keys are the worst case: every byte forces a fresh node256
 because random keys share no prefixes. ~15 nodes per 16-byte key

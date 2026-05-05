@@ -87,22 +87,26 @@ Reproduce with
 
 ### Per-node sizes
 
+<!-- bench:nodesizes:start -->
 ```
 Type       Bytes   Slot
 node4        120   sorted [4]keys + [4]children
 node16       320   sorted [16]keys + [16]children
-node256    4 144   indexed [256]children
+node256     4144   indexed [256]children
 leaf          32   key slice header + value (V == int)
 ```
+<!-- bench:nodesizes:end -->
 
 ### Inner-node mix
 
+<!-- bench:innernodemix:start -->
 ```
 Workload    Stage 5 (n4 + n256)        Stage 6 (n4 + n16 + n256)
-Dense          1 + 4                       1 + 0 +   4
-Sparse       141 + 93                    141 + 92 + 1
-URL          330 + 63                    330 + 63 + 0
+Dense           1 + 4                      1 + 0 + 4
+Sparse        141 + 93                   141 + 92 + 1
+URL           330 + 63                   330 + 63 + 0
 ```
+<!-- bench:innernodemix:end -->
 
 URL is the most striking: every chapter-5 node256 — 63 of them —
 fit in node16. Those 63 nodes shrank from 4 144 B to 320 B each,

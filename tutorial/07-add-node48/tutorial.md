@@ -82,12 +82,14 @@ other node48 method reads in a couple of lines.
 **For our 1 000-key fixture workloads: nothing.** The 17–48
 fanout band is empty at that scale.
 
+<!-- bench:innernodemix1k:start -->
 ```
 Workload    Stage 6 mix              Stage 7 mix
-Dense       1n4 + 4n256              1n4 + 0n16 + 0n48 + 4n256
-Sparse      141n4 + 92n16 + 1n256    141n4 + 92n16 + 0n48 + 1n256
-URL         330n4 + 63n16 + 0n256    330n4 + 63n16 + 0n48 + 0n256
+Dense       1n4 + 0n16 + 4n256        1n4 + 0n16 + 0n48 + 4n256
+Sparse      141n4 + 92n16 + 1n256        141n4 + 92n16 + 0n48 + 1n256
+URL         330n4 + 63n16 + 0n256        330n4 + 63n16 + 0n48 + 0n256
 ```
+<!-- bench:innernodemix1k:end -->
 
 Inner-node mixes are identical between stages 6 and 7 at this
 size. URL never triggers node48 at any scale because its branching
@@ -105,10 +107,12 @@ spot: 5000 / 256 ≈ 20 keys per first-byte bucket, so depth-1
 nodes hold about 20 children — too many for node16, too few for
 node256. **182 inner nodes settle into node48.**
 
+<!-- bench:innernodemix5k:start -->
 ```
-Sparse/5000  S6 mix:  ?  + 0  n48 + 209 n256
+Sparse/5000  S6 mix:  164 n4 + 74 n16 + 183 n256
              S7 mix:  164 n4 + 74 n16 + 182 n48 + 1 n256
 ```
+<!-- bench:innernodemix5k:end -->
 
 Heap measurement at that scale:
 

@@ -264,12 +264,14 @@ per-decision impact.
 
 ### Structural footprint
 
+<!-- bench:innernodemix:start -->
 ```
 Workload    Stage 1 inner    Stage 2 inner + leaves
-Dense          1 011               11 + 1 000
-Sparse        15 246              234 + 1 000
-URL            8 085              834 + 1 000
+Dense          1011           11 + 1000
+Sparse        15246          234 + 1000
+URL            8085          834 + 1000
 ```
+<!-- bench:innernodemix:end -->
 
 Per-node sizes (from `unsafe.Sizeof`): a stage-1 node is 2 056 B
 (`[256]*node + *V`); a stage-2 node256 is 4 104 B (`[256]node` —

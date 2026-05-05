@@ -168,12 +168,14 @@ Every inner-node demotion from node256 to node4 saves ~4 KB.
 
 ### Structural footprint
 
+<!-- bench:innernodemix:start -->
 ```
 Workload    Stage 3 inner   Stage 4 (n4 + n256)
-Dense           5                 1 + 4
-Sparse        234               141 + 93
-URL           393               330 + 63
+Dense             5             1 + 4
+Sparse          234           141 + 93
+URL             393           330 + 63
 ```
+<!-- bench:innernodemix:end -->
 
 Two numbers per workload below: **structural** (sum of
 unsafe.Sizeof contributions) and **heap** (actual
