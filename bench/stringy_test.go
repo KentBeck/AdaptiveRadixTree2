@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	art "github.com/KentBeck/AdaptiveRadixTree2"
+	radix "github.com/armon/go-radix"
 	"github.com/google/btree"
 	plart "github.com/plar/go-adaptive-radix-tree"
 	tbtree "github.com/tidwall/btree"
@@ -68,6 +69,8 @@ type stringyShape struct {
 	tw      *tbtree.BTreeG[skv]
 	plOnce  sync.Once
 	pl      plart.Tree
+	arOnce  sync.Once
+	ar      *radix.Tree
 }
 
 var (
@@ -186,6 +189,17 @@ func (s *stringyShape) getPlar() plart.Tree {
 		s.pl = t
 	})
 	return s.pl
+}
+
+func (s *stringyShape) getArmon() *radix.Tree {
+	s.arOnce.Do(func() {
+		t := radix.New()
+		for i, k := range s.keys {
+			t.Insert(k, i)
+		}
+		s.ar = t
+	})
+	return s.ar
 }
 
 // stringySinkAcc is a package-level sink for Range value yields so the
@@ -485,7 +499,134 @@ func rangePlar(b *testing.B, s *stringyShape) {
 	perKey(b, stringyRangeN)
 }
 
-// --- 60 top-level Benchmark wrappers (3 shapes x 5 ops x 4 impls) ---
+// --- armon/go-radix helpers (string keys; non-adaptive radix tree) ---
+//
+// armon v1.0.0 has no half-open Range, no Ceiling, no Floor. Those cells
+// are reported N/A in benchmarks.md rather than approximated.
+
+func putArmon(b *testing.B, s *stringyShape) {
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		t := radix.New()
+		for i, k := range s.keys {
+			t.Insert(k, i)
+		}
+	}
+	perKey(b, stringyN)
+}
+
+func getArmon(b *testing.B, s *stringyShape) {
+	t := s.getArmon()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = t.Get(s.keys[i%stringyN])
+	}
+}
+
+func getMissArmon(b *testing.B, s *stringyShape) {
+	t := s.getArmon()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = t.Get(s.missKeys[i%stringyN])
+	}
+}
+
+func deleteArmon(b *testing.B, s *stringyShape) {
+	b.ReportAllocs()
+	for n := 0; n < b.N; n++ {
+		b.StopTimer()
+		t := radix.New()
+		for i, k := range s.keys {
+			t.Insert(k, i)
+		}
+		b.StartTimer()
+		for _, k := range s.keys {
+			t.Delete(k)
+		}
+	}
+	perKey(b, stringyN)
+}
+
+// --- Ceiling / Floor helpers (target = miss key, exercises seek path) ---
+
+func ceilingART(b *testing.B, s *stringyShape) {
+	t := s.getART()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = t.Ceiling([]byte(s.missKeys[i%stringyN]))
+	}
+}
+
+func ceilingBTree(b *testing.B, s *stringyShape) {
+	t := s.getBT()
+	b.ReportAllocs()
+	b.ResetTimer()
+	var sink skv
+	for i := 0; i < b.N; i++ {
+		t.AscendGreaterOrEqual(skv{k: s.missKeys[i%stringyN]}, func(it skv) bool {
+			sink = it
+			return false
+		})
+	}
+	_ = sink
+}
+
+func ceilingTidwall(b *testing.B, s *stringyShape) {
+	t := s.getTidwall()
+	b.ReportAllocs()
+	b.ResetTimer()
+	var sink skv
+	for i := 0; i < b.N; i++ {
+		t.Ascend(skv{k: s.missKeys[i%stringyN]}, func(it skv) bool {
+			sink = it
+			return false
+		})
+	}
+	_ = sink
+}
+
+func floorART(b *testing.B, s *stringyShape) {
+	t := s.getART()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = t.Floor([]byte(s.missKeys[i%stringyN]))
+	}
+}
+
+func floorBTree(b *testing.B, s *stringyShape) {
+	t := s.getBT()
+	b.ReportAllocs()
+	b.ResetTimer()
+	var sink skv
+	for i := 0; i < b.N; i++ {
+		t.DescendLessOrEqual(skv{k: s.missKeys[i%stringyN]}, func(it skv) bool {
+			sink = it
+			return false
+		})
+	}
+	_ = sink
+}
+
+func floorTidwall(b *testing.B, s *stringyShape) {
+	t := s.getTidwall()
+	b.ReportAllocs()
+	b.ResetTimer()
+	var sink skv
+	for i := 0; i < b.N; i++ {
+		t.Descend(skv{k: s.missKeys[i%stringyN]}, func(it skv) bool {
+			sink = it
+			return false
+		})
+	}
+	_ = sink
+}
+
+// --- top-level Benchmark wrappers (3 shapes x ops x impls) ---
 
 func BenchmarkPut_URL_ART(b *testing.B)     { ensureStringyShapes(); putART(b, stringyURL) }
 func BenchmarkPut_URL_BTree(b *testing.B)   { ensureStringyShapes(); putBTree(b, stringyURL) }
@@ -570,3 +711,64 @@ func BenchmarkRange_Short_ART(b *testing.B)     { ensureStringyShapes(); rangeAR
 func BenchmarkRange_Short_BTree(b *testing.B)   { ensureStringyShapes(); rangeBTree(b, stringyShort) }
 func BenchmarkRange_Short_Tidwall(b *testing.B) { ensureStringyShapes(); rangeTidwall(b, stringyShort) }
 func BenchmarkRange_Short_Plar(b *testing.B)    { ensureStringyShapes(); rangePlar(b, stringyShort) }
+
+// --- armon/go-radix wrappers (Put, Get, GetMiss, Delete; no Range) ---
+
+func BenchmarkPut_URL_Armon(b *testing.B)     { ensureStringyShapes(); putArmon(b, stringyURL) }
+func BenchmarkPut_UUID_Armon(b *testing.B)    { ensureStringyShapes(); putArmon(b, stringyUUID) }
+func BenchmarkPut_Short_Armon(b *testing.B)   { ensureStringyShapes(); putArmon(b, stringyShort) }
+func BenchmarkGet_URL_Armon(b *testing.B)     { ensureStringyShapes(); getArmon(b, stringyURL) }
+func BenchmarkGet_UUID_Armon(b *testing.B)    { ensureStringyShapes(); getArmon(b, stringyUUID) }
+func BenchmarkGet_Short_Armon(b *testing.B)   { ensureStringyShapes(); getArmon(b, stringyShort) }
+func BenchmarkGetMiss_URL_Armon(b *testing.B) { ensureStringyShapes(); getMissArmon(b, stringyURL) }
+func BenchmarkGetMiss_UUID_Armon(b *testing.B) {
+	ensureStringyShapes()
+	getMissArmon(b, stringyUUID)
+}
+func BenchmarkGetMiss_Short_Armon(b *testing.B) {
+	ensureStringyShapes()
+	getMissArmon(b, stringyShort)
+}
+func BenchmarkDelete_URL_Armon(b *testing.B)   { ensureStringyShapes(); deleteArmon(b, stringyURL) }
+func BenchmarkDelete_UUID_Armon(b *testing.B)  { ensureStringyShapes(); deleteArmon(b, stringyUUID) }
+func BenchmarkDelete_Short_Armon(b *testing.B) { ensureStringyShapes(); deleteArmon(b, stringyShort) }
+
+// --- Ceiling / Floor wrappers (ART, BTree, Tidwall; plar+armon are N/A) ---
+
+func BenchmarkCeiling_URL_ART(b *testing.B)   { ensureStringyShapes(); ceilingART(b, stringyURL) }
+func BenchmarkCeiling_URL_BTree(b *testing.B) { ensureStringyShapes(); ceilingBTree(b, stringyURL) }
+func BenchmarkCeiling_URL_Tidwall(b *testing.B) {
+	ensureStringyShapes()
+	ceilingTidwall(b, stringyURL)
+}
+func BenchmarkCeiling_UUID_ART(b *testing.B)   { ensureStringyShapes(); ceilingART(b, stringyUUID) }
+func BenchmarkCeiling_UUID_BTree(b *testing.B) { ensureStringyShapes(); ceilingBTree(b, stringyUUID) }
+func BenchmarkCeiling_UUID_Tidwall(b *testing.B) {
+	ensureStringyShapes()
+	ceilingTidwall(b, stringyUUID)
+}
+func BenchmarkCeiling_Short_ART(b *testing.B) { ensureStringyShapes(); ceilingART(b, stringyShort) }
+func BenchmarkCeiling_Short_BTree(b *testing.B) {
+	ensureStringyShapes()
+	ceilingBTree(b, stringyShort)
+}
+func BenchmarkCeiling_Short_Tidwall(b *testing.B) {
+	ensureStringyShapes()
+	ceilingTidwall(b, stringyShort)
+}
+
+func BenchmarkFloor_URL_ART(b *testing.B)     { ensureStringyShapes(); floorART(b, stringyURL) }
+func BenchmarkFloor_URL_BTree(b *testing.B)   { ensureStringyShapes(); floorBTree(b, stringyURL) }
+func BenchmarkFloor_URL_Tidwall(b *testing.B) { ensureStringyShapes(); floorTidwall(b, stringyURL) }
+func BenchmarkFloor_UUID_ART(b *testing.B)    { ensureStringyShapes(); floorART(b, stringyUUID) }
+func BenchmarkFloor_UUID_BTree(b *testing.B)  { ensureStringyShapes(); floorBTree(b, stringyUUID) }
+func BenchmarkFloor_UUID_Tidwall(b *testing.B) {
+	ensureStringyShapes()
+	floorTidwall(b, stringyUUID)
+}
+func BenchmarkFloor_Short_ART(b *testing.B)   { ensureStringyShapes(); floorART(b, stringyShort) }
+func BenchmarkFloor_Short_BTree(b *testing.B) { ensureStringyShapes(); floorBTree(b, stringyShort) }
+func BenchmarkFloor_Short_Tidwall(b *testing.B) {
+	ensureStringyShapes()
+	floorTidwall(b, stringyShort)
+}

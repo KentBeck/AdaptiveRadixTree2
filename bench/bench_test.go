@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	art "github.com/KentBeck/AdaptiveRadixTree2"
+	radix "github.com/armon/go-radix"
 	"github.com/google/btree"
 	plart "github.com/plar/go-adaptive-radix-tree"
 	tbtree "github.com/tidwall/btree"
@@ -50,6 +51,9 @@ var (
 
 	plarOnce sync.Once
 	plarBig  plart.Tree
+
+	armonOnce sync.Once
+	armonBig  *radix.Tree
 )
 
 // tidwallOpts configures tidwall/btree to match google/btree's degree (32) and
@@ -129,6 +133,21 @@ func getPlarBig() plart.Tree {
 		plarBig = t
 	})
 	return plarBig
+}
+
+// getArmonBig builds a 10M-element armon/go-radix tree once per process.
+// Keys are stringified bytes (armon's API takes string), so the
+// underlying byte content is identical to the other comparators.
+func getArmonBig() *radix.Tree {
+	initKeys()
+	armonOnce.Do(func() {
+		t := radix.New()
+		for i := 0; i < benchN; i++ {
+			t.Insert(string(benchKeys[i]), i)
+		}
+		armonBig = t
+	})
+	return armonBig
 }
 
 func perKey(b *testing.B, ops int) {
@@ -500,4 +519,149 @@ func BenchmarkRange_Plar(b *testing.B) {
 		}
 	}
 	perKey(b, rangeN)
+}
+
+// --- armon/go-radix comparator (string keys; non-adaptive radix tree) ---
+//
+// armon/go-radix v1.0.0 provides Insert / Get / Delete and tree-walking
+// iteration (Walk, WalkPrefix, WalkPath) but no half-open range, no
+// Ceiling, and no Floor primitive. The Range, Ceiling, and Floor cells
+// for armon are reported as N/A in benchmarks.md rather than approximated
+// with a full leaf-walk that would not characterize the tree's seek cost.
+
+func BenchmarkPut_Armon(b *testing.B) {
+	initKeys()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		t := radix.New()
+		for i := 0; i < benchN; i++ {
+			t.Insert(string(benchKeys[i]), i)
+		}
+	}
+	perKey(b, benchN)
+}
+
+func BenchmarkGet_Armon(b *testing.B) {
+	t := getArmonBig()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = t.Get(string(benchKeys[i%benchN]))
+	}
+}
+
+func BenchmarkGetMiss_Armon(b *testing.B) {
+	t := getArmonBig()
+	n := len(missKeys)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = t.Get(string(missKeys[i%n]))
+	}
+}
+
+func BenchmarkDelete_Armon(b *testing.B) {
+	initKeys()
+	b.ReportAllocs()
+	for n := 0; n < b.N; n++ {
+		b.StopTimer()
+		t := radix.New()
+		for i := 0; i < benchN; i++ {
+			t.Insert(string(benchKeys[i]), i)
+		}
+		b.StartTimer()
+		for i := 0; i < benchN; i++ {
+			t.Delete(string(benchKeys[i]))
+		}
+	}
+	perKey(b, benchN)
+}
+
+// --- Ceiling: smallest key >= target (target is a known-miss key) ---
+//
+// missKeys are guaranteed not present in the tree, so each Ceiling call
+// exercises the "target not found, walk to next-larger key" path. plar
+// and armon expose no seek primitive and are reported N/A.
+
+func BenchmarkCeiling_ART(b *testing.B) {
+	t := getArtBig()
+	n := len(missKeys)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = t.Ceiling(missKeys[i%n])
+	}
+}
+
+func BenchmarkCeiling_BTree(b *testing.B) {
+	t := getBtBig()
+	n := len(missKeys)
+	b.ReportAllocs()
+	b.ResetTimer()
+	var sink kv
+	for i := 0; i < b.N; i++ {
+		t.AscendGreaterOrEqual(kv{k: missKeys[i%n]}, func(it kv) bool {
+			sink = it
+			return false
+		})
+	}
+	_ = sink
+}
+
+func BenchmarkCeiling_Tidwall(b *testing.B) {
+	t := getTidwallBig()
+	n := len(missKeys)
+	b.ReportAllocs()
+	b.ResetTimer()
+	var sink kv
+	for i := 0; i < b.N; i++ {
+		t.Ascend(kv{k: missKeys[i%n]}, func(it kv) bool {
+			sink = it
+			return false
+		})
+	}
+	_ = sink
+}
+
+// --- Floor: largest key <= target (target is a known-miss key) ---
+
+func BenchmarkFloor_ART(b *testing.B) {
+	t := getArtBig()
+	n := len(missKeys)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = t.Floor(missKeys[i%n])
+	}
+}
+
+func BenchmarkFloor_BTree(b *testing.B) {
+	t := getBtBig()
+	n := len(missKeys)
+	b.ReportAllocs()
+	b.ResetTimer()
+	var sink kv
+	for i := 0; i < b.N; i++ {
+		t.DescendLessOrEqual(kv{k: missKeys[i%n]}, func(it kv) bool {
+			sink = it
+			return false
+		})
+	}
+	_ = sink
+}
+
+func BenchmarkFloor_Tidwall(b *testing.B) {
+	t := getTidwallBig()
+	n := len(missKeys)
+	b.ReportAllocs()
+	b.ResetTimer()
+	var sink kv
+	for i := 0; i < b.N; i++ {
+		t.Descend(kv{k: missKeys[i%n]}, func(it kv) bool {
+			sink = it
+			return false
+		})
+	}
+	_ = sink
 }
