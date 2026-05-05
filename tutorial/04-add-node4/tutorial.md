@@ -33,20 +33,20 @@ switches and remember how many of them there are.
 
 Two node types now:
 
-```go {src=art.go}
+```go {src=art.go decls=node4,node256}
 type node4[V any] struct {
-    prefix      []byte
-    keys        [4]byte
-    children    [4]node
-    terminal    *leaf[V]
-    numChildren uint8
+	prefix      []byte
+	keys        [4]byte
+	children    [4]node
+	terminal    *leaf[V]
+	numChildren uint8
 }
 
 type node256[V any] struct {
-    prefix      []byte
-    children    [256]node
-    terminal    *leaf[V]
-    numChildren uint16
+	prefix      []byte
+	children    [256]node
+	terminal    *leaf[V]
+	numChildren uint16
 }
 ```
 
@@ -86,48 +86,51 @@ demoted node4 inherits sorted keys for free.
 Every operation that used to access `n.prefix`, `n.terminal`, or
 `n.children[b]` now goes through a typed helper:
 
-```go {src=art.go}
+```go {src=art.go decls=nodePrefix,nodeFindChild,nodeAddOrGrowChild}
 func nodePrefix[V any](n node) []byte {
-    switch r := n.(type) {
-    case *node4[V]:
-        return r.prefix
-    case *node256[V]:
-        return r.prefix
-    }
-    panic("nodePrefix: unknown inner-node type")
+	switch r := n.(type) {
+	case *node4[V]:
+		return r.prefix
+	case *node256[V]:
+		return r.prefix
+	}
+	panic("nodePrefix: unknown inner-node type")
 }
 
 func nodeFindChild[V any](n node, b byte) node {
-    switch r := n.(type) {
-    case *node4[V]:
-        return r.findChild(b)
-    case *node256[V]:
-        return r.children[b]
-    }
-    panic("nodeFindChild: unknown inner-node type")
+	switch r := n.(type) {
+	case *node4[V]:
+		return r.findChild(b)
+	case *node256[V]:
+		return r.children[b]
+	}
+	panic("nodeFindChild: unknown inner-node type")
 }
 
 func nodeAddOrGrowChild[V any](n node, b byte, child node) node {
-    switch r := n.(type) {
-    case *node4[V]:
-        if r.numChildren < node4Capacity {
-            r.addChild(b, child)
-            return r
-        }
-        grown := growToNode256[V](r)
-        grown.children[b] = child
-        grown.numChildren++
-        return grown
-    case *node256[V]:
-        r.children[b] = child
-        r.numChildren++
-        return r
-    }
-    panic("nodeAddOrGrowChild: unknown inner-node type")
+	switch r := n.(type) {
+	case *node4[V]:
+		if r.numChildren < node4Capacity {
+			r.addChild(b, child)
+			return r
+		}
+		grown := growToNode256[V](r)
+		grown.children[b] = child
+		grown.numChildren++
+		return grown
+	case *node256[V]:
+		r.children[b] = child
+		r.numChildren++
+		return r
+	}
+	panic("nodeAddOrGrowChild: unknown inner-node type")
 }
-
-// ... and seven more like these.
 ```
+
+(There are seven more dispatch helpers like these — `setNodePrefix`,
+`nodeTerminal`, `setNodeTerminal`, `nodeReplaceChild`,
+`nodeRemoveChild`, `numChildren`, `eachAscending`. Each is a
+two-case type switch; the shape is uniform.)
 
 Nine helpers in total: `nodePrefix`, `setNodePrefix`,
 `nodeTerminal`, `setNodeTerminal`, `nodeFindChild`,
@@ -272,19 +275,19 @@ to every dispatch helper.
 Chapter 5 introduces an `innerNode` interface with one method per
 operation:
 
-```go {src=../05-introduce-polymorphism/art.go}
+```go {src=../05-introduce-polymorphism/art.go decl=innerNode}
 type innerNode interface {
-    node
-    getPrefix() []byte
-    setPrefix(p []byte)
-    getTerminal() node
-    setTerminal(t node)
-    findChild(b byte) node
-    addOrGrowChild(b byte, child node) innerNode
-    replaceChild(b byte, child node)
-    removeChild(b byte)
-    eachAscending(yield func(byte, node) bool) bool
-    reshape() node
+	node
+	getPrefix() []byte
+	setPrefix(p []byte)
+	getTerminal() node
+	setTerminal(t node)
+	findChild(b byte) node
+	addOrGrowChild(b byte, child node) innerNode
+	replaceChild(b byte, child node)
+	removeChild(b byte)
+	eachAscending(yield func(byte, node) bool) bool
+	reshape() node
 }
 ```
 

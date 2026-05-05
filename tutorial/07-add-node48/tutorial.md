@@ -27,14 +27,14 @@ node4 and node16 store children in sorted arrays. node256
 indexes children directly by edge byte. node48 splits the
 difference:
 
-```go
+```go {src=art.go decl=node48}
 type node48[V any] struct {
-    prefix      []byte
-    childIndex  [256]byte         // 1-based slot per edge byte; 0 = absent
-    children    [48]node          // densely packed
-    childEdge   [48]byte          // parallel to children: each slot's edge byte
-    terminal    node
-    numChildren uint8
+	prefix      []byte
+	childIndex  [256]byte
+	children    [node48Capacity]node
+	childEdge   [node48Capacity]byte
+	terminal    node
+	numChildren uint8
 }
 ```
 
@@ -53,23 +53,23 @@ must be updated to point at its new slot — and we need to know
 *which edge byte* the swapped-in child held. `childEdge[i]`
 records that for the slot at index `i`:
 
-```go
+```go {src=art.go decl=node48.removeChild}
 func (n *node48[V]) removeChild(b byte) {
-    slot := n.childIndex[b]
-    if slot == 0 {
-        return
-    }
-    last := n.numChildren
-    if slot != last {
-        lastEdge := n.childEdge[last-1]
-        n.children[slot-1] = n.children[last-1]
-        n.childEdge[slot-1] = lastEdge
-        n.childIndex[lastEdge] = slot
-    }
-    n.children[last-1] = nil
-    n.childEdge[last-1] = 0
-    n.childIndex[b] = 0
-    n.numChildren--
+	slot := n.childIndex[b]
+	if slot == 0 {
+		return
+	}
+	last := n.numChildren
+	if slot != last {
+		lastEdge := n.childEdge[last-1]
+		n.children[slot-1] = n.children[last-1]
+		n.childEdge[slot-1] = lastEdge
+		n.childIndex[lastEdge] = slot
+	}
+	n.children[last-1] = nil
+	n.childEdge[last-1] = 0
+	n.childIndex[b] = 0
+	n.numChildren--
 }
 ```
 

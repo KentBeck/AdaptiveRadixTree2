@@ -16,23 +16,23 @@ unique tail in the trie — store the (key, value) pair as a single
 
 A second node kind enters the design.
 
-```go
-// node is the sum-type marker satisfied by both *leaf[V] and
-// *node256[V]. Empty interface; we distinguish via type assertion.
+```go {src=art.go decls=node,leaf,leaf.isNode,node256,node256.isNode}
 type node interface {
-    isNode()
+	isNode()
 }
 
 type leaf[V any] struct {
-    key   []byte    // copy of the caller's key
-    value V
+	key   []byte
+	value V
 }
+
 func (*leaf[V]) isNode() {}
 
 type node256[V any] struct {
-    children [256]node    // each slot is nil, a *leaf, or a *node256
-    terminal *leaf[V]     // leaf for the key (if any) ending exactly here
+	children [256]node
+	terminal *leaf[V]
 }
+
 func (*node256[V]) isNode() {}
 ```
 
@@ -59,29 +59,34 @@ sizes (chapters 4–7) can be dispatched without a switch.
 The three cases in `putInto` map directly to the three structural
 states a child slot can be in:
 
-```go
+```go {src=art.go decl=putInto}
 func putInto[V any](current node, key []byte, value V, depth int, size *int) node {
-    if current == nil {
-        *size++
-        return &leaf[V]{key: append([]byte(nil), key...), value: value}
-    }
-    if l, ok := current.(*leaf[V]); ok {
-        if bytes.Equal(l.key, key) { l.value = value; return l }
-        return splitTwoLeaves(l, key, value, depth, size)
-    }
-    n := current.(*node256[V])
-    if depth == len(key) {
-        if n.terminal == nil {
-            *size++
-            n.terminal = &leaf[V]{key: append([]byte(nil), key...), value: value}
-        } else {
-            n.terminal.value = value
-        }
-        return n
-    }
-    b := key[depth]
-    n.children[b] = putInto(n.children[b], key, value, depth+1, size)
-    return n
+	if current == nil {
+		*size++
+		return &leaf[V]{key: append([]byte(nil), key...), value: value}
+	}
+
+	if l, ok := current.(*leaf[V]); ok {
+		if bytes.Equal(l.key, key) {
+			l.value = value
+			return l
+		}
+		return splitTwoLeaves(l, key, value, depth, size)
+	}
+
+	n := current.(*node256[V])
+	if depth == len(key) {
+		if n.terminal == nil {
+			*size++
+			n.terminal = &leaf[V]{key: append([]byte(nil), key...), value: value}
+		} else {
+			n.terminal.value = value
+		}
+		return n
+	}
+	b := key[depth]
+	n.children[b] = putInto(n.children[b], key, value, depth+1, size)
+	return n
 }
 ```
 
@@ -90,35 +95,36 @@ same slot, we must build the inner-node structure to host them
 both. They share some leading bytes; somewhere they diverge. The
 divergence point determines how many node256s we need.
 
-```go
+```go {src=art.go decl=splitTwoLeaves}
 func splitTwoLeaves[V any](existing *leaf[V], newKey []byte, newValue V, depth int, size *int) node {
-    diverge := depth
-    for diverge < len(existing.key) && diverge < len(newKey) && existing.key[diverge] == newKey[diverge] {
-        diverge++
-    }
+	diverge := depth
+	for diverge < len(existing.key) && diverge < len(newKey) && existing.key[diverge] == newKey[diverge] {
+		diverge++
+	}
 
-    head := &node256[V]{}
-    n := head
-    for i := depth; i < diverge; i++ {
-        next := &node256[V]{}
-        n.children[existing.key[i]] = next
-        n = next
-    }
+	head := &node256[V]{}
+	n := head
+	for i := depth; i < diverge; i++ {
+		next := &node256[V]{}
+		n.children[existing.key[i]] = next
+		n = next
+	}
 
-    *size++
-    newLeaf := &leaf[V]{key: append([]byte(nil), newKey...), value: newValue}
-    switch {
-    case diverge == len(existing.key):
-        n.terminal = existing
-        n.children[newKey[diverge]] = newLeaf
-    case diverge == len(newKey):
-        n.terminal = newLeaf
-        n.children[existing.key[diverge]] = existing
-    default:
-        n.children[existing.key[diverge]] = existing
-        n.children[newKey[diverge]] = newLeaf
-    }
-    return head
+	*size++
+	newLeaf := &leaf[V]{key: append([]byte(nil), newKey...), value: newValue}
+
+	switch {
+	case diverge == len(existing.key):
+		n.terminal = existing
+		n.children[newKey[diverge]] = newLeaf
+	case diverge == len(newKey):
+		n.terminal = newLeaf
+		n.children[existing.key[diverge]] = existing
+	default:
+		n.children[existing.key[diverge]] = existing
+		n.children[newKey[diverge]] = newLeaf
+	}
+	return head
 }
 ```
 
@@ -133,25 +139,29 @@ chapter 3's job.
 
 ## Get walks down, comparing at the leaf
 
-```go
+```go {src=art.go decl=Get}
 func (t *Tree[V]) Get(key []byte) (V, bool) {
-    var zero V
-    current := t.root
-    depth := 0
-    for current != nil {
-        if l, ok := current.(*leaf[V]); ok {
-            if bytes.Equal(l.key, key) { return l.value, true }
-            return zero, false
-        }
-        n := current.(*node256[V])
-        if depth == len(key) {
-            if n.terminal == nil { return zero, false }
-            return n.terminal.value, true
-        }
-        current = n.children[key[depth]]
-        depth++
-    }
-    return zero, false
+	var zero V
+	current := t.root
+	depth := 0
+	for current != nil {
+		if l, ok := current.(*leaf[V]); ok {
+			if bytes.Equal(l.key, key) {
+				return l.value, true
+			}
+			return zero, false
+		}
+		n := current.(*node256[V])
+		if depth == len(key) {
+			if n.terminal == nil {
+				return zero, false
+			}
+			return n.terminal.value, true
+		}
+		current = n.children[key[depth]]
+		depth++
+	}
+	return zero, false
 }
 ```
 
@@ -180,21 +190,28 @@ The reshape rules grow:
 The recursive `deleteFrom` returns the new (possibly collapsed)
 node and a `deleted` flag; `reshape` evaluates the rules above:
 
-```go
+```go {src=art.go decl=reshape}
 func reshape[V any](n *node256[V]) node {
-    var only node
-    count := 0
-    for _, c := range n.children {
-        if c != nil { count++; only = c }
-    }
-    if count == 0 {
-        if n.terminal != nil { return n.terminal }
-        return nil
-    }
-    if count == 1 && n.terminal == nil {
-        if l, ok := only.(*leaf[V]); ok { return l }
-    }
-    return n
+	var only node
+	count := 0
+	for _, c := range n.children {
+		if c != nil {
+			count++
+			only = c
+		}
+	}
+	if count == 0 {
+		if n.terminal != nil {
+			return n.terminal
+		}
+		return nil
+	}
+	if count == 1 && n.terminal == nil {
+		if l, ok := only.(*leaf[V]); ok {
+			return l
+		}
+	}
+	return n
 }
 ```
 
@@ -210,21 +227,27 @@ Chapter 1 had to allocate-and-copy the path on every yield because
 the key only existed as the path of edges traversed. Here, every
 leaf carries its own key — yield it directly.
 
-```go
+```go {src=art.go decl=iterate}
 func iterate[V any](n node, yield func([]byte, V) bool) bool {
-    if l, ok := n.(*leaf[V]); ok {
-        return yield(l.key, l.value)
-    }
-    r := n.(*node256[V])
-    if r.terminal != nil {
-        if !yield(r.terminal.key, r.terminal.value) { return false }
-    }
-    for b := 0; b < 256; b++ {
-        c := r.children[b]
-        if c == nil { continue }
-        if !iterate(c, yield) { return false }
-    }
-    return true
+	if l, ok := n.(*leaf[V]); ok {
+		return yield(l.key, l.value)
+	}
+	r := n.(*node256[V])
+	if r.terminal != nil {
+		if !yield(r.terminal.key, r.terminal.value) {
+			return false
+		}
+	}
+	for b := 0; b < 256; b++ {
+		c := r.children[b]
+		if c == nil {
+			continue
+		}
+		if !iterate(c, yield) {
+			return false
+		}
+	}
+	return true
 }
 ```
 

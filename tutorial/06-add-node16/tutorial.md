@@ -24,14 +24,15 @@ bought.
 
 The new struct mirrors `node4` exactly, scaled up:
 
-```go
+```go {src=art.go decls=node16,node16Capacity}
 type node16[V any] struct {
-    prefix      []byte
-    keys        [16]byte
-    children    [16]node
-    terminal    node
-    numChildren uint8
+	prefix      []byte
+	keys        [node16Capacity]byte
+	children    [node16Capacity]node
+	terminal    node
+	numChildren uint8
 }
+
 const node16Capacity = 16
 ```
 
@@ -41,22 +42,22 @@ Eleven methods, each one mechanical (`findChild`, `addChild`,
 node4's methods with `4` rewritten to `16`. The single interesting
 choice is in `reshape`:
 
-```go
+```go {src=art.go decl=node16.reshape}
 func (n *node16[V]) reshape() node {
-    if n.numChildren == 0 {
-        return collapseEmpty(n.terminal)
-    }
-    if n.numChildren == 1 && n.terminal == nil {
-        only := n.children[0]
-        if l, ok := only.(*leaf[V]); ok {
-            return l
-        }
-        return mergePrefixIntoChild(n.prefix, n.keys[0], only.(innerNode))
-    }
-    if n.numChildren <= node4Capacity {
-        return shrinkToNode4[V](n)
-    }
-    return n
+	if n.numChildren == 0 {
+		return collapseEmpty(n.terminal)
+	}
+	if n.numChildren == 1 && n.terminal == nil {
+		only := n.children[0]
+		if l, ok := only.(*leaf[V]); ok {
+			return l
+		}
+		return mergePrefixIntoChild(n.prefix, n.keys[0], only.(innerNode))
+	}
+	if n.numChildren <= node4Capacity {
+		return shrinkToNode4[V](n)
+	}
+	return n
 }
 ```
 
@@ -151,20 +152,20 @@ The honest cost is on `Get`: Sparse goes from 27 ns to 35 ns and
 URL from 99 ns to 118 ns. **That's the tradeoff we deliberately
 made.** A node16's `findChild` scans up to 16 keys linearly:
 
-```go
+```go {src=art.go decl=node16.findChild}
 func (n *node16[V]) findChild(b byte) node {
-    for i := uint8(0); i < n.numChildren; i++ {
-        if n.keys[i] == b {
-            return n.children[i]
-        }
-    }
-    return nil
+	for i := uint8(0); i < n.numChildren; i++ {
+		if n.keys[i] == b {
+			return n.children[i]
+		}
+	}
+	return nil
 }
 ```
 
 A node256's `findChild` is one array index:
 
-```go
+```go {src=art.go decl=node256.findChild}
 func (n *node256[V]) findChild(b byte) node { return n.children[b] }
 ```
 
