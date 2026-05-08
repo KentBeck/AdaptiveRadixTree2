@@ -65,7 +65,7 @@ single speedup is bookkeeping.
 |---|---|---|---|
 | 0 | [`00-what-is-a-trie/`](00-what-is-a-trie/tutorial.md) | Prose primer: what a trie is, why byte-by-byte descent, where it shines and where it doesn't. No code. | ✅ shipped |
 | 1 | [`harness/`](harness/) | Test harness: `SortedMap` interface + adapters (btree, map[string]int), `RunDiff` op-trace runner with random + 14 regression scenarios + meta-test, `MeasureCapacity` for a 100 MB budget. | 🚧 prose pending |
-| 2 | [`02-node256-only/`](02-node256-only/) (pending) | Disaster baseline: one node type, full 256-fanout, no leaves, no prefix compression. | 🚧 code pending |
+| 2 | [`02-node256-only/`](02-node256-only/) | Disaster baseline: one node type, full 256-fanout, no leaves, no prefix compression. | ✅ code; 🚧 prose pending |
 | 3 | [`03-lazy-expansion/`](03-lazy-expansion/tutorial.md) | Add a leaf type for tail-only paths. Sparse bytes/key drops 30×; All allocations drop to zero. | ✅ shipped |
 | 4 | [`04-path-compression/`](04-path-compression/tutorial.md) | `prefix []byte` on inner nodes; one node can consume a run of bytes that don't branch. URL bytes/key drops 2×; URL Get drops 2.8×; Stage 3 Get is faster than btree on every workload. | ✅ shipped |
 | 5 | [`05-add-node4/`](05-add-node4/tutorial.md) | Add a 4-child sorted-array node and dispatch via type-switch helpers. URL bytes/key drops 3.9×; Range on URL is 4.4× faster. Get gets slower (1.3–2.3×) — the dispatch cost. | ✅ shipped |
