@@ -27,14 +27,15 @@ OUT_DIR = os.path.join(HERE, "_book")
 PARTS = [
     ("README.md", "Front matter"),
     ("00-what-is-a-trie/tutorial.md", "Chapter 0 — What's a trie?"),
-    ("01-node256-only/tutorial.md", "Chapter 1 — A node256-only tree"),
-    ("02-lazy-expansion/tutorial.md", "Chapter 2 — Lazy expansion"),
-    ("03-path-compression/tutorial.md", "Chapter 3 — Path compression"),
-    ("04-add-node4/tutorial.md", "Chapter 4 — Adding node4"),
-    ("05-introduce-polymorphism/tutorial.md", "Chapter 5 — Introduce polymorphism"),
-    ("06-add-node16/tutorial.md", "Chapter 6 — Adding node16"),
-    ("07-add-node48/tutorial.md", "Chapter 7 — Adding node48"),
-    ("08-polish/tutorial.md", "Chapter 8 — Polish + reading guide"),
+    # ("01-test-harness/tutorial.md", "Chapter 1 — Test harness"),  # prose pending
+    # ("02-node256-only/tutorial.md", "Chapter 2 — A node256-only tree"),  # code pending
+    ("03-lazy-expansion/tutorial.md", "Chapter 3 — Lazy expansion"),
+    ("04-path-compression/tutorial.md", "Chapter 4 — Path compression"),
+    ("05-add-node4/tutorial.md", "Chapter 5 — Adding node4"),
+    ("06-introduce-polymorphism/tutorial.md", "Chapter 6 — Introduce polymorphism"),
+    ("07-add-node16/tutorial.md", "Chapter 7 — Adding node16"),
+    ("08-add-node48/tutorial.md", "Chapter 8 — Adding node48"),
+    ("09-polish/tutorial.md", "Chapter 9 — Polish + reading guide"),
     ("BENCHMARKS.md", "Appendix — Scaling annex"),
 ]
 

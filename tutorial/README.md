@@ -43,14 +43,15 @@ underlying engineering lesson is below it.
 | # | Technique | Lesson |
 |---|---|---|
 | 0 | What a trie is | Shorter explanation than expected. Byte-by-byte descent gives sorted iteration for free, and trades one node-traversal per byte for the lookup-by-comparison cost of a B-tree. |
-| 1 | The simplest possible trie | Build the disaster baseline before reaching for anything clever. The "simplest thing that could possibly work" makes every later decision concrete: it has a measured cost to beat. |
-| 2 | Lazy expansion | When unique tails are common, a leaf is cheaper than a chain of inner nodes. Stop expanding past the last branching point. |
-| 3 | Path compression | When prefixes are shared, encode the run in one prefix field instead of one inner node per byte. Mirror image of chapter 2: chapter 2 saved tail bytes; chapter 3 saves prefix bytes. |
-| 4 | Smaller node types (node4) with two-case dispatch | Smaller nodes save space when fanout is low. The naive way to dispatch — a type switch per operation — is bearable at two cases and visibly painful at four. Hold that pain for one chapter. |
-| 5 | Polymorphism | "Make the change easy, then make the easy change." Refactor before adding the third and fourth node types, not after. The numbers you measure during a refactor describe what the trade cost; they do not drive the decision. |
-| 6 | The easy change (node16) | One new struct + 11 method implementations + 5 lines of surgical edits. Adding the third node type costs no edits to operation bodies. The chapter-5 investment is collected here. |
-| 7 | The completed ladder (node48) | The "Adaptive" in *Adaptive Radix Tree* means the *shape of the data* picks which sizes to use. Not every node type earns its seat for every workload. |
-| 8 | Polish + reading guide | Three small refinements (inline-key buffer, embedded `innerHeader`, reused path buffer in `Range`) close the gap to the production code. Each is a focused trade — bytes for allocs, repetition for promotion, per-yield allocation for per-call buffer. |
+| 1 | Test harness | Build the differential tester (against `google/btree`) + a regression scenario suite + a 100 MB capacity probe. Every chapter from 2 onward is exercised by this harness. (Prose pending; package code lives at [`tutorial/harness/`](harness/).) |
+| 2 | The simplest possible trie (node256-only) | Disaster baseline. One node type, full 256-fanout, no leaves, no prefix compression. (Code pending; rewriting from scratch in the next wave.) |
+| 3 | Lazy expansion | When unique tails are common, a leaf is cheaper than a chain of inner nodes. Stop expanding past the last branching point. |
+| 4 | Path compression | When prefixes are shared, encode the run in one prefix field instead of one inner node per byte. Mirror image of chapter 3: chapter 3 saved tail bytes; chapter 4 saves prefix bytes. |
+| 5 | Smaller node types (node4) with two-case dispatch | Smaller nodes save space when fanout is low. The naive way to dispatch — a type switch per operation — is bearable at two cases and visibly painful at four. Hold that pain for one chapter. |
+| 6 | Polymorphism | "Make the change easy, then make the easy change." Refactor before adding the third and fourth node types, not after. The numbers you measure during a refactor describe what the trade cost; they do not drive the decision. |
+| 7 | The easy change (node16) | One new struct + 11 method implementations + 5 lines of surgical edits. Adding the third node type costs no edits to operation bodies. The chapter-6 investment is collected here. |
+| 8 | The completed ladder (node48) | The "Adaptive" in *Adaptive Radix Tree* means the *shape of the data* picks which sizes to use. Not every node type earns its seat for every workload. |
+| 9 | Polish + reading guide | Three small refinements (inline-key buffer, embedded `innerHeader`, reused path buffer in `Range`) close the gap to the production code. Each is a focused trade — bytes for allocs, repetition for promotion, per-yield allocation for per-call buffer. |
 
 The measurements in each chapter's `tutorial.md` quantify each
 trade. They are presented because *we are engineering* —
@@ -63,14 +64,15 @@ single speedup is bookkeeping.
 | # | Path | What's added | Status |
 |---|---|---|---|
 | 0 | [`00-what-is-a-trie/`](00-what-is-a-trie/tutorial.md) | Prose primer: what a trie is, why byte-by-byte descent, where it shines and where it doesn't. No code. | ✅ shipped |
-| 1 | [`01-node256-only/`](01-node256-only/tutorial.md) | One node type, full 256-fanout, no leaves, no prefix compression. The disaster baseline: ~31 KB per key on sparse workloads. | ✅ shipped |
-| 2 | [`02-lazy-expansion/`](02-lazy-expansion/tutorial.md) | Add a leaf type for tail-only paths. Sparse bytes/key drops 30×; All allocations drop to zero. | ✅ shipped |
-| 3 | [`03-path-compression/`](03-path-compression/tutorial.md) | `prefix []byte` on inner nodes; one node can consume a run of bytes that don't branch. URL bytes/key drops 2×; URL Get drops 2.8×; Stage 3 Get is faster than btree on every workload. | ✅ shipped |
-| 4 | [`04-add-node4/`](04-add-node4/tutorial.md) | Add a 4-child sorted-array node and dispatch via type-switch helpers. URL bytes/key drops 3.9×; Range on URL is 4.4× faster. Get gets slower (1.3–2.3×) — the dispatch cost. | ✅ shipped |
-| 5 | [`05-introduce-polymorphism/`](05-introduce-polymorphism/tutorial.md) | Refactor: nine type-switch helpers become 11 methods on an `innerNode` interface. Behaviour identical; chapter 6's diff for adding node16 becomes new-file-only. The price: ~10–25% on hot-path Get latency and a closure allocation per inner node during Range. Engineering — quality of decision, not size of speedup. | ✅ shipped |
-| 6 | [`06-add-node16/`](06-add-node16/tutorial.md) | New struct + 11 method implementations + 5 lines of edits to existing types. Sparse heap drops 5.17×; URL drops 3.0×. Stage 6 is within 1.4–2.0× of btree's heap on Sparse / URL. The price: ~20% more time on Get for medium-fanout workloads (linear scan vs array index). | ✅ shipped |
-| 7 | [`07-add-node48/`](07-add-node48/tutorial.md) | New struct + 11 method impls + 3 surgical edits. Same diff shape as chapter 6. node48 is unused at 1k fixture size — the 17–48 fanout band is empty there — but at Sparse-5k the heap drops 2.35× (234 → 99 B/key, 182 inner nodes settle into node48) and Put goes 1.7× faster than btree. The lesson: the four-type ladder is workload-adaptive; not every type earns its seat for every workload. | ✅ shipped |
-| 8 | [`08-polish/`](08-polish/tutorial.md) | Three polishes: inline-key buffer (Put allocs drop ~2× on short keys), embedded `innerHeader` (16 trivial methods deleted), `Range` with reused path buffer (zero per-yield allocations). Plus a reading guide to the parent `art.Tree` source. | ✅ shipped |
+| 1 | [`harness/`](harness/) | Test harness: `SortedMap` interface + adapters (btree, map[string]int), `RunDiff` op-trace runner with random + 14 regression scenarios + meta-test, `MeasureCapacity` for a 100 MB budget. | 🚧 prose pending |
+| 2 | [`02-node256-only/`](02-node256-only/) (pending) | Disaster baseline: one node type, full 256-fanout, no leaves, no prefix compression. | 🚧 code pending |
+| 3 | [`03-lazy-expansion/`](03-lazy-expansion/tutorial.md) | Add a leaf type for tail-only paths. Sparse bytes/key drops 30×; All allocations drop to zero. | ✅ shipped |
+| 4 | [`04-path-compression/`](04-path-compression/tutorial.md) | `prefix []byte` on inner nodes; one node can consume a run of bytes that don't branch. URL bytes/key drops 2×; URL Get drops 2.8×; Stage 3 Get is faster than btree on every workload. | ✅ shipped |
+| 5 | [`05-add-node4/`](05-add-node4/tutorial.md) | Add a 4-child sorted-array node and dispatch via type-switch helpers. URL bytes/key drops 3.9×; Range on URL is 4.4× faster. Get gets slower (1.3–2.3×) — the dispatch cost. | ✅ shipped |
+| 6 | [`06-introduce-polymorphism/`](06-introduce-polymorphism/tutorial.md) | Refactor: nine type-switch helpers become 11 methods on an `innerNode` interface. Behaviour identical; chapter 7's diff for adding node16 becomes new-file-only. The price: ~10–25% on hot-path Get latency and a closure allocation per inner node during Range. Engineering — quality of decision, not size of speedup. | ✅ shipped |
+| 7 | [`07-add-node16/`](07-add-node16/tutorial.md) | New struct + 11 method implementations + 5 lines of edits to existing types. Sparse heap drops 5.17×; URL drops 3.0×. Stage 6 is within 1.4–2.0× of btree's heap on Sparse / URL. The price: ~20% more time on Get for medium-fanout workloads (linear scan vs array index). | ✅ shipped |
+| 8 | [`08-add-node48/`](08-add-node48/tutorial.md) | New struct + 11 method impls + 3 surgical edits. Same diff shape as chapter 7. node48 is unused at 1k fixture size — the 17–48 fanout band is empty there — but at Sparse-5k the heap drops 2.35× (234 → 99 B/key, 182 inner nodes settle into node48) and Put goes 1.7× faster than btree. The lesson: the four-type ladder is workload-adaptive; not every type earns its seat for every workload. | ✅ shipped |
+| 9 | [`09-polish/`](09-polish/tutorial.md) | Three polishes: inline-key buffer (Put allocs drop ~2× on short keys), embedded `innerHeader` (16 trivial methods deleted), `Range` with reused path buffer (zero per-yield allocations). Plus a reading guide to the parent `art.Tree` source. | ✅ shipped |
 
 ## How the per-chapter numbers work
 
@@ -95,9 +97,13 @@ cd tutorial && go test -bench=. -benchmem -benchtime=300ms ./...
 (`Get` ~10 ns) finish before Go's bench framework reaches a stable
 sample and report numbers heavily inflated by startup overhead.
 
+Bench-output labels `Stage1`/`Stage2`/... in chapters 3-9 are
+historical: they retain pre-renumber numbering. New labels will
+appear when chapter content is rewritten.
+
 ## Beyond per-chapter — the scaling annex
 
-[`BENCHMARKS.md`](BENCHMARKS.md) tracks the chapter-8 implementation
+[`BENCHMARKS.md`](BENCHMARKS.md) tracks the chapter-9 implementation
 (equivalent to the production `art.Tree`) against `google/btree`
 across map sizes from 1 000 to 100 000 000 keys. It answers the
 question "does the per-chapter story still hold at production

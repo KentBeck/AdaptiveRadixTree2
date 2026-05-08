@@ -6,10 +6,10 @@ and has reached for a sorted map at some point — `google/btree`,
 and got a feel for the API. It does *not* assume you know what a
 trie is or how an Adaptive Radix Tree differs from one.
 
-Each chapter builds a working sorted map. Chapter 1 is the simplest
+Each chapter builds a working sorted map. Chapter 2 is the simplest
 imaginable trie. Chapters 2 through 7 each add one decision: lazy
 expansion, path compression, smaller node types, polymorphism. By
-chapter 8 you can read the project's main `art.Tree` source as a
+chapter 9 you can read the project's main `art.Tree` source as a
 known artifact rather than a wall of code. This chapter is just the
 primer — no Go yet.
 
@@ -114,28 +114,28 @@ The honest tradeoffs are equally direct:
 - **Wasted nodes for sparse keysets.** Every byte position where
   any key has a unique value gets its own node. If your keys are
   random 16-byte blobs, almost every level branches, and you pay
-  for one inner node per byte per key. Chapter 1 makes this
+  for one inner node per byte per key. Chapter 2 makes this
   visible: ~33 MB to store 1 000 random 16-byte keys in the
   simplest possible trie.
 
 The eight chapters that follow are a series of decisions that keep
 the **byte-by-byte descent** and remove the wasted nodes:
 
-- **Lazy expansion** (chapter 2) — stop allocating inner nodes
+- **Lazy expansion** (chapter 3) — stop allocating inner nodes
   along a tail with no siblings.
-- **Path compression** (chapter 3) — let one node represent
+- **Path compression** (chapter 4) — let one node represent
   several consecutive bytes when none of them branch.
 - **Smaller node types** (chapters 4 — 7) — when a node has only a
   handful of children, don't allocate room for 256.
-- **Polymorphism** (chapter 5) — between adding the second and
+- **Polymorphism** (chapter 6) — between adding the second and
   third node types, refactor so that adding the rest is mechanical.
-- **Polish** (chapter 8) — inline-key buffers, embedded headers,
+- **Polish** (chapter 9) — inline-key buffers, embedded headers,
   a reused path buffer for `Range`. Allocations per key drop to
   roughly one.
 
-By chapter 8 the implementation is the same shape as the
+By chapter 9 the implementation is the same shape as the
 production `art.Tree` in the parent package. You will have built
 it, decision by decision, and you will have measured what each
 decision was worth.
 
-Onward to chapter 1, where we build the disaster.
+Onward to chapter 2, where we build the disaster.
