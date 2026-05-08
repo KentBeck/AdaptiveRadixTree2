@@ -85,6 +85,8 @@ func MeasureCapacity(factory Factory, workload string, gen func(i int) (key []by
 	}
 }
 
+// TODO: streaming generators if a future implementation outlasts `bench.X(N)`'s pre-allocated key set.
+
 // DenseGen returns a streaming generator for the Dense workload --
 // 8-byte big-endian counter keys, value = i. Stateless and matches
 // bench.Dense's deterministic shape.

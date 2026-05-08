@@ -89,6 +89,7 @@ func Scenarios() []Scenario {
 			},
 		},
 		{
+			// Both implementations agree they yield nothing. We do not require future implementations to do the same; this scenario only checks consistency between the candidate and the reference, not absolute behavior.
 			Name: "range-empty-window",
 			Ops: []Op{
 				Put([]byte("a"), 1), Put([]byte("b"), 2), Put([]byte("c"), 3),

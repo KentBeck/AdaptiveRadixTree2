@@ -90,14 +90,12 @@ func runDiff(r reporter, candidate, reference SortedMap, ops []Op) {
 					i, op.From, op.To, formatPairs(gPairs), formatPairs(rPairs), traceTail(ops, i))
 			}
 		case OpLen:
-			if g, ref := candidate.Len(), reference.Len(); g != ref {
-				r.Errorf("op %d Len: candidate=%d reference=%d\n%s",
-					i, g, ref, traceTail(ops, i))
-			}
+			// Len parity is asserted by the post-step check below.
 		}
 		if g, ref := candidate.Len(), reference.Len(); g != ref {
-			r.Errorf("op %d post-step Len drift: candidate=%d reference=%d\n%s",
-				i, g, ref, traceTail(ops, i))
+			r.Errorf("op %d (%s): Len mismatch: candidate=%d reference=%d\n%s",
+				i, formatOp(op), g, ref, traceTail(ops, i))
+			return
 		}
 	}
 	gPairs := collect(candidate.Range(nil, nil))
