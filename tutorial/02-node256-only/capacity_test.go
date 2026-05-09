@@ -4,7 +4,7 @@ import (
 	"flag"
 	"testing"
 
-	"github.com/KentBeck/AdaptiveRadixTree2/tutorial/harness"
+	"github.com/KentBeck/AdaptiveRadixTree2/tutorial/01-test-harness"
 )
 
 var capacityFlag = flag.Bool("capacity", false, "run the 100MB capacity benchmarks")

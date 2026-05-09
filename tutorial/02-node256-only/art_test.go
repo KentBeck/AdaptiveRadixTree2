@@ -4,7 +4,7 @@ import (
 	"iter"
 	"testing"
 
-	"github.com/KentBeck/AdaptiveRadixTree2/tutorial/harness"
+	"github.com/KentBeck/AdaptiveRadixTree2/tutorial/01-test-harness"
 )
 
 // chapterAdapter wraps Tree[int] so it satisfies harness.SortedMap.
