@@ -52,7 +52,7 @@ A note on the empty-method `node` interface: this is a *sum-type
 marker*, not method polymorphism. Every dispatch in this chapter is
 an explicit type assertion. Chapter 6 will introduce a sibling
 interface `innerNode` with real methods so that the four ART node
-sizes (chapters 4–7) can be dispatched without a switch.
+sizes (chapters 2, 5, 7, 8) can be dispatched without a switch.
 
 ## Get walks down, comparing at the leaf
 
@@ -92,10 +92,12 @@ lot on Sparse (the descent was 16 cache misses).
 
 ## Put walks down, splitting on collision
 
-`Put` is the same one-line entry point as chapter 2; the work
-moves into a free `putInto` helper that recurses on `(current,
-depth)` so it can return the (possibly different) node that
-should occupy the slot it was called on:
+`Put` keeps the one-method public surface from chapter 2, but the
+work shifts into a recursive `putInto` helper that takes
+`(current, depth)` and returns the (possibly different) node
+that should occupy the slot it was called on. The recursion is
+what lets a leaf split into a node256 — the call site swaps the
+returned node into place without knowing what kind it is:
 
 ```go {src=art.go decl=Put}
 func (t *Tree[V]) Put(key []byte, value V) {
@@ -327,7 +329,7 @@ Sparse      31 345 B   35 134 B          1 008 B    1 186 B           30×
 URL         16 622 B   18 636 B          3 495 B    4 136 B            4.5×
 ```
 
-Sparse, the chapter-1 disaster, dropped from ~35 KB/key on the
+Sparse, the chapter-2 disaster, dropped from ~35 KB/key on the
 heap to ~1.2 KB/key — a 30× reduction in actual memory. URL saw
 only a 4.5× improvement because long URL prefixes still demand
 long chains of node256s, and a chain of one-child node256s costs
@@ -358,7 +360,7 @@ Three outcomes worth pointing at:
 - **Get on Dense is *slower* than Stage 1.** Two costs rise: the
   interface type assertion at every loop iteration, and the leaf
   compare reads the full key rather than just walking
-  node-by-node. On Dense where the chapter-1 walk was already
+  node-by-node. On Dense where the chapter-2 walk was already
   ~9 ns, the new overhead doubles the time. Chapter 4 recovers
   this on Dense by collapsing the chain of leading-zero nodes
   into a single prefix, cutting the walk *and* keeping the leaf
@@ -392,12 +394,12 @@ Two structural waste cases remain:
 1. **Long shared prefixes still cost one node256 per byte.** On
    URL keys sharing 33-byte hosts, every shared byte allocates an
    inner node with one child — 4 KB per node either way. Chapter
-   3 introduces a `prefix []byte` field on inner nodes so a single
-   node can consume a run of bytes that don't branch.
+   4 will introduce a `prefix []byte` field on inner nodes so a
+   single node can consume a run of bytes that don't branch.
 2. **Even after path compression, every inner node still reserves
    256 child slots.** A node with 2 children pays for 254 nil
-   interface slots. Chapters 4–7 introduce smaller node sizes
-   that allocate room for what's actually used.
+   interface slots. Chapters 5, 7, and 8 will introduce smaller
+   node sizes that allocate room for what's actually used.
 
 Chapter 4's headline target is the URL row above: from ~4 KB/key
 on the heap to something closer to `~70 B/key` (btree's number).
