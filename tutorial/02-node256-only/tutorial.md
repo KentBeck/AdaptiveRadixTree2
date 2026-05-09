@@ -210,7 +210,7 @@ trace. The same two tests, against the same two oracles, run in
 every chapter from here on; the correctness floor never moves
 even as the data structure underneath changes shape four times.
 The harness has its own meta-test
-(`harness.TestRegressionRunnerCatchesABuggyMap`) that confirms
+(`harness.TestDiff_DetectsDivergence`) that confirms
 the runner actually fails when the candidate misbehaves — without
 that, a green build would prove nothing.
 
