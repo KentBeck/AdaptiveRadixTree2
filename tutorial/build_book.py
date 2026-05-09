@@ -27,7 +27,7 @@ OUT_DIR = os.path.join(HERE, "_book")
 PARTS = [
     ("README.md", "Front matter"),
     ("00-what-is-a-trie/tutorial.md", "Chapter 0 — What's a trie?"),
-    # ("01-test-harness/tutorial.md", "Chapter 1 — Test harness"),  # prose pending
+    ("01-test-harness/tutorial.md", "Chapter 1 — Test harness"),
     ("02-node256-only/tutorial.md", "Chapter 2 — A node256-only tree"),
     ("03-lazy-expansion/tutorial.md", "Chapter 3 — Lazy expansion"),
     ("04-path-compression/tutorial.md", "Chapter 4 — Path compression"),

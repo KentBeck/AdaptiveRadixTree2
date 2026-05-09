@@ -43,7 +43,7 @@ underlying engineering lesson is below it.
 | # | Technique | Lesson |
 |---|---|---|
 | 0 | What a trie is | Shorter explanation than expected. Byte-by-byte descent gives sorted iteration for free, and trades one node-traversal per byte for the lookup-by-comparison cost of a B-tree. |
-| 1 | Test harness | Build the differential tester (against `google/btree`) + a regression scenario suite + a 100 MB capacity probe. Every chapter from 2 onward is exercised by this harness. (Prose pending; package code lives at [`tutorial/harness/`](harness/).) |
+| 1 | Test harness | Build the lie-detector first. Differential tester (`RunDiff`) against `google/btree` and a `map[string]int` adapter, 14 named regression scenarios, random-trace generator with a logged seed, a meta-test that proves the harness fires on a broken adapter, and a 100 MB capacity probe. Every chapter from 2 onward is exercised by it. |
 | 2 | The simplest possible trie (node256-only) | Disaster baseline. One node type, full 256-fanout, no leaves, no prefix compression. ~31 KB/key on Sparse, ~4 000 keys before the 100 MB budget. The cost-to-beat for every later chapter. |
 | 3 | Lazy expansion | When unique tails are common, a leaf is cheaper than a chain of inner nodes. Stop expanding past the last branching point. |
 | 4 | Path compression | When prefixes are shared, encode the run in one prefix field instead of one inner node per byte. Mirror image of chapter 3: chapter 3 saved tail bytes; chapter 4 saves prefix bytes. |
@@ -64,7 +64,7 @@ single speedup is bookkeeping.
 | # | Path | What's added | Status |
 |---|---|---|---|
 | 0 | [`00-what-is-a-trie/`](00-what-is-a-trie/tutorial.md) | Prose primer: what a trie is, why byte-by-byte descent, where it shines and where it doesn't. No code. | ✅ shipped |
-| 1 | [`harness/`](harness/) | Test harness: `SortedMap` interface + adapters (btree, map[string]int), `RunDiff` op-trace runner with random + 14 regression scenarios + meta-test, `MeasureCapacity` for a 100 MB budget. | 🚧 prose pending |
+| 1 | [`01-test-harness/`](01-test-harness/tutorial.md) | Test harness: `SortedMap` interface + adapters (btree, map[string]int), `RunDiff` op-trace runner with random + 14 regression scenarios + meta-test, `MeasureCapacity` for a 100 MB budget. | ✅ shipped |
 | 2 | [`02-node256-only/`](02-node256-only/tutorial.md) | Disaster baseline: one node type, full 256-fanout, no leaves, no prefix compression. Get / Put / Delete / Range walked through end-to-end. First chapter wired into the chapter-1 differential test harness (`harness.RunRegression` + `harness.RunDiff`). ~31 KB/key on Sparse; ≈ 4 000 keys before 100 MB. | ✅ shipped |
 | 3 | [`03-lazy-expansion/`](03-lazy-expansion/tutorial.md) | Add a leaf type for tail-only paths. Sparse bytes/key drops 30×; All allocations drop to zero. | ✅ shipped |
 | 4 | [`04-path-compression/`](04-path-compression/tutorial.md) | `prefix []byte` on inner nodes; one node can consume a run of bytes that don't branch. URL bytes/key drops 2×; URL Get drops 2.8×; Stage 3 Get is faster than btree on every workload. | ✅ shipped |
