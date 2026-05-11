@@ -98,10 +98,11 @@ type RandomConfig struct {
 	PutWeight, GetWeight, DeleteWeight, RangeWeight int
 }
 
-func RandomTrace(cfg RandomConfig) []Op {
+func RandomTrace(cfg RandomConfig) (seed uint64, ops []Op) {
 	if cfg.Seed == 0 {
-		cfg.Seed = 1
+		cfg.Seed = uint64(time.Now().UnixNano())
 	}
+	seed = cfg.Seed
 	if cfg.NumOps == 0 {
 		cfg.NumOps = 1000
 	}
@@ -116,7 +117,7 @@ func RandomTrace(cfg RandomConfig) []Op {
 	}
 	r := rand.New(rand.NewPCG(cfg.Seed, cfg.Seed^0x9e3779b97f4a7c15))
 	total := cfg.PutWeight + cfg.GetWeight + cfg.DeleteWeight + cfg.RangeWeight
-	ops := make([]Op, 0, cfg.NumOps)
+	ops = make([]Op, 0, cfg.NumOps)
 	randKey := func() []byte {
 		n := 1 + r.IntN(cfg.MaxKeyLen)
 		k := make([]byte, n)
@@ -142,32 +143,63 @@ func RandomTrace(cfg RandomConfig) []Op {
 			ops = append(ops, Rng(a, b))
 		}
 	}
-	return ops
+	return seed, ops
 }
 ```
 
 `RandomTrace` generates an op sequence from a seed. The
 defaults: alphabet `[]byte("abc")` so collisions are likely,
 `NumOps=1000`, weighted op mix favouring `Put` (4:2:2:1 across
-Put/Get/Delete/Range). The seed is part of the input, so a
-failing trace replays deterministically — copy the seed, paste
-it into a one-shot test, debug. Random tests find bugs the named
-scenarios miss; named scenarios make those bugs easy to debug.
+Put/Get/Delete/Range). A zero `Seed` auto-generates a fresh one
+from the wall clock, so every run varies; the typical caller
+goes through the `RandomTraceForT` helper, which logs the
+effective seed via `t.Logf`, so every failure is reproducible by
+pinning that seed back into `cfg.Seed`:
+
+```go
+ops := harness.RandomTraceForT(t, harness.RandomConfig{NumOps: 1000})
+```
+
+Random tests find bugs the named scenarios miss; named scenarios
+make those bugs easy to debug.
 
 ## Named scenarios for fast debugging
 
-The harness ships 14 hand-written scenarios:
-`empty/get-missing`, `single-put-get`, `overwrite`,
-`delete-missing`, `empty-key`, `prefix-of`, `boundary-bytes`,
-`long-key`, `range-half-open`, `range-unbounded`,
-`range-empty-window`, `delete-then-reinsert`, `large-fanout`,
-`mass-insert-then-delete-all`. Each is one specific shape that
-either bit us once or is obvious from the API surface — boundary
-bytes (0x00, 0x7f, 0x80, 0xff), a 1024-byte key, the full
-256-fanout, mass insert followed by mass delete in reverse. When
-one fails, the test name says what the bug is. A random trace
-fails with "seed 1 op 137" — informative once you replay it,
-slow to triage cold.
+Each scenario is its own top-level function returning a
+`Scenario` value, so a single one is easy to cite or run in
+isolation. For example, `prefix-of` checks that storing keys
+that are prefixes of each other (`h`, `hi`, `hello`, `help`)
+keeps reads consistent through a delete:
+
+```go {src=regression.go decl=prefixOf}
+func prefixOf() Scenario {
+	return Scenario{
+		Name: "prefix-of",
+		Ops: []Op{
+			Put([]byte("h"), 1), Put([]byte("hi"), 2),
+			Put([]byte("hello"), 3), Put([]byte("help"), 4),
+			Get([]byte("h")), Get([]byte("hi")),
+			Get([]byte("hello")), Get([]byte("help")),
+			Del([]byte("hi")),
+			Get([]byte("h")), Get([]byte("hi")),
+			Get([]byte("hello")), Get([]byte("help")),
+			Length(),
+		},
+	}
+}
+```
+
+The harness ships 14 such scenarios: `empty/get-missing`,
+`single-put-get`, `overwrite`, `delete-missing`, `empty-key`,
+`prefix-of`, `boundary-bytes`, `long-key`, `range-half-open`,
+`range-unbounded`, `range-empty-window`, `delete-then-reinsert`,
+`large-fanout`, `mass-insert-then-delete-all`. Each is one
+specific shape that either bit us once or is obvious from the
+API surface — boundary bytes (0x00, 0x7f, 0x80, 0xff), a
+1024-byte key, the full 256-fanout, mass insert followed by mass
+delete in reverse. When one fails, the test name says what the
+bug is. A random trace fails with "op 137" plus a logged seed —
+informative once you replay it, slow to triage cold.
 
 `RunRegression` runs them all:
 
@@ -299,7 +331,7 @@ func TestRegression(t *testing.T) {
 }
 
 func TestRandomDiff(t *testing.T) {
-	ops := harness.RandomTrace(harness.RandomConfig{})
+	ops := harness.RandomTraceForT(t, harness.RandomConfig{})
 	cand := factory()()
 	ref := harness.MapFactory()()
 	harness.RunDiff(t, cand, ref, ops)

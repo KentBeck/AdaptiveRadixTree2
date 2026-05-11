@@ -16,7 +16,7 @@ func TestRegression_BTreeVsMap(t *testing.T) {
 // TestDiff_Random_BTreeVsMap exercises a 1000-op random trace with
 // the default config (small alphabet, lots of collisions).
 func TestDiff_Random_BTreeVsMap(t *testing.T) {
-	ops := RandomTrace(RandomConfig{})
+	ops := RandomTraceForT(t, RandomConfig{})
 	RunDiff(t, NewBTree(), NewMap(), ops)
 }
 

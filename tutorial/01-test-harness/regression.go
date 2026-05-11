@@ -15,106 +15,65 @@ type Scenario struct {
 	Ops  []Op
 }
 
-// Scenarios returns the canonical regression set. Add a scenario by
-// appending to this list -- the runner picks them up automatically.
-func Scenarios() []Scenario {
+func emptyGetMissing() Scenario {
+	return Scenario{
+		Name: "empty/get-missing",
+		Ops:  []Op{Length(), Get([]byte("nope")), Length()},
+	}
+}
+
+func singlePutGet() Scenario {
 	bs := []byte("hello")
-	return []Scenario{
-		{
-			Name: "empty/get-missing",
-			Ops:  []Op{Length(), Get([]byte("nope")), Length()},
-		},
-		{
-			Name: "single-put-get",
-			Ops:  []Op{Put(bs, 1), Get(bs), Length()},
-		},
-		{
-			Name: "overwrite",
-			Ops:  []Op{Put(bs, 1), Put(bs, 2), Get(bs), Length()},
-		},
-		{
-			Name: "delete-missing",
-			Ops:  []Op{Del([]byte("nope")), Length(), Put(bs, 1), Del([]byte("nope")), Length()},
-		},
-		{
-			Name: "empty-key",
-			Ops: []Op{
-				Put(nil, 7), Get(nil), Length(),
-				Put([]byte{}, 8), Get(nil), Get([]byte{}), Length(),
-				Del(nil), Get(nil), Length(),
-			},
-		},
-		{
-			Name: "prefix-of",
-			Ops: []Op{
-				Put([]byte("h"), 1), Put([]byte("hi"), 2),
-				Put([]byte("hello"), 3), Put([]byte("help"), 4),
-				Get([]byte("h")), Get([]byte("hi")),
-				Get([]byte("hello")), Get([]byte("help")),
-				Del([]byte("hi")),
-				Get([]byte("h")), Get([]byte("hi")),
-				Get([]byte("hello")), Get([]byte("help")),
-				Length(),
-			},
-		},
-		{
-			Name: "boundary-bytes",
-			Ops:  boundaryBytesOps(),
-		},
-		{
-			Name: "long-key",
-			Ops: func() []Op {
-				k := bytes.Repeat([]byte{'x'}, 1024)
-				return []Op{Put(k, 42), Get(k), Length(), Del(k), Get(k), Length()}
-			}(),
-		},
-		{
-			Name: "range-half-open",
-			Ops: []Op{
-				Put([]byte("a"), 1), Put([]byte("b"), 2),
-				Put([]byte("c"), 3), Put([]byte("d"), 4),
-				Rng([]byte("b"), []byte("d")),
-				Rng([]byte("a"), []byte("a")),
-				Rng([]byte("a"), []byte("e")),
-			},
-		},
-		{
-			Name: "range-unbounded",
-			Ops: []Op{
-				Put([]byte("z"), 26), Put([]byte("a"), 1),
-				Put([]byte("m"), 13),
-				Rng(nil, nil),
-				Rng(nil, []byte("m")),
-				Rng([]byte("m"), nil),
-			},
-		},
-		{
-			// Both implementations agree they yield nothing. We do not require future implementations to do the same; this scenario only checks consistency between the candidate and the reference, not absolute behavior.
-			Name: "range-empty-window",
-			Ops: []Op{
-				Put([]byte("a"), 1), Put([]byte("b"), 2), Put([]byte("c"), 3),
-				Rng([]byte("z"), []byte("a")),
-			},
-		},
-		{
-			Name: "delete-then-reinsert",
-			Ops: []Op{
-				Put(bs, 1), Del(bs), Get(bs), Length(),
-				Put(bs, 99), Get(bs), Length(),
-			},
-		},
-		{
-			Name: "large-fanout",
-			Ops:  largeFanoutOps(),
-		},
-		{
-			Name: "mass-insert-then-delete-all",
-			Ops:  massInsertDeleteOps(200),
+	return Scenario{
+		Name: "single-put-get",
+		Ops:  []Op{Put(bs, 1), Get(bs), Length()},
+	}
+}
+
+func overwrite() Scenario {
+	bs := []byte("hello")
+	return Scenario{
+		Name: "overwrite",
+		Ops:  []Op{Put(bs, 1), Put(bs, 2), Get(bs), Length()},
+	}
+}
+
+func deleteMissing() Scenario {
+	bs := []byte("hello")
+	return Scenario{
+		Name: "delete-missing",
+		Ops:  []Op{Del([]byte("nope")), Length(), Put(bs, 1), Del([]byte("nope")), Length()},
+	}
+}
+
+func emptyKey() Scenario {
+	return Scenario{
+		Name: "empty-key",
+		Ops: []Op{
+			Put(nil, 7), Get(nil), Length(),
+			Put([]byte{}, 8), Get(nil), Get([]byte{}), Length(),
+			Del(nil), Get(nil), Length(),
 		},
 	}
 }
 
-func boundaryBytesOps() []Op {
+func prefixOf() Scenario {
+	return Scenario{
+		Name: "prefix-of",
+		Ops: []Op{
+			Put([]byte("h"), 1), Put([]byte("hi"), 2),
+			Put([]byte("hello"), 3), Put([]byte("help"), 4),
+			Get([]byte("h")), Get([]byte("hi")),
+			Get([]byte("hello")), Get([]byte("help")),
+			Del([]byte("hi")),
+			Get([]byte("h")), Get([]byte("hi")),
+			Get([]byte("hello")), Get([]byte("help")),
+			Length(),
+		},
+	}
+}
+
+func boundaryBytes() Scenario {
 	ops := []Op{}
 	for _, b := range []byte{0x00, 0x7f, 0x80, 0xff} {
 		ops = append(ops, Put([]byte{b}, int(b)))
@@ -126,10 +85,66 @@ func boundaryBytesOps() []Op {
 		ops = append(ops, Get([]byte{b, b}))
 	}
 	ops = append(ops, Length(), Rng(nil, nil))
-	return ops
+	return Scenario{Name: "boundary-bytes", Ops: ops}
 }
 
-func largeFanoutOps() []Op {
+func longKey() Scenario {
+	k := bytes.Repeat([]byte{'x'}, 1024)
+	return Scenario{
+		Name: "long-key",
+		Ops:  []Op{Put(k, 42), Get(k), Length(), Del(k), Get(k), Length()},
+	}
+}
+
+func rangeHalfOpen() Scenario {
+	return Scenario{
+		Name: "range-half-open",
+		Ops: []Op{
+			Put([]byte("a"), 1), Put([]byte("b"), 2),
+			Put([]byte("c"), 3), Put([]byte("d"), 4),
+			Rng([]byte("b"), []byte("d")),
+			Rng([]byte("a"), []byte("a")),
+			Rng([]byte("a"), []byte("e")),
+		},
+	}
+}
+
+func rangeUnbounded() Scenario {
+	return Scenario{
+		Name: "range-unbounded",
+		Ops: []Op{
+			Put([]byte("z"), 26), Put([]byte("a"), 1),
+			Put([]byte("m"), 13),
+			Rng(nil, nil),
+			Rng(nil, []byte("m")),
+			Rng([]byte("m"), nil),
+		},
+	}
+}
+
+func rangeEmptyWindow() Scenario {
+	// Both implementations agree they yield nothing. We do not require future implementations to do the same; this scenario only checks consistency between the candidate and the reference, not absolute behavior.
+	return Scenario{
+		Name: "range-empty-window",
+		Ops: []Op{
+			Put([]byte("a"), 1), Put([]byte("b"), 2), Put([]byte("c"), 3),
+			Rng([]byte("z"), []byte("a")),
+		},
+	}
+}
+
+func deleteThenReinsert() Scenario {
+	bs := []byte("hello")
+	return Scenario{
+		Name: "delete-then-reinsert",
+		Ops: []Op{
+			Put(bs, 1), Del(bs), Get(bs), Length(),
+			Put(bs, 99), Get(bs), Length(),
+		},
+	}
+}
+
+func largeFanout() Scenario {
 	ops := make([]Op, 0, 256*2+2)
 	for b := 0; b < 256; b++ {
 		ops = append(ops, Put([]byte{byte(b)}, b))
@@ -138,10 +153,11 @@ func largeFanoutOps() []Op {
 		ops = append(ops, Get([]byte{byte(b)}))
 	}
 	ops = append(ops, Length(), Rng(nil, nil))
-	return ops
+	return Scenario{Name: "large-fanout", Ops: ops}
 }
 
-func massInsertDeleteOps(n int) []Op {
+func massInsertThenDeleteAll() Scenario {
+	const n = 200
 	ops := make([]Op, 0, n*2+2)
 	keys := make([][]byte, n)
 	for i := 0; i < n; i++ {
@@ -154,7 +170,28 @@ func massInsertDeleteOps(n int) []Op {
 		ops = append(ops, Del(keys[i]))
 	}
 	ops = append(ops, Length())
-	return ops
+	return Scenario{Name: "mass-insert-then-delete-all", Ops: ops}
+}
+
+// Scenarios returns the canonical regression set. Add a scenario by
+// appending to this list -- the runner picks them up automatically.
+func Scenarios() []Scenario {
+	return []Scenario{
+		emptyGetMissing(),
+		singlePutGet(),
+		overwrite(),
+		deleteMissing(),
+		emptyKey(),
+		prefixOf(),
+		boundaryBytes(),
+		longKey(),
+		rangeHalfOpen(),
+		rangeUnbounded(),
+		rangeEmptyWindow(),
+		deleteThenReinsert(),
+		largeFanout(),
+		massInsertThenDeleteAll(),
+	}
 }
 
 // RunRegression runs every scenario from Scenarios() against

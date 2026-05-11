@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"testing"
+	"time"
 )
 
 // OpKind identifies which method of SortedMap an Op runs.
@@ -176,7 +177,8 @@ func formatOp(op Op) string {
 
 // RandomConfig parameterizes RandomTrace. Zero-value fields fall
 // back to defaults that produce a small alphabet (so collisions are
-// frequent), 1000 mixed ops, and Put-heavy weights.
+// frequent), 1000 mixed ops, and Put-heavy weights. Seed == 0 means
+// auto-generate a fresh seed from the wall clock.
 type RandomConfig struct {
 	Seed                                            uint64
 	NumOps                                          int
@@ -186,10 +188,13 @@ type RandomConfig struct {
 }
 
 // RandomTrace generates a deterministic op sequence based on cfg.
-func RandomTrace(cfg RandomConfig) []Op {
+// It returns the effective seed alongside the ops so callers can
+// log it and reproduce a failing trace by pinning cfg.Seed.
+func RandomTrace(cfg RandomConfig) (seed uint64, ops []Op) {
 	if cfg.Seed == 0 {
-		cfg.Seed = 1
+		cfg.Seed = uint64(time.Now().UnixNano())
 	}
+	seed = cfg.Seed
 	if cfg.NumOps == 0 {
 		cfg.NumOps = 1000
 	}
@@ -204,7 +209,7 @@ func RandomTrace(cfg RandomConfig) []Op {
 	}
 	r := rand.New(rand.NewPCG(cfg.Seed, cfg.Seed^0x9e3779b97f4a7c15))
 	total := cfg.PutWeight + cfg.GetWeight + cfg.DeleteWeight + cfg.RangeWeight
-	ops := make([]Op, 0, cfg.NumOps)
+	ops = make([]Op, 0, cfg.NumOps)
 	randKey := func() []byte {
 		n := 1 + r.IntN(cfg.MaxKeyLen)
 		k := make([]byte, n)
@@ -230,5 +235,15 @@ func RandomTrace(cfg RandomConfig) []Op {
 			ops = append(ops, Rng(a, b))
 		}
 	}
+	return seed, ops
+}
+
+// RandomTraceForT generates a random trace and logs the effective
+// seed via t.Logf so failing tests are reproducible. Pin cfg.Seed
+// explicitly when reducing a failure.
+func RandomTraceForT(t *testing.T, cfg RandomConfig) []Op {
+	t.Helper()
+	seed, ops := RandomTrace(cfg)
+	t.Logf("RandomTrace seed=%d numOps=%d", seed, len(ops))
 	return ops
 }
