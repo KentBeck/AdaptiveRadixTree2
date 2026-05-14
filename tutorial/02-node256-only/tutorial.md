@@ -203,16 +203,15 @@ a reused buffer.
 Chapter 1 introduced a small differential test harness. Chapter
 2's `art_test.go` is the first chapter to wire into it.
 `TestRegression` runs every named scenario from
-`harness.Scenarios()` against both this tree and a `map[string]int`
-reference, asserting that every observable result agrees.
-`TestRandomDiff` does the same against a randomly generated op
-trace. The same two tests, against the same two oracles, run in
-every chapter from here on; the correctness floor never moves
-even as the data structure underneath changes shape four times.
-The harness has its own meta-test
-(`harness.TestDiff_DetectsDivergence`) that confirms
-the runner actually fails when the candidate misbehaves — without
-that, a green build would prove nothing.
+`harness.Scenarios()` against both this tree and `google/btree`,
+asserting that every observable result agrees. `TestRandomDiff`
+does the same against a randomly generated op trace. The same
+two tests, against the same oracle, run in every chapter from
+here on; the correctness floor never moves even as the data
+structure underneath changes shape four times. The harness has
+its own meta-test (`harness.TestDiff_DetectsDivergence`) that
+confirms the runner actually fails when the candidate
+misbehaves — without that, a green build would prove nothing.
 
 ## The disaster, measured
 

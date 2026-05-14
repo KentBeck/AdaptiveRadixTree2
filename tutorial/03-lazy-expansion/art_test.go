@@ -25,13 +25,13 @@ func factory() harness.Factory {
 // --- harness-driven ---
 
 func TestRegression(t *testing.T) {
-	harness.RunRegression(t, factory(), harness.MapFactory())
+	harness.RunRegression(t, factory(), harness.BTreeFactory())
 }
 
 func TestRandomDiff(t *testing.T) {
 	ops := harness.RandomTraceForT(t, harness.RandomConfig{})
 	cand := factory()()
-	ref := harness.MapFactory()()
+	ref := harness.NewBTree()
 	harness.RunDiff(t, cand, ref, ops)
 }
 

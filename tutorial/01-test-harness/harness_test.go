@@ -5,21 +5,6 @@ import (
 	"testing"
 )
 
-// TestRegression_BTreeVsMap runs the canonical scenario set with
-// google/btree as the candidate and the sorted-map adapter as the
-// reference. Both adapters are part of the harness, so this is the
-// harness's own correctness check.
-func TestRegression_BTreeVsMap(t *testing.T) {
-	RunRegression(t, BTreeFactory(), MapFactory())
-}
-
-// TestDiff_Random_BTreeVsMap exercises a 1000-op random trace with
-// the default config (small alphabet, lots of collisions).
-func TestDiff_Random_BTreeVsMap(t *testing.T) {
-	ops := RandomTraceForT(t, RandomConfig{})
-	RunDiff(t, NewBTree(), NewMap(), ops)
-}
-
 // recorder satisfies the harness's reporter interface for the
 // meta-test below. It captures Errorf calls instead of failing.
 type recorder struct{ errors int }
@@ -50,7 +35,7 @@ func TestDiff_DetectsDivergence(t *testing.T) {
 		Length(),
 		Rng(nil, nil),
 	}
-	runDiff(rec, brokenMap{}, NewMap(), ops)
+	runDiff(rec, brokenMap{}, NewBTree(), ops)
 	if rec.errors == 0 {
 		t.Fatalf("runDiff failed to detect divergence; harness is vacuous")
 	}

@@ -1,23 +1,22 @@
 // Package harness defines a SortedMap interface plus diff/regression
 // runners and a 100 MB capacity probe. Each tutorial chapter plugs
 // its Tree[int] into the harness via a small adapter and inherits
-// the same correctness suite. The harness ships with two reference
-// adapters of its own -- google/btree and a sorted map[string]int --
-// so its self-tests exercise the runners end-to-end.
+// the same correctness suite. The harness ships with one reference
+// adapter of its own -- google/btree -- so its self-tests exercise
+// the runners end-to-end.
 package harness
 
 import (
 	"bytes"
 	"iter"
-	"sort"
 
 	"github.com/KentBeck/AdaptiveRadixTree2/tutorial/bench"
 	"github.com/google/btree"
 )
 
 // SortedMap is the surface every implementation under test (the
-// chapter's Tree[int], google/btree, map[string]int wrapper, ...)
-// satisfies. Values are int to keep diff-testing trivial.
+// chapter's Tree[int], google/btree, ...) satisfies. Values are int
+// to keep diff-testing trivial.
 type SortedMap interface {
 	Put(key []byte, value int)
 	Get(key []byte) (int, bool)
@@ -90,59 +89,6 @@ func (b *BTreeAdapter) Range(from, to []byte) iter.Seq2[[]byte, int] {
 				return
 			}
 			b.t.AscendRange(bench.BtreeItem{Key: from}, bench.BtreeItem{Key: to}, iter)
-		}
-	}
-}
-
-// MapAdapter wraps a map[string]int. Range materializes a sorted
-// key slice on every call -- slow, but obviously correct, which is
-// exactly what we want from a reference implementation.
-type MapAdapter struct {
-	m map[string]int
-}
-
-// NewMap returns an empty SortedMap backed by map[string]int.
-func NewMap() SortedMap { return &MapAdapter{m: make(map[string]int)} }
-
-// MapFactory returns a Factory that produces fresh MapAdapters.
-func MapFactory() Factory { return func() SortedMap { return NewMap() } }
-
-func (a *MapAdapter) Put(key []byte, value int) { a.m[string(key)] = value }
-
-func (a *MapAdapter) Get(key []byte) (int, bool) {
-	v, ok := a.m[string(key)]
-	return v, ok
-}
-
-func (a *MapAdapter) Delete(key []byte) bool {
-	k := string(key)
-	if _, ok := a.m[k]; !ok {
-		return false
-	}
-	delete(a.m, k)
-	return true
-}
-
-func (a *MapAdapter) Len() int { return len(a.m) }
-
-func (a *MapAdapter) Range(from, to []byte) iter.Seq2[[]byte, int] {
-	return func(yield func([]byte, int) bool) {
-		keys := make([]string, 0, len(a.m))
-		for k := range a.m {
-			kb := []byte(k)
-			if from != nil && bytes.Compare(kb, from) < 0 {
-				continue
-			}
-			if to != nil && bytes.Compare(kb, to) >= 0 {
-				continue
-			}
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			if !yield([]byte(k), a.m[k]) {
-				return
-			}
 		}
 	}
 }
