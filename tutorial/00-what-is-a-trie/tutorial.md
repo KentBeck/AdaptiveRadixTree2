@@ -2,7 +2,7 @@
 
 This tutorial assumes you're a Go programmer who's used `map[K]V`
 and has reached for a sorted map at some point — `google/btree`,
-`google/btree`, or one of the third-party red-black tree libraries —
+or one of the third-party red-black tree libraries —
 and got a feel for the API. It does *not* assume you know what a
 trie is or how an Adaptive Radix Tree differs from one.
 
