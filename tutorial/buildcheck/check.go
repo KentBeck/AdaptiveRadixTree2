@@ -5,14 +5,14 @@
 //  2. Walks every fenced Go code block whose info string carries a
 //     {src=PATH ...} attribute. Two modes:
 //     - {src=PATH decls=A,B,C} (or decl=A): extract those top-level
-//       declarations from PATH via go/parser+go/printer and treat
-//       them as the canonical content of the block. Mismatch fails
-//       the test; -update-prose rewrites the prose block from source.
+//     declarations from PATH via go/parser+go/printer and treat
+//     them as the canonical content of the block. Mismatch fails
+//     the test; -update-prose rewrites the prose block from source.
 //     - {src=PATH} (no decls): verify-only fragment. The block's Go
-//       tokens (from go/scanner, comments and semicolons stripped)
-//       must appear as a contiguous subsequence of PATH's tokens, in
-//       blank-line-separated groups so two snippets in one block can
-//       sit at different points in the source. Cannot self-heal.
+//     tokens (from go/scanner, comments and semicolons stripped)
+//     must appear as a contiguous subsequence of PATH's tokens, in
+//     blank-line-separated groups so two snippets in one block can
+//     sit at different points in the source. Cannot self-heal.
 //  3. Walks every region of the form
 //     <!-- bench:Name:start --> ... <!-- bench:Name:end -->
 //     and verifies / regenerates it from the matching Region.Render
