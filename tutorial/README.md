@@ -20,7 +20,7 @@ form a reader can follow, criticise, and learn from. We "fake" the
 rational design by documenting it as if it had been planned from
 the start.
 
-This tutorial is exactly that fake. The eight chapters present
+This tutorial is exactly that fake. The ten chapters present
 ART as a linear sequence of decisions, each one motivated by the
 previous chapter's measured shortfall, each one closing a
 specific gap. The actual history of ART (and of this tutorial's
@@ -58,21 +58,6 @@ trade. They are presented because *we are engineering* —
 juggling tradeoffs whose effects we have measured, not guessing.
 The quality of each decision is what matters; the size of any
 single speedup is bookkeeping.
-
-## What got added in each chapter
-
-| # | Path | What's added | Status |
-|---|---|---|---|
-| 0 | [`00-what-is-a-trie/`](00-what-is-a-trie/tutorial.md) | Prose primer: what a trie is, why byte-by-byte descent, where it shines and where it doesn't. No code. | ✅ shipped |
-| 1 | [`01-test-harness/`](01-test-harness/tutorial.md) | Test harness: `SortedMap` interface + btree adapter, `RunDiff` op-trace runner with random + 14 regression scenarios + meta-test, `MeasureCapacity` for a 100 MB budget. | ✅ shipped |
-| 2 | [`02-node256-only/`](02-node256-only/tutorial.md) | Disaster baseline: one node type, full 256-fanout, no leaves, no prefix compression. Get / Put / Delete / Range walked through end-to-end. First chapter wired into the chapter-1 differential test harness (`harness.RunRegression` + `harness.RunDiff`). ~31 KB/key on Sparse; ≈ 4 000 keys before 100 MB. | ✅ shipped |
-| 3 | [`03-lazy-expansion/`](03-lazy-expansion/tutorial.md) | Add a leaf type for tail-only paths. Sparse bytes/key drops 30×; All allocations drop to zero. | ✅ shipped |
-| 4 | [`04-path-compression/`](04-path-compression/tutorial.md) | `prefix []byte` on inner nodes; one node can consume a run of bytes that don't branch. URL bytes/key drops 2×; URL Get drops 2.8×; Stage 3 Get is faster than btree on every workload. | ✅ shipped |
-| 5 | [`05-add-node4/`](05-add-node4/tutorial.md) | Add a 4-child sorted-array node and dispatch via type-switch helpers. URL bytes/key drops 3.9×; Range on URL is 4.4× faster. Get gets slower (1.3–2.3×) — the dispatch cost. | ✅ shipped |
-| 6 | [`06-introduce-polymorphism/`](06-introduce-polymorphism/tutorial.md) | Refactor: nine type-switch helpers become 11 methods on an `innerNode` interface. Behaviour identical; chapter 7's diff for adding node16 becomes new-file-only. The price: ~10–25% on hot-path Get latency and a closure allocation per inner node during Range. Engineering — quality of decision, not size of speedup. | ✅ shipped |
-| 7 | [`07-add-node16/`](07-add-node16/tutorial.md) | New struct + 11 method implementations + 5 lines of edits to existing types. Sparse heap drops 5.17×; URL drops 3.0×. Stage 6 is within 1.4–2.0× of btree's heap on Sparse / URL. The price: ~20% more time on Get for medium-fanout workloads (linear scan vs array index). | ✅ shipped |
-| 8 | [`08-add-node48/`](08-add-node48/tutorial.md) | New struct + 11 method impls + 3 surgical edits. Same diff shape as chapter 7. node48 is unused at 1k fixture size — the 17–48 fanout band is empty there — but at Sparse-5k the heap drops 2.35× (234 → 99 B/key, 182 inner nodes settle into node48) and Put goes 1.7× faster than btree. The lesson: the four-type ladder is workload-adaptive; not every type earns its seat for every workload. | ✅ shipped |
-| 9 | [`09-polish/`](09-polish/tutorial.md) | Three polishes: inline-key buffer (Put allocs drop ~2× on short keys), embedded `innerHeader` (16 trivial methods deleted), `Range` with reused path buffer (zero per-yield allocations). Plus a reading guide to the parent `art.Tree` source. | ✅ shipped |
 
 ## How the per-chapter numbers work
 
@@ -126,8 +111,10 @@ file (and a self-contained styled HTML), run:
 python3 tutorial/build_book.py
 ```
 
-The script writes `tutorial/_book/art-tutorial.md` and
-`tutorial/_book/art-tutorial.html`. The output directory is
+The script reads the manuscript order and metadata from
+[`book.yml`](book.yml), then writes
+`tutorial/_book/adaptive-radix-tree.md` and
+`tutorial/_book/adaptive-radix-tree.html`. The output directory is
 gitignored — it is meant for local reading, not commit. Re-run any
 time after editing chapters or after `go test ./... -update-prose`
 refreshes the bench regions.
