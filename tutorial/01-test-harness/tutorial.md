@@ -1,6 +1,9 @@
 # Chapter 1 — Test harness
 
-A new tree implementation is a maze of off-by-one errors.Without a reference to compare against op-by-op, debugging isguessing where the bug is — at insert time? at delete time? inthe iterator? Build the lie-detector first; debug everythingelse through it.
+A new tree implementation is a maze of off-by-one errors. Without
+a reference to compare against op-by-op, debugging is guessing where
+the bug is — at insert time? at delete time? in the iterator? Build
+the lie-detector first; debug everything else through it.
 
 ## The shared shape: SortedMap
 
@@ -18,7 +21,11 @@ type SortedMap interface {
 type Factory func() SortedMap
 ```
 
-`SortedMap` is the minimum surface every chapter must implement:`Put`, `Get`, `Delete`, `Len`, `Range`. `Factory` lets theharness build a fresh tree per scenario without knowing theconcrete type. Every chapter's tree and `google/btree` satisfythis same shape, so either can be diffed against the other.
+`SortedMap` is the minimum surface every chapter must implement:
+`Put`, `Get`, `Delete`, `Len`, `Range`. `Factory` lets the harness
+build a fresh tree per scenario without knowing the concrete type.
+Every chapter's tree and `google/btree` satisfy this same shape, so
+either can be diffed against the other.
 
 ## The btree oracle
 
@@ -33,7 +40,10 @@ func NewBTree() SortedMap { return &BTreeAdapter{t: bench.NewBtree()} }
 func BTreeFactory() Factory { return func() SortedMap { return NewBTree() } }
 ```
 
-`google/btree` is the reference because it implements orderediteration — `Range` produces sorted output we can diff directly.It is the only oracle the harness ships; every chapter diffs itstree against it.
+`google/btree` is the reference because it implements ordered
+iteration — `Range` produces sorted output we can diff directly. It
+is the only oracle the harness ships; every chapter diffs its tree
+against it.
 
 ## Operations as data: `Op` and the diff loop
 
@@ -64,7 +74,13 @@ func RunDiff(t *testing.T, candidate, reference SortedMap, ops []Op) {
 }
 ```
 
-Every test reduces to a list of `Op` values. `RunDiff` walksthem in lockstep against the candidate and the reference; onmismatch it stops at the offending op and prints a short tail ofthe trace so the failure is locatable. The single most importantproperty: `Len`** is checked after every op, not just at theend.** Off-by-one bugs are caught on the next operation, not20 000 ops later when the symptom has drifted miles from thecause.
+Every test reduces to a list of `Op` values. `RunDiff` walks them
+in lockstep against the candidate and the reference; on mismatch it
+stops at the offending op and prints a short tail of the trace so
+the failure is locatable. The single most important property:
+**`Len` is checked after every op, not just at the end.** Off-by-one
+bugs are caught on the next operation, not 20 000 ops later when the
+symptom has drifted miles from the cause.
 
 ## Random traces with a logged seed
 
@@ -126,17 +142,29 @@ func RandomTrace(cfg RandomConfig) (seed uint64, ops []Op) {
 }
 ```
 
-`RandomTrace` generates an op sequence from a seed. Thedefaults: alphabet `[]byte("abc")` so collisions are likely,`NumOps=1000`, weighted op mix favouring `Put` (4:2:2:1 acrossPut/Get/Delete/Range). A zero `Seed` auto-generates a fresh onefrom the wall clock, so every run varies; the typical callergoes through the `RandomTraceForT` helper, which logs theeffective seed via `t.Logf`, so every failure is reproducible bypinning that seed back into `cfg.Seed`:
+`RandomTrace` generates an op sequence from a seed. The defaults:
+alphabet `[]byte("abc")` so collisions are likely, `NumOps=1000`,
+weighted op mix favouring `Put` (4:2:2:1 across
+Put/Get/Delete/Range). A zero `Seed` auto-generates a fresh one from
+the wall clock, so every run varies; the typical caller goes through
+the `RandomTraceForT` helper, which logs the effective seed via
+`t.Logf`, so every failure is reproducible by pinning that seed back
+into `cfg.Seed`:
 
 ```go
 ops := harness.RandomTraceForT(t, harness.RandomConfig{NumOps: 1000})
 ```
 
-Random tests find bugs the named scenarios miss; named scenariosmake those bugs easy to debug.
+Random tests find bugs the named scenarios miss; named scenarios
+make those bugs easy to debug.
 
 ## Named scenarios for fast debugging
 
-Each scenario is its own top-level function returning a`Scenario` value, so a single one is easy to cite or run inisolation. For example, `prefix-of` checks that storing keysthat are prefixes of each other (`h`, `hi`, `hello`, `help`)keeps reads consistent through a delete:
+Each scenario is its own top-level function returning a `Scenario`
+value, so a single one is easy to cite or run in isolation. For
+example, `prefix-of` checks that storing keys that are prefixes of
+each other (`h`, `hi`, `hello`, `help`) keeps reads consistent
+through a delete:
 
 ```go
 func prefixOf() Scenario {
@@ -156,7 +184,17 @@ func prefixOf() Scenario {
 }
 ```
 
-The harness ships 14 such scenarios: `empty/get-missing`,`single-put-get`, `overwrite`, `delete-missing`, `empty-key`,`prefix-of`, `boundary-bytes`, `long-key`, `range-half-open`,`range-unbounded`, `range-empty-window`, `delete-then-reinsert`,`large-fanout`, `mass-insert-then-delete-all`. Each is onespecific shape that either bit us once or is obvious from theAPI surface — boundary bytes (0x00, 0x7f, 0x80, 0xff), a1024-byte key, the full 256-fanout, mass insert followed by massdelete in reverse. When one fails, the test name says what thebug is. A random trace fails with "op 137" plus a logged seed —informative once you replay it, slow to triage cold.
+The harness ships 14 such scenarios: `empty/get-missing`,
+`single-put-get`, `overwrite`, `delete-missing`, `empty-key`,
+`prefix-of`, `boundary-bytes`, `long-key`, `range-half-open`,
+`range-unbounded`, `range-empty-window`, `delete-then-reinsert`,
+`large-fanout`, `mass-insert-then-delete-all`. Each is one specific
+shape that either bit us once or is obvious from the API surface —
+boundary bytes (0x00, 0x7f, 0x80, 0xff), a 1024-byte key, the full
+256-fanout, mass insert followed by mass delete in reverse. When
+one fails, the test name says what the bug is. A random trace fails
+with "op 137" plus a logged seed — informative once you replay it,
+slow to triage cold.
 
 `RunRegression` runs them all:
 
@@ -172,7 +210,8 @@ func RunRegression(t *testing.T, candidate, reference Factory) {
 }
 ```
 
-Each scenario gets its own `t.Run` sub-test so a failureattributes to the named scenario, not to the suite as a whole.
+Each scenario gets its own `t.Run` sub-test so a failure attributes
+to the named scenario, not to the suite as a whole.
 
 ## How we know the harness works
 
@@ -192,7 +231,13 @@ func TestDiff_DetectsDivergence(t *testing.T) {
 }
 ```
 
-A deliberately broken adapter (`brokenMap`: every `Get` returnsnothing, `Len` is always zero) must make the harness fail. Thetest passes when `RunDiff` records at least one error. Withoutthis meta-test, a green build proves nothing about the harnessitself — only about the trees. A vacuous diff suite (one thatnever disagrees no matter what) would look identical to aworking one until the day a real bug slipped through.
+A deliberately broken adapter (`brokenMap`: every `Get` returns
+nothing, `Len` is always zero) must make the harness fail. The test
+passes when `RunDiff` records at least one error. Without this
+meta-test, a green build proves nothing about the harness itself —
+only about the trees. A vacuous diff suite (one that never disagrees
+no matter what) would look identical to a working one until the day
+a real bug slipped through.
 
 ## A different question: capacity
 
@@ -259,11 +304,20 @@ func MeasureCapacity(factory Factory, workload string, gen func(i int) (key []by
 }
 ```
 
-Not "is it correct" but "how many keys before 100 MB". The probeinserts keys from `gen` in batches; after each batch it calls`runtime.GC()` twice and reads `HeapAlloc`. When `HeapAlloc`exceeds the baseline by `budget`, it returns the keys that fitplus the bytes-per-key average. Chapter 2's headline number — 4000 keys on Sparse, 34 653 B/key — is measured by this function.Every chapter from 2 onward reports the same triple (Dense,Sparse, URL) so the bytes/key column tells a story across theladder.
+Not "is it correct" but "how many keys before 100 MB". The probe
+inserts keys from `gen` in batches; after each batch it calls
+`runtime.GC()` twice and reads `HeapAlloc`. When `HeapAlloc` exceeds
+the baseline by `budget`, it returns the keys that fit plus the
+bytes-per-key average. Chapter 2's headline number — 4000 keys on
+Sparse, 34 653 B/key — is measured by this function. Every chapter
+from 2 onward reports the same triple (Dense, Sparse, URL) so the
+bytes/key column tells a story across the ladder.
 
 ## How chapters consume the harness
 
-A typical chapter's test file wires its `Tree[int]` into`SortedMap` via a small adapter plus a `factory()`, then dropstwo short tests in:
+A typical chapter's test file wires its `Tree[int]` into `SortedMap`
+via a small adapter plus a `factory()`, then drops two short tests
+in:
 
 ```go
 func TestRegression(t *testing.T) {
@@ -278,8 +332,19 @@ func TestRandomDiff(t *testing.T) {
 }
 ```
 
-`BTreeFactory()` is the reference. The first test runs all 14named scenarios. The second runs a 1000-op random trace underthe default config. A few lines of adapter glue per chapter; therest of the correctness suite comes for free.
+`BTreeFactory()` is the reference. The first test runs all 14 named
+scenarios. The second runs a 1000-op random trace under the default
+config. A few lines of adapter glue per chapter; the rest of the
+correctness suite comes for free.
 
 ## What's deliberately not here yet
 
-No streaming key generators driving capacity from disk —`MeasureCapacity` calls `gen(i)` per key but the probe holds thewhole `SortedMap` (and therefore the whole key set) in memory byconstruction; a TODO in `capacity.go` flags this for the day afuture implementation outlasts the pre-allocated workloads. Nofuzzing beyond random traces. No sharded benches.`range-empty-window` is treated as a consistency check, not acontract — an empty range may or may not yield in a givenimplementation, but candidate and reference must agree.
+No streaming key generators driving capacity from disk —
+`MeasureCapacity` calls `gen(i)` per key but the probe holds the
+whole `SortedMap` (and therefore the whole key set) in memory by
+construction; a TODO in `capacity.go` flags this for the day a
+future implementation outlasts the pre-allocated workloads. No
+fuzzing beyond random traces. No sharded benches.
+`range-empty-window` is treated as a consistency check, not a
+contract — an empty range may or may not yield in a given
+implementation, but candidate and reference must agree.
