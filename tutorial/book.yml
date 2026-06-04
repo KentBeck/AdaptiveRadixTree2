@@ -1,0 +1,29 @@
+title: Adaptive Radix Tree
+subtitle: Building a sorted map one decision at a time
+output_base: adaptive-radix-tree
+
+parts:
+  - path: README.md
+    title: Front matter
+  - path: 00-what-is-a-trie/tutorial.md
+    title: Chapter 0 — What's a trie?
+  - path: 01-test-harness/tutorial.md
+    title: Chapter 1 — Test harness
+  - path: 02-node256-only/tutorial.md
+    title: Chapter 2 — A node256-only tree
+  - path: 03-lazy-expansion/tutorial.md
+    title: Chapter 3 — Lazy expansion
+  - path: 04-path-compression/tutorial.md
+    title: Chapter 4 — Path compression
+  - path: 05-add-node4/tutorial.md
+    title: Chapter 5 — Adding node4
+  - path: 06-introduce-polymorphism/tutorial.md
+    title: Chapter 6 — Introduce polymorphism
+  - path: 07-add-node16/tutorial.md
+    title: Chapter 7 — Adding node16
+  - path: 08-add-node48/tutorial.md
+    title: Chapter 8 — Adding node48
+  - path: 09-polish/tutorial.md
+    title: Chapter 9 — Polish + reading guide
+  - path: BENCHMARKS.md
+    title: Appendix — Scaling annex

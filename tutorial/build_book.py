@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Concatenate the per-chapter tutorial markdown into one book.
+"""Concatenate the per-chapter manuscript markdown into one book.
 
 Outputs (gitignored):
-  tutorial/_book/art-tutorial.md
-  tutorial/_book/art-tutorial.html
+  tutorial/_book/adaptive-radix-tree.md
+  tutorial/_book/adaptive-radix-tree.html
 
 Usage:
   python3 tutorial/build_book.py
 
-Re-run any time after editing the tutorial. The output directory is
-in .gitignore so the build artefact never gets committed.
+Re-run any time after editing the manuscript. The output directory is
+in .gitignore so the build artifact never gets committed.
 
 Requires the `markdown` Python package (pip install markdown).
 """
@@ -21,23 +21,7 @@ import markdown
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "_book")
-
-# Reading order. The README is the front matter; chapter dirs are
-# numbered; BENCHMARKS.md is the appendix.
-PARTS = [
-    ("README.md", "Front matter"),
-    ("00-what-is-a-trie/tutorial.md", "Chapter 0 — What's a trie?"),
-    ("01-test-harness/tutorial.md", "Chapter 1 — Test harness"),
-    ("02-node256-only/tutorial.md", "Chapter 2 — A node256-only tree"),
-    ("03-lazy-expansion/tutorial.md", "Chapter 3 — Lazy expansion"),
-    ("04-path-compression/tutorial.md", "Chapter 4 — Path compression"),
-    ("05-add-node4/tutorial.md", "Chapter 5 — Adding node4"),
-    ("06-introduce-polymorphism/tutorial.md", "Chapter 6 — Introduce polymorphism"),
-    ("07-add-node16/tutorial.md", "Chapter 7 — Adding node16"),
-    ("08-add-node48/tutorial.md", "Chapter 8 — Adding node48"),
-    ("09-polish/tutorial.md", "Chapter 9 — Polish + reading guide"),
-    ("BENCHMARKS.md", "Appendix — Scaling annex"),
-]
+MANIFEST = os.path.join(HERE, "book.yml")
 
 
 def read(path):
@@ -45,17 +29,64 @@ def read(path):
         return f.read()
 
 
-def assemble_md():
+def load_manifest():
+    manifest = {"parts": []}
+    current_part = None
+    with open(MANIFEST, encoding="utf-8") as f:
+        for lineno, raw in enumerate(f, 1):
+            line = raw.rstrip("\n")
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped == "parts:":
+                continue
+            if line.startswith("  - "):
+                current_part = {}
+                manifest["parts"].append(current_part)
+                key, value = parse_key_value(stripped[2:], lineno)
+                current_part[key] = value
+                continue
+            if line.startswith("    "):
+                if current_part is None:
+                    raise ValueError(f"{MANIFEST}:{lineno}: part field before part")
+                key, value = parse_key_value(stripped, lineno)
+                current_part[key] = value
+                continue
+            key, value = parse_key_value(stripped, lineno)
+            manifest[key] = value
+
+    for key in ("title", "subtitle", "output_base"):
+        if not manifest.get(key):
+            raise ValueError(f"{MANIFEST}: missing {key}")
+    if not manifest["parts"]:
+        raise ValueError(f"{MANIFEST}: missing parts")
+    for part in manifest["parts"]:
+        if not part.get("path") or not part.get("title"):
+            raise ValueError(f"{MANIFEST}: every part needs path and title")
+    return manifest
+
+
+def parse_key_value(text, lineno):
+    if ":" not in text:
+        raise ValueError(f"{MANIFEST}:{lineno}: expected key: value")
+    key, value = text.split(":", 1)
+    return key.strip(), value.strip()
+
+
+def assemble_md(manifest):
     out = []
-    out.append("# Adaptive Radix Tree — the literate tutorial\n")
-    out.append("*Single-file build assembled from the per-chapter markdown.*\n")
+    out.append(f"# {manifest['title']}\n")
+    out.append(f"*{manifest['subtitle']}*\n")
     out.append("\n## Table of contents\n")
-    for path, title in PARTS:
+    for part in manifest["parts"]:
+        title = part["title"]
         anchor = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
         out.append(f"- [{title}](#{anchor})")
     out.append("\n")
 
-    for path, title in PARTS:
+    for part in manifest["parts"]:
+        path = part["path"]
+        title = part["title"]
         out.append("\n\n---\n")
         out.append(f"\n# {title}\n\n")
         out.append(f"*Source: `tutorial/{path}`*\n\n")
@@ -73,7 +104,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Adaptive Radix Tree — the literate tutorial</title>
+<title>__TITLE__</title>
 <style>
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -130,25 +161,26 @@ __BODY__
 """
 
 
-def assemble_html(md_text):
+def assemble_html(manifest, md_text):
     md = markdown.Markdown(
         extensions=["fenced_code", "tables", "toc"],
         output_format="html5",
     )
     body = md.convert(md_text)
-    return HTML_TEMPLATE.replace("__BODY__", body)
+    return HTML_TEMPLATE.replace("__TITLE__", manifest["title"]).replace("__BODY__", body)
 
 
 def main():
+    manifest = load_manifest()
     os.makedirs(OUT_DIR, exist_ok=True)
-    md_text = assemble_md()
-    md_path = os.path.join(OUT_DIR, "art-tutorial.md")
+    md_text = assemble_md(manifest)
+    md_path = os.path.join(OUT_DIR, f"{manifest['output_base']}.md")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(md_text)
     print(f"wrote {md_path}  ({len(md_text):,} bytes, {md_text.count(chr(10)):,} lines)")
 
-    html_text = assemble_html(md_text)
-    html_path = os.path.join(OUT_DIR, "art-tutorial.html")
+    html_text = assemble_html(manifest, md_text)
+    html_path = os.path.join(OUT_DIR, f"{manifest['output_base']}.html")
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html_text)
     print(f"wrote {html_path} ({len(html_text):,} bytes)")
