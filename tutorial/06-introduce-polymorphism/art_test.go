@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+
+	"github.com/KentBeck/AdaptiveRadixTree2/tutorial/01-test-harness"
 )
 
 // TestInnerNodeInterface pins the chapter-5 commitment: every
@@ -163,4 +165,13 @@ func TestPrefixSplitMergeCycle(t *testing.T) {
 	if got, want := tree.CountInner(), 1; got != want {
 		t.Fatalf("CountInner after merge = %d, want %d", got, want)
 	}
+}
+
+// Tree[int] satisfies harness.SortedMap as-is; no adapter needed.
+func factory() harness.Factory {
+	return func() harness.SortedMap { return New[int]() }
+}
+
+func TestAcceptance(t *testing.T) {
+	harness.RunAcceptance(t, factory())
 }

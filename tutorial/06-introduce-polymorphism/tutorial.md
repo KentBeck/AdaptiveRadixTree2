@@ -5,12 +5,13 @@ edge cases. It refactors chapter 5's nine type-switch dispatch
 helpers into method calls on an `innerNode` interface that both
 `*node4` and `*node256` implement.
 
-We did this because chapter 5 was already feeling crowded with
-two cases per helper, and we know two more node types are coming
-(node16, node48). Method dispatch through an interface makes those
-additions land as **new struct files with zero edits to `Put`,
-`Get`, `Delete`, or `Range`**. That's the change we want to make
-easy. Chapter 7 collects the easy change.
+We did this because chapter [5](../05-add-node4/tutorial.md) was
+already feeling crowded with two cases per helper, and we know two
+more node types are coming (node16, node48). Method dispatch
+through an interface makes those additions land as **new struct
+files with zero edits to `Put`, `Get`, `Delete`, or `Range`**.
+That's the change we want to make easy. Chapter
+[7](../07-add-node16/tutorial.md) collects the easy change.
 
 The numbers below show what the refactor cost — not because the
 numbers should drive the decision (they shouldn't, here) but
@@ -51,8 +52,9 @@ sentences:
 - **No `numChildren()` on the interface.** No consumer outside
   `reshape` needs the count, and `reshape` is a method on each
   concrete type — it accesses its own field directly. A narrower
-  interface is one fewer method for chapters 6 and 7 to
-  implement.
+  interface is one fewer method for chapters
+  [7](../07-add-node16/tutorial.md) and
+  [8](../08-add-node48/tutorial.md) to implement.
 - **`reshape()` is on the interface.** The collapse and
   demote/promote rules are type-specific (node4 has no demotion
   case; node256 demotes to node4 at four children); each type
@@ -191,60 +193,82 @@ func (n *node256[V]) reshape() node {
 }
 ```
 
-Adding node16 in chapter 7 means writing a third such method,
-specifying its own demote/promote thresholds. The other code
-doesn't move.
+Adding node16 in chapter [7](../07-add-node16/tutorial.md) means
+writing a third such method, specifying its own demote/promote
+thresholds. The other code doesn't move.
 
 ## What it cost — measured
 
-Reproduce with
-`go test -bench=. -benchmem -benchtime=300ms ./tutorial/06-introduce-polymorphism/`.
+Same acceptance criteria, same yardsticks: the tables below are
+rendered by `go test -update-bench` from the shared harness
+benchmarks — this chapter's tree alongside chapter
+[5](../05-add-node4/tutorial.md)'s, with `google/btree` for
+context. Reproduce any cell with
+`go test -bench=. -benchmem -benchtime=300ms ./06-introduce-polymorphism/`.
 
 ### Per-node sizes
 
 Storing `terminal` as `node` (interface, 16 B) instead of
 `*leaf[V]` (pointer, 8 B) grew each inner-node struct by 8 B:
 
+<!-- bench:nodesizes:start -->
 ```
-Type        Stage 4    Stage 5
-node4         112 B      120 B
-node256     4 136 B    4 144 B
-leaf           32 B       32 B
+Type        Chapter 5    Chapter 6
+node4         112 B        120 B
+node256      4136 B       4144 B
+leaf           32 B         32 B
 ```
+<!-- bench:nodesizes:end -->
 
 In practice Go's allocator rounds these to the same size class,
-so the live-heap footprint is unchanged.
+so the live-heap footprint is unchanged:
 
-### Live heap and allocation
-
+<!-- bench:heapfootprint:start -->
 ```
-Workload    Stage 4 heap    Stage 5 heap    ratio
-Dense          59 B/key        59 B/key      1.00×
-Sparse        516 B/key       518 B/key      1.00×
-URL           424 B/key       429 B/key      1.01×
+Workload    Chapter5 heap   Chapter6 heap    ratio
+Dense            59 B/key        64 B/key    1.08×
+Sparse          516 B/key       518 B/key    1.00×
+URL             424 B/key       429 B/key    1.01×
 ```
+<!-- bench:heapfootprint:end -->
 
-Essentially unchanged.
+### Time and allocations per operation
 
-### Time per operation
-
+<!-- bench:optime:start -->
 ```
-Op    Workload   Stage 4         Stage 5         change
-Put    Dense        79 µs           82 µs          +4%
-Put    Sparse      248 µs          260 µs          +5%
-Put    URL         339 µs          380 µs         +12%
-Get    Dense        23 ns           26 ns         +13%
-Get    Sparse       24 ns           29 ns         +24%
-Get    URL          89 ns           99 ns         +10%
-Range  Dense       4.98 µs         5.20 µs         +4% (+ 7 allocs/op)
-Range  Sparse     27   µs         39   µs        +43% (+ 236 allocs/op)
-Range  URL        23   µs         38   µs        +63% (+ 395 allocs/op)
+Op           Workload      Chapter6     Chapter5        btree
+Put          Dense         130.1 µs     119.5 µs     194.5 µs
+Put          Sparse        344.9 µs     328.4 µs     279.5 µs
+Put          URL           473.7 µs     478.3 µs     325.1 µs
+Get          Dense          37.0 ns      35.0 ns     140.0 ns
+Get          Sparse         46.0 ns      37.0 ns     176.0 ns
+Get          URL           122.0 ns     104.0 ns     208.0 ns
+Range        Dense           9.7 µs       9.3 µs       6.6 µs
+Range        Sparse         47.3 µs      35.8 µs       6.4 µs
+Range        URL            51.2 µs      35.9 µs       6.3 µs
+RangeWindow  Dense          14.8 µs      14.4 µs     391.0 ns
+RangeWindow  Sparse         52.6 µs      41.4 µs     404.0 ns
+RangeWindow  URL            64.0 µs      40.5 µs     488.0 ns
 ```
+<!-- bench:optime:end -->
+
+<!-- bench:opspace:start -->
+```
+Op     Workload    Chapter6 B   allocs   Chapter5 B   allocs      btree B   allocs
+Put    Dense          60.1 KB    2 012      60.1 KB    2 012     109.6 KB    1 115
+Put    Sparse        530.3 KB    2 328     526.6 KB    2 328      86.3 KB    1 085
+Put    URL           438.0 KB    2 603     431.8 KB    2 603     121.4 KB    1 088
+Range  Dense            312 B        9        112 B        3         96 B        3
+Range  Sparse          5.8 KB      238        112 B        3         96 B        3
+Range  URL             9.6 KB      397        112 B        3         96 B        3
+```
+<!-- bench:opspace:end -->
 
 Two distinct costs:
 
-- **Method dispatch ~10–25% slower than the concrete type
-  switch.** Go's interface method call is one indirect jump
+- **Method dispatch is somewhat slower than the concrete type
+  switch, worst on hot short paths.** Go's interface method call
+  is one indirect jump
   through the itable. The compiler can't inline through it. On
   hot, short paths like `Get` on Sparse, the per-iteration
   dispatch dominates the work and shows up in the bench.
@@ -256,8 +280,22 @@ Two distinct costs:
   `eachAscending` was a free function with concrete-type case
   bodies; the compiler could inline the cases and keep closures
   on the stack. The new Range allocations (~one per inner node
-  visited) come from this. They're small — tens of bytes each —
-  but they are visible.
+  visited — compare the Range rows' allocs columns above) come
+  from this. They're small — tens of bytes each — but they are
+  visible.
+
+### Capacity
+
+<!-- bench:capacity:start -->
+```
+Workload    Chapter6 keys     B/key   Chapter5 keys     B/key      btree keys     B/key
+Dense           1 563 934      67.1       1 563 933      67.1       1 239 814      84.6
+Sparse            514 951     603.7         526 488     597.1       1 634 046      64.6
+URL               214 684     489.1         219 401     478.4       1 091 010      96.4
+```
+<!-- bench:capacity:end -->
+
+The refactor is capacity-neutral, as it should be.
 
 ### What did the tradeoff buy?
 
@@ -272,25 +310,28 @@ inner-node interface
   methods                  —           11
 ```
 
-The decision was: spend ~5–25% on hot-path latency and ~one
+The decision was: spend a modest hot-path latency tax and ~one
 allocation per inner-node visit during `Range`, in exchange for
-deleting nine type-switch helpers, splitting `reshape` along
-type boundaries, and **making the chapter 7 / chapter 8 diffs
-new-file-only**.
+deleting nine type-switch helpers, splitting `reshape` along type
+boundaries, and **making the chapter
+[7](../07-add-node16/tutorial.md) / chapter
+[8](../08-add-node48/tutorial.md) diffs new-file-only**.
 
 Whether that's a good trade depends on what we're optimising for.
-We are not optimising for raw point-lookup latency — chapter 5 was
-already faster than btree on `Get` everywhere except URL, and
-stage 5 still is. We are optimising for **reading and changing**
-the code: a future maintainer (human or AI) seeing
+We are not optimising for raw point-lookup latency — chapter 5
+was already faster than btree on `Get` on every workload, and
+this chapter still is. We are optimising for **reading and
+changing** the code: a future maintainer (human or AI) seeing
 `n.findChild(b)` in `Put` doesn't need to know whether `n` is a
-node4 or node256 or, in chapters 6 and 7, a node16 or node48.
-That maintainer also doesn't need to remember to update nine
-helpers when adding a fifth node type.
+node4 or node256 or, in chapters [7](../07-add-node16/tutorial.md)
+and [8](../08-add-node48/tutorial.md), a node16 or node48. That
+maintainer also doesn't need to remember to update nine helpers
+when adding a fifth node type.
 
 ## The chapter-6 promise
 
-Adding `node16` in chapter 7 is, end to end:
+Adding `node16` in chapter [7](../07-add-node16/tutorial.md) is,
+end to end:
 
 1. Define `type node16[V any] struct { ... }`.
 2. Implement the eleven `innerNode` methods on it.
