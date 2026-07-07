@@ -378,9 +378,12 @@ type Contender struct {
 	New  Factory
 }
 
-func RunOpBenchmarks(b *testing.B, contenders []Contender) {
+func RunOpBenchmarks(b *testing.B, contenders []Contender, workloads ...bench.Workload) {
+	if len(workloads) == 0 {
+		workloads = Workloads1k()
+	}
 	for _, op := range opSpecs() {
-		for _, w := range Workloads1k() {
+		for _, w := range workloads {
 			for _, c := range contenders {
 				b.Run(op.name+"/"+shortName(w)+"/"+c.Name, op.bench(c.New, w))
 			}

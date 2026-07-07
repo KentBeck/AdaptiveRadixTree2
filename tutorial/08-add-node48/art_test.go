@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+
+	"github.com/KentBeck/AdaptiveRadixTree2/tutorial/01-test-harness"
 )
 
 // TestInnerNodeInterface pins that every inner-node type satisfies
@@ -201,4 +203,13 @@ func TestNode48InsertionScrambled(t *testing.T) {
 	if !bytes.Equal(got, want) {
 		t.Fatalf("Range order = %v, want %v", got, want)
 	}
+}
+
+// Tree[int] satisfies harness.SortedMap as-is; no adapter needed.
+func factory() harness.Factory {
+	return func() harness.SortedMap { return New[int]() }
+}
+
+func TestAcceptance(t *testing.T) {
+	harness.RunAcceptance(t, factory())
 }

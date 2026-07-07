@@ -81,18 +81,37 @@ func MeasureCapacity(factory Factory, workload string, gen func(i int) (key []by
 // HeapDelta reports the post-GC heap growth from building w in a
 // fresh map — the real cost of the structure, malloc rounding and
 // allocator bookkeeping included.
+//
+// Each trial runs in its own goroutine, and the larger of two trials
+// wins. Both quirks matter: garbage from *earlier* measurements can
+// stay conservatively reachable from stale stack slots, inflate the
+// first trial's baseline, and then get collected mid-build —
+// silently shrinking the delta by the size of a previous tree. The
+// fresh goroutine limits what can stay pinned; the second trial
+// starts from a baseline the first trial has already scrubbed.
 func HeapDelta(f Factory, w bench.Workload) uint64 {
-	base := heapAlloc()
-	m := f()
-	for i, k := range w.Keys {
-		m.Put(k, w.Vals[i])
+	var best uint64
+	for trial := 0; trial < 2; trial++ {
+		ch := make(chan uint64)
+		go func() {
+			base := heapAlloc()
+			m := f()
+			for i, k := range w.Keys {
+				m.Put(k, w.Vals[i])
+			}
+			h := heapAlloc()
+			runtime.KeepAlive(m)
+			if h < base {
+				ch <- 0
+				return
+			}
+			ch <- h - base
+		}()
+		if d := <-ch; d > best {
+			best = d
+		}
 	}
-	h := heapAlloc()
-	runtime.KeepAlive(m)
-	if h < base {
-		return 0
-	}
-	return h - base
+	return best
 }
 
 // CapacityBudget is the tutorial's standard capacity question: how
