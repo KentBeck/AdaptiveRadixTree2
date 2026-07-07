@@ -1,15 +1,15 @@
 # Chapter 4 — Path compression
 
-Chapter 3 left two structural waste cases on the table. The first
-was the URL row of the bytes/key table:
-
-> URL: 1 787 B/key, 9× tighter than chapter 2, still 25× looser than btree
+Chapter [3](../03-lazy-expansion/tutorial.md) left two structural
+waste cases on the table. The first was the URL row of its
+footprint table: ~4 KB/key on the heap, 4.5× tighter than chapter
+2 but still ~40× looser than btree.
 
 Lazy expansion fixed the unique-tail problem (one leaf per key,
 no chain). It did *not* fix the shared-prefix problem: two URL
 keys agreeing on `"https://api.example.com/v1/users/"` (33 bytes)
 still allocated 33 inner node256s along that shared path, each
-with one child. Each one weighs ~2 KB.
+with one child. Each one weighs ~4 KB.
 
 Path compression collapses each such chain into a single inner
 node whose `prefix` field stores the run of bytes consumed before
@@ -80,9 +80,10 @@ func consumePrefix(prefix, key []byte, depth int) (int, bool) {
 ```
 
 The production `art` package uses the same idiom for the same
-reason. This is the chapter's first foreshadowing of the chapter-8
-polish: small structural decisions can have outsized perf
-consequences when they fall on the hottest path.
+reason. This is the chapter's first foreshadowing of the polish
+in chapter [9](../09-polish/tutorial.md): small structural
+decisions can have outsized perf consequences when they fall on
+the hottest path.
 
 ## Put with prefix splits
 
@@ -121,9 +122,9 @@ first `common` bytes of the existing node's `prefix`. We need a
   a second branching child (the new key continued on a different
   byte)
 
-`splitTwoLeaves` simplifies dramatically compared with chapter 3:
-no chain of inner nodes, just a single parent carrying the shared
-bytes.
+`splitTwoLeaves` simplifies dramatically compared with chapter
+[3](../03-lazy-expansion/tutorial.md): no chain of inner nodes,
+just a single parent carrying the shared bytes.
 
 ## Delete: the merge case
 
@@ -149,47 +150,49 @@ child can absorb its parent: the parent's prefix, plus the branch
 byte that linked them, plus the child's existing prefix, becomes
 the child's new prefix. The child then takes the parent's place.
 
-This is exactly the operation that recovers Stage 2's URL footprint:
-deleting the only branching key in a host bucket leaves a chain of
-prefix-merge candidates that collapse all the way up.
+This is exactly the operation that keeps the URL footprint tight
+under deletion: removing the only branching key in a host bucket
+leaves a chain of prefix-merge candidates that collapse all the
+way up.
 
 ## What path compression bought, measured
 
-Reproduce with
-`go test -bench=. -benchmem -benchtime=300ms ./tutorial/04-path-compression/`.
-Stage 2 is benchmarked alongside Stage 3 for the per-decision
-impact. (`-benchtime=300ms` is the project standard so fast
-operations like `Get` reach steady-state and are not dominated by
-framework startup.)
+Same acceptance criteria, same yardsticks: the tables below are
+rendered by `go test -update-bench` from the shared harness
+benchmarks — this chapter's tree alongside chapter
+[3](../03-lazy-expansion/tutorial.md)'s, with `google/btree` for
+context. Reproduce any cell with
+`go test -bench=. -benchmem -benchtime=300ms ./04-path-compression/`.
 
 ### Structural footprint
 
 <!-- bench:innernodemix:start -->
 ```
-Workload    Stage 2 inner   Stage 3 inner   prefix bytes
-Dense            11               5            6 B
-Sparse          234             234            0 B
-URL             834             393          441 B
+Workload    Chapter 3 inner   Chapter 4 inner   prefix bytes
+Dense              11                 5            6 B
+Sparse            234               234            0 B
+URL               834               393          441 B
 ```
 <!-- bench:innernodemix:end -->
 
-Per-node sizes (from `unsafe.Sizeof`): stage-2 node256 is 4 104 B;
-stage-3 node256 is 4 128 B (added 24 B for the prefix slice
-header); leaf is 32 B plus key bytes; prefix bytes live in
-separately-allocated slices.
+Per-node sizes (from `unsafe.Sizeof`): chapter-3 node256 is
+4 104 B; this chapter's node256 is 4 128 B (added 24 B for the
+prefix slice header); leaf is 32 B plus key bytes; prefix bytes
+live in separately-allocated slices.
 
 Two numbers per workload below: **structural** (sum of
-unsafe.Sizeof contributions) and **heap** (actual
+`unsafe.Sizeof` contributions) and **heap** (actual
 `runtime.HeapAlloc` delta after the build, including malloc
-rounding). Heap matches the `B/op` from `Put` benchmarks.
+rounding).
 
+<!-- bench:footprint:start -->
 ```
-Workload    Stage 2                       Stage 3                      heap improvement
-            structural    heap            structural    heap
-Dense           85 B        93 B             60 B        64 B            1.45×
-Sparse       1 008 B    1 186 B          1 013 B    1 186 B            1.00× (no shared prefix)
-URL          3 495 B    4 136 B          1 695 B    1 992 B            2.08×
+Workload   Chapter3 struct       heap  Chapter4 struct       heap  improvement
+Dense                 85 B       93 B             60 B       64 B        1.45×
+Sparse             1 008 B    1 186 B          1 013 B    1 186 B        1.00×
+URL                3 495 B    4 136 B          1 695 B    1 992 B        2.08×
 ```
+<!-- bench:footprint:end -->
 
 Sparse is the honest case where path compression buys nothing:
 random 16-byte keys diverge at byte 0 ~99.6% of the time, so
@@ -197,53 +200,78 @@ there are no chains of one-child nodes to collapse. The bytes/key
 gap versus btree (~70 B/key on the heap) is now squarely down to
 **inner-node waste**: every node256 still reserves space for 256
 interface slots even when it uses 4. At 4 128 B per node256, that
-waste dominates everything else. Chapters 4–7 are the fix.
+waste dominates everything else. Chapters
+[5](../05-add-node4/tutorial.md), [7](../07-add-node16/tutorial.md),
+and [8](../08-add-node48/tutorial.md) are the fix.
 
-### Time per operation
+### Time and allocations per operation
 
+<!-- bench:optime:start -->
 ```
-Op    Workload     Stage 2          Stage 3         btree
-Put    Dense          90 µs           72 µs (1.3×)   114 µs
-Put    Sparse        425 µs          446 µs (0.95×)  171 µs
-Put    URL         2 396 µs          929 µs (2.6×)   197 µs
-Get    Dense          17.7 ns         13.5 ns (1.3×) 113 ns
-Get    Sparse         10.9 ns         10.8 ns (1.0×) 129 ns
-Get    URL           200   ns         71   ns (2.8×) 137 ns
-Range  Dense           5.8 µs          5.3 µs           4 µs
-Range  Sparse         54   µs         51   µs           3.5 µs
-Range  URL          194   µs         94   µs (2.1×)     3.7 µs
+Op           Workload      Chapter4     Chapter3        btree
+Put          Dense          90.7 µs     148.4 µs     223.6 µs
+Put          Sparse        586.2 µs     601.7 µs     260.3 µs
+Put          URL            1.15 ms      3.61 ms     332.1 µs
+Get          Dense          26.0 ns      30.0 ns     149.0 ns
+Get          Sparse         23.0 ns      22.0 ns     170.0 ns
+Get          URL            90.0 ns     223.0 ns     202.0 ns
+Range        Dense           7.7 µs       8.7 µs       6.8 µs
+Range        Sparse         64.3 µs      63.2 µs       6.4 µs
+Range        URL           109.6 µs     219.9 µs       6.5 µs
+RangeWindow  Dense          12.7 µs      14.1 µs     408.0 ns
+RangeWindow  Sparse         76.9 µs      76.4 µs     389.0 ns
+RangeWindow  URL           132.2 µs     262.1 µs     490.0 ns
 ```
+<!-- bench:optime:end -->
+
+<!-- bench:opspace:start -->
+```
+Op     Workload    Chapter4 B   allocs   Chapter3 B   allocs      btree B   allocs
+Put    Dense          64.4 KB    2 008      93.5 KB    2 012     109.6 KB    1 115
+Put    Sparse          1.2 MB    2 235       1.2 MB    2 235      86.3 KB    1 085
+Put    URL             2.0 MB    2 540       4.1 MB    2 835     121.4 KB    1 088
+Range  Dense            112 B        3        112 B        3         96 B        3
+Range  Sparse           112 B        3        112 B        3         96 B        3
+Range  URL              112 B        3        112 B        3         96 B        3
+```
+<!-- bench:opspace:end -->
 
 Three highlights:
 
-- **Get on URL goes 2.8× faster than Stage 2 and 1.9× faster than
-  btree.** Long URL-shaped prefixes used to require dozens of
-  inner-node hops; now one prefix-match handles a 33-byte run in
-  one bytes.Equal call.
-- **Stage 3 Get is faster than btree on every workload.** Dense:
-  8.4×. Sparse: 12×. URL: 1.9×. The trie's array-index descent
-  was always going to win on lookup, but chapter 3's leaf-compare
-  cost had partially erased that advantage on URL; chapter 4
-  recovers it.
-- **Put on Sparse is 5% slower than Stage 2.** Path compression
-  adds a `consumePrefix` call at every Put. On Sparse, where the
-  shortcut fires immediately on the empty prefix, the cost is
-  small but real and there's no compensating benefit. Honest
-  trade.
+- **Get on URL is the chapter's headline: markedly faster than
+  chapter 3 and competitive with btree.** Long URL-shaped
+  prefixes used to require dozens of inner-node hops; now one
+  prefix-match handles a 33-byte run in one `bytes.Equal` call.
+- **Get is at or below btree's time on every workload.** The
+  trie's array-index descent was always going to win on lookup,
+  but chapter 3's leaf-compare cost had partially erased that
+  advantage on URL; this chapter recovers it.
+- **Put on Sparse doesn't improve.** Path compression adds a
+  `consumePrefix` check at every level of every Put; on Sparse,
+  where almost every prefix is empty, the short-circuit keeps the
+  cost near zero but there's no compensating benefit either — the
+  two chapters land within noise of each other. Honest trade.
+  Allocations tell the same story: down on URL (chains collapse
+  into one prefix-bearing node), unchanged on Sparse and Dense.
 
-### Allocations
+### Capacity
 
+<!-- bench:capacity:start -->
 ```
-Op       Workload     Stage 2 allocs   Stage 3 allocs   btree allocs
-Put      Dense          2 011             2 008             113
-Put      Sparse         2 234             2 235              83
-Put      URL            2 834             2 540              86
+Workload    Chapter4 keys     B/key   Chapter3 keys     B/key      btree keys     B/key
+Dense           1 563 933      67.1       1 563 020      67.1       1 239 814      84.6
+Sparse            125 000     1 524         125 000     1 527       1 634 046      64.6
+URL                58 317     1 807          54 997     1 916       1 091 012      96.4
 ```
+<!-- bench:capacity:end -->
 
-Allocations drop modestly on URL (2 834 → 2 540) because chains of
-inner-node allocations collapse into one prefix-bearing node plus
-the leaf and prefix-byte slice. Sparse and Dense are essentially
-unchanged.
+A subtlety worth noticing: URL barely moves here even though the
+1 000-key footprint halved. At the 100 MB scale the tree holds
+tens of thousands of URL keys, so each shared-prefix chain was
+already amortized over many more keys — chapter 3's per-key chain
+tax shrinks with scale on its own. Path compression's win shows
+up at small scale and in operation time; the remaining capacity
+gap to btree is inner-node waste, not path shape.
 
 ## What's still wrong
 
@@ -260,11 +288,12 @@ slots, not 256. The space saving is expected to be the largest of
 any single decision in the tutorial.
 
 But two node types means two cases in every dispatch — and four
-will mean four. Chapter 6 between 4 and 16 will refactor that
-dispatch from a `nodeKind` switch to method calls on an
-`innerNode` interface, so the third and fourth additions cost no
-new code in `Put`/`Get`/`Delete`/`Range`.
+will mean four. Chapter [6](../06-introduce-polymorphism/tutorial.md)
+will refactor that dispatch from type switches to method calls on
+an `innerNode` interface, so the third and fourth additions cost
+no new code in `Put`/`Get`/`Delete`/`Range`.
 
-Chapter 5 introduces node4 with the awkward two-case dispatch
-deliberately, so chapter 6's refactor has something to refactor.
-Make the change easy first; then make the easy change.
+Chapter [5](../05-add-node4/tutorial.md) introduces node4 with the
+awkward two-case dispatch deliberately, so chapter 6's refactor
+has something to refactor. Make the change easy first; then make
+the easy change.

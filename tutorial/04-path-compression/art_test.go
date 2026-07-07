@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+
+	"github.com/KentBeck/AdaptiveRadixTree2/tutorial/01-test-harness"
 )
 
 func TestPutGetDelete(t *testing.T) {
@@ -218,4 +220,13 @@ func TestDeleteMergesPrefixChain(t *testing.T) {
 			t.Fatalf("Get(%q) = %d, want %d", k, got, v)
 		}
 	}
+}
+
+// Tree[int] satisfies harness.SortedMap as-is; no adapter needed.
+func factory() harness.Factory {
+	return func() harness.SortedMap { return New[int]() }
+}
+
+func TestAcceptance(t *testing.T) {
+	harness.RunAcceptance(t, factory())
 }
