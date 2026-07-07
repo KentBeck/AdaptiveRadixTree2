@@ -1,6 +1,7 @@
 # Chapter 3 — Lazy expansion (leaves)
 
-Chapter 2 ended with one number above all the others:
+Chapter [2](../02-node256-only/tutorial.md) ended with one
+number above all the others:
 
 > Sparse: 15.25 nodes/key, ~31 KB/key
 
@@ -50,9 +51,13 @@ Three changes that follow:
 
 A note on the empty-method `node` interface: this is a *sum-type
 marker*, not method polymorphism. Every dispatch in this chapter is
-an explicit type assertion. Chapter 6 will introduce a sibling
-interface `innerNode` with real methods so that the four ART node
-sizes (chapters 2, 5, 7, 8) can be dispatched without a switch.
+an explicit type assertion. Chapter
+[6](../06-introduce-polymorphism/tutorial.md) will introduce a
+sibling interface `innerNode` with real methods so that the four
+ART node sizes (chapters [2](../02-node256-only/tutorial.md),
+[5](../05-add-node4/tutorial.md), [7](../07-add-node16/tutorial.md),
+[8](../08-add-node48/tutorial.md)) can be dispatched without a
+switch.
 
 ## Get walks down, comparing at the leaf
 
@@ -184,7 +189,7 @@ allocates one `node256` instead of chapter 2's chain of sixteen.
 For two URL keys sharing `"https://api.example.com/v1/users/"` —
 33 bytes — the loop builds a chain of 33 `node256`s. Lazy
 expansion does not save us from URL-shaped prefix sharing; that's
-chapter 4's job.
+chapter [4](../04-path-compression/tutorial.md)'s job.
 
 ## Delete now collapses
 
@@ -198,7 +203,8 @@ The reshape rules grow:
   the leaf — the parent's slot now points straight at it.
 - **1 inner child, no terminal:** keep the chain. Without prefix
   compression we cannot represent the byte that this inner node
-  consumed. Chapter 4 fixes that.
+  consumed. Chapter [4](../04-path-compression/tutorial.md) fixes
+  that.
 
 The recursive `deleteFrom` returns the new (possibly collapsed)
 node and a `deleted` flag; `reshape` evaluates the rules above:
@@ -288,104 +294,135 @@ terminal yields *first* because its key is a strict prefix of
 every child's key, and prefixes sort earlier byte-wise. This is the
 same invariant the production `art.Tree.Range` (and its `All()`
 shorthand) relies on. In this chapter the bounds are enforced at
-the leaf, after the full descent; chapter 9 will make `Range` prune
-subtrees by prefix instead of walking every leaf and filtering.
+the leaf, after the full descent; chapter
+[9](../09-polish/tutorial.md) will make `Range` prune subtrees by
+prefix instead of walking every leaf and filtering.
 
 ## What lazy expansion bought, measured
 
-Same workloads as chapter 2, same machine, same Go version. Run
-`go test -bench=. -benchmem -benchtime=300ms ./tutorial/03-lazy-expansion/`
-to reproduce. Stage 2 is benchmarked alongside Stage 1 for the
-per-decision impact.
+Same workloads as chapter [2](../02-node256-only/tutorial.md),
+same acceptance criteria, same yardsticks: the tables below are
+rendered by `go test -update-bench` from the shared harness
+benchmarks. This chapter's tree is measured alongside chapter 2's
+so the decision's impact is visible, with `google/btree` for
+context. Reproduce any cell with
+`go test -bench=. -benchmem -benchtime=300ms ./03-lazy-expansion/`.
 
 ### Structural footprint
 
 <!-- bench:innernodemix:start -->
 ```
-Workload    Stage 1 inner    Stage 2 inner + leaves
-Dense          1011           11 + 1000
-Sparse        15246          234 + 1000
-URL            8085          834 + 1000
+Workload    Chapter 2 inner    Chapter 3 inner + leaves
+Dense            1011             11 + 1000
+Sparse          15246            234 + 1000
+URL              8085            834 + 1000
 ```
 <!-- bench:innernodemix:end -->
 
-Per-node sizes (from `unsafe.Sizeof`): a stage-1 node is 2 056 B
-(`[256]*node + *V`); a stage-2 node256 is 4 104 B (`[256]node` —
-the slot is now an interface = 16 B each, not 8); a leaf is 32 B
-plus its key bytes.
+Per-node sizes (from `unsafe.Sizeof`): a chapter-2 node is
+2 056 B (`[256]*node + *V`); this chapter's node256 is 4 104 B
+(`[256]node` — the slot is now an interface = 16 B each, not 8);
+a leaf is 32 B plus its key bytes.
 
 Two numbers per workload below: **structural** (sum of
-unsafe.Sizeof contributions for every live node) and **heap**
+`unsafe.Sizeof` contributions for every live node) and **heap**
 (actual `runtime.HeapAlloc` delta after building the tree, which
-includes malloc rounding and per-allocation bookkeeping). Heap
-matches the `B/op` you see in the bench output for `Put`. The
+includes malloc rounding and per-allocation bookkeeping). The
 heap numbers are what your process actually pays.
 
+<!-- bench:footprint:start -->
 ```
-Workload    Stage 1                       Stage 2                      heap improvement
-            structural    heap            structural    heap
-Dense        2 078 B    2 337 B             85 B        93 B           25×
-Sparse      31 345 B   35 134 B          1 008 B    1 186 B           30×
-URL         16 622 B   18 636 B          3 495 B    4 136 B            4.5×
+Workload   Chapter2 struct       heap  Chapter3 struct       heap  improvement
+Dense              2 078 B    2 337 B             85 B       93 B        25.1×
+Sparse            31 345 B   35 134 B          1 008 B    1 186 B        29.6×
+URL               16 622 B   18 635 B          3 495 B    4 136 B         4.5×
 ```
+<!-- bench:footprint:end -->
 
 Sparse, the chapter-2 disaster, dropped from ~35 KB/key on the
-heap to ~1.2 KB/key — a 30× reduction in actual memory. URL saw
-only a 4.5× improvement because long URL prefixes still demand
-long chains of node256s, and a chain of one-child node256s costs
-the same 4 KB per node whether it has 1 child or 256. That's
-chapter 4's headline target.
+heap to ~1.2 KB/key — roughly 30× less actual memory. URL
+improved far less, because long URL prefixes still demand long
+chains of node256s, and a chain of one-child node256s costs the
+same 4 KB per node whether it has 1 child or 256. That's
+chapter [4](../04-path-compression/tutorial.md)'s headline
+target.
 
-### Time per operation
+### Time and allocations per operation
 
+<!-- bench:optime:start -->
 ```
-Op    Workload     Stage 1            Stage 2          btree
-Put    Dense          709 µs            99 µs (7.2×)    119 µs
-Put    Sparse       9 708 µs           447 µs (22×)     176 µs
-Put    URL          6 203 µs         2 467 µs (2.5×)    202 µs
-Get    Dense            9.1 ns          17.2 ns (0.5×)  107 ns
-Get    Sparse         145   ns          10.9 ns (13×)   134 ns
-Get    URL            213   ns         199   ns (1.07×) 140 ns
-Range  Dense          200 µs            5.6 µs (36×)      4 µs
-Range  Sparse       3 686 µs           50   µs (74×)      4 µs
-Range  URL          1 762 µs          215   µs (8×)       4 µs
+Op           Workload      Chapter3     Chapter2        btree
+Put          Dense          98.2 µs     772.9 µs     139.7 µs
+Put          Sparse        466.1 µs      9.84 ms     215.3 µs
+Put          URL            2.44 ms      5.39 ms     248.1 µs
+Get          Dense          18.0 ns      11.0 ns     107.0 ns
+Get          Sparse         11.0 ns     175.0 ns     131.0 ns
+Get          URL           203.0 ns     245.0 ns     143.0 ns
+Range        Dense           7.6 µs     217.1 µs       6.1 µs
+Range        Sparse         53.8 µs      4.16 ms       6.0 µs
+Range        URL           188.4 µs      1.84 ms       5.9 µs
+RangeWindow  Dense          10.8 µs     209.5 µs     307.0 ns
+RangeWindow  Sparse         56.8 µs      4.43 ms     304.0 ns
+RangeWindow  URL           204.2 µs      1.80 ms     368.0 ns
 ```
+<!-- bench:optime:end -->
+
+<!-- bench:opspace:start -->
+```
+Op     Workload    Chapter3 B   allocs   Chapter2 B   allocs      btree B   allocs
+Put    Dense          93.5 KB    2 012       2.3 MB    2 012     109.6 KB    1 115
+Put    Sparse          1.2 MB    2 235      35.1 MB   16 247      86.3 KB    1 085
+Put    URL             4.1 MB    2 835      18.6 MB    9 086     121.4 KB    1 088
+Range  Dense            112 B        3       8.1 KB    1 004         96 B        3
+Range  Sparse           112 B        3      34.1 KB    2 250         96 B        3
+Range  URL              112 B        3      75.2 KB    1 434         96 B        3
+```
+<!-- bench:opspace:end -->
 
 Three outcomes worth pointing at:
 
-- **Get on Sparse is 13× faster than Stage 1 and 12× faster than
-  btree.** Stage 1 walked 16 levels (16 cache misses); Stage 2
-  walks one or two before reaching a leaf, then does a single
-  `bytes.Equal` on the full key. Fewer cache misses dominate.
-- **Get on Dense is *slower* than Stage 1.** Two costs rise: the
-  interface type assertion at every loop iteration, and the leaf
-  compare reads the full key rather than just walking
+- **Get on Sparse is an order of magnitude faster than chapter
+  2's tree.** Chapter 2 walked 16 levels (16 cache misses); this
+  chapter walks one or two before reaching a leaf, then does a
+  single `bytes.Equal` on the full key. Fewer cache misses
+  dominate.
+- **Get on Dense is *slower* than chapter 2's.** Two costs rise:
+  the interface type assertion at every loop iteration, and the
+  leaf compare reads the full key rather than just walking
   node-by-node. On Dense where the chapter-2 walk was already
-  ~9 ns, the new overhead doubles the time. Chapter 4 recovers
-  this on Dense by collapsing the chain of leading-zero nodes
-  into a single prefix, cutting the walk *and* keeping the leaf
-  compare on the same short key.
-- **Put on Dense nearly matches btree.** Stage 1 was 6× slower;
-  Stage 2 is within 17%. Lazy expansion removed the per-Put
-  allocation blizzard.
+  cheap, the new overhead roughly doubles the time. Chapter
+  [4](../04-path-compression/tutorial.md) recovers this on Dense
+  by collapsing the chain of leading-zero nodes into a single
+  prefix, cutting the walk *and* keeping the leaf compare on the
+  same short key.
+- **Put allocations on Sparse dropped from ~16 per key to ~2 per
+  key** (one leaf, plus its key copy) — the allocation blizzard
+  was the disaster's engine, and it's gone. Put on URL still
+  allocates ~3 per key because long-prefix keys still need
+  chains of inner nodes. Range allocations vanish entirely:
+  leaves carry their own keys, nothing to copy on yield.
 
-### Allocations
+### Capacity
 
+The same 100 MB question as chapter
+[2](../02-node256-only/tutorial.md):
+
+<!-- bench:capacity:start -->
 ```
-Op        Workload     Stage 1 allocs   Stage 2 allocs   btree allocs
-Put       Dense          2 011               2 012             113
-Put       Sparse        16 246               2 235              83
-Put       URL            9 085               2 835              86
-Range     Dense          1 001                   0               0
-Range     Sparse         2 247                   0               0
-Range     URL            1 431                   0               0
+Workload    Chapter3 keys     B/key   Chapter2 keys     B/key      btree keys     B/key
+Dense           1 563 028      67.1          46 009     2 329       1 239 809      84.6
+Sparse            125 000     1 527           3 984    34 654       1 634 035      64.6
+URL                54 997     1 916           7 373    16 091       1 091 012      96.4
 ```
+<!-- bench:capacity:end -->
 
-Put-Sparse allocations dropped from ~16 / key to ~2 / key (one
-leaf, plus its inline key copy). Put-URL still allocates ~3 /
-key because long-prefix keys still need chains of inner nodes.
-All allocations vanish entirely: leaves carry their own keys,
-nothing to copy on yield.
+The Sparse ceiling rose from a few thousand keys past a hundred
+thousand — the same ~30× as the heap column above — yet still an
+order of magnitude short of btree. Dense now fits *more* keys
+than btree: a short unique tail collapses to a single leaf just
+under the root. URL is the workload where lazy expansion helped
+least; the shared-prefix chains are the remaining structural
+waste.
 
 ## What's still wrong
 
@@ -394,12 +431,16 @@ Two structural waste cases remain:
 1. **Long shared prefixes still cost one node256 per byte.** On
    URL keys sharing 33-byte hosts, every shared byte allocates an
    inner node with one child — 4 KB per node either way. Chapter
-   4 will introduce a `prefix []byte` field on inner nodes so a
-   single node can consume a run of bytes that don't branch.
+   [4](../04-path-compression/tutorial.md) will introduce a
+   `prefix []byte` field on inner nodes so a single node can
+   consume a run of bytes that don't branch.
 2. **Even after path compression, every inner node still reserves
    256 child slots.** A node with 2 children pays for 254 nil
-   interface slots. Chapters 5, 7, and 8 will introduce smaller
-   node sizes that allocate room for what's actually used.
+   interface slots. Chapters [5](../05-add-node4/tutorial.md),
+   [7](../07-add-node16/tutorial.md), and
+   [8](../08-add-node48/tutorial.md) will introduce smaller node
+   sizes that allocate room for what's actually used.
 
-Chapter 4's headline target is the URL row above: from ~4 KB/key
-on the heap to something closer to `~70 B/key` (btree's number).
+Chapter [4](../04-path-compression/tutorial.md)'s headline target
+is the URL row above: from ~4 KB/key on the heap to something
+closer to btree's ~70 B/key.
