@@ -1,38 +1,20 @@
 package nodeonly256
 
 import (
-	"iter"
 	"testing"
 
 	"github.com/KentBeck/AdaptiveRadixTree2/tutorial/01-test-harness"
 )
 
-// chapterAdapter wraps Tree[int] so it satisfies harness.SortedMap.
-type chapterAdapter struct{ t *Tree[int] }
-
-func (a chapterAdapter) Put(k []byte, v int)      { a.t.Put(k, v) }
-func (a chapterAdapter) Get(k []byte) (int, bool) { return a.t.Get(k) }
-func (a chapterAdapter) Delete(k []byte) bool     { return a.t.Delete(k) }
-func (a chapterAdapter) Len() int                 { return a.t.Len() }
-func (a chapterAdapter) Range(from, to []byte) iter.Seq2[[]byte, int] {
-	return a.t.Range(from, to)
-}
-
+// Tree[int] satisfies harness.SortedMap as-is; no adapter needed.
 func factory() harness.Factory {
-	return func() harness.SortedMap { return chapterAdapter{t: New[int]()} }
+	return func() harness.SortedMap { return New[int]() }
 }
 
 // --- harness-driven ---
 
-func TestRegression(t *testing.T) {
-	harness.RunRegression(t, factory(), harness.BTreeFactory())
-}
-
-func TestRandomDiff(t *testing.T) {
-	ops := harness.RandomTraceForT(t, 1000)
-	cand := factory()()
-	ref := harness.NewBTree()
-	harness.RunDiff(t, cand, ref, ops)
+func TestAcceptance(t *testing.T) {
+	harness.RunAcceptance(t, factory())
 }
 
 // --- chapter-specific structural ---

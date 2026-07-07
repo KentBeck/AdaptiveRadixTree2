@@ -4,9 +4,9 @@ This chapter builds the simplest trie that could possibly
 compile. One inner-node type, with a 256-slot child table. No
 leaves. No prefix compression. Every byte of every key forces a
 fresh node, so a 16-byte random key allocates 16 inner nodes —
-about 31 KB of pointer table per key on the Sparse workload. This is a disaster, and that is the point: chapter 2
-sets the cost-to-beat that every later chapter measures itself
-against.
+about 31 KB of pointer table per key on the Sparse workload.
+This is a disaster, and that is the point: chapter 2 sets the
+cost-to-beat that every later chapter measures itself against.
 
 ## The data type
 
@@ -198,57 +198,83 @@ a reused buffer.
 
 ## How we know it's correct
 
-Chapter 1 introduced a small differential test harness. Chapter
-2's `art_test.go` is the first chapter to wire into it.
-`TestRegression` runs every named scenario from
-`harness.Scenarios()` against both this tree and `google/btree`,
-asserting that every observable result agrees. `TestRandomDiff`
-does the same against a randomly generated op trace. The same
-two tests, against the same oracle, run in every chapter from
-here on; the correctness floor never moves even as the data
-structure underneath changes shape four times. The harness has
-its own meta-test (`harness.TestDiff_DetectsDivergence`) that
-confirms the runner actually fails when the candidate
-misbehaves — without that, a green build would prove nothing.
+Chapter [1](../01-test-harness/tutorial.md) introduced a
+differential test harness, and this chapter is the first to wire
+into it. `TestAcceptance` calls `harness.RunAcceptance`: every
+named scenario plus a 1000-op random trace, each diffed op-by-op
+against `google/btree`. The same single test, against the same
+oracle, runs in every chapter from here on; the acceptance bar
+never moves even as the data structure underneath changes shape
+four times. The harness has its own meta-test
+(`harness.TestDiff_DetectsDivergence`) that confirms the runner
+actually fails when the candidate misbehaves — without that, a
+green build would prove nothing.
 
 ## The disaster, measured
 
-Run `go test -bench=. -benchmem -benchtime=300ms ./02-node256-only/`
-to reproduce. The numbers below are for 1 000 keys of each
-workload, against `google/btree` for context.
+The tables below are rendered by `go test -update-bench` from the
+shared harness benchmarks (see chapter
+[1](../01-test-harness/tutorial.md)) — 1 000 keys per workload,
+this chapter's tree against `google/btree`. `Put` rows describe a
+full 1000-key build; `RangeWindow` iterates the middle 1% of the
+keyspace. Reproduce any cell with
+`go test -bench=. -benchmem -benchtime=300ms ./02-node256-only/`.
 
+<!-- bench:optime:start -->
 ```
-Op    Workload    Stage 2 ns/op   Stage 2 B/op   Stage 2 allocs   btree ns/op   btree B/op   btree allocs
-Put   Dense          378 µs        2 337 426        2 012             61 µs       101 600         113
-Put   Sparse       3 543 µs       35 134 898       16 247            105 µs        70 240          83
-Put   URL          1 795 µs       18 635 890        9 086            123 µs        73 376          86
-Get   Dense            4.3 ns             0            0              87 ns             0           0
-Get   Sparse          65.6 ns             0            0              74 ns             0           0
-Get   URL            190   ns             0            0              87 ns             0           0
-Range Dense           85 µs         8 008          1 001               2.6 µs           0           0
-Range Sparse       1 444 µs        33 976          2 247               2.5 µs           0           0
-Range URL            773 µs        75 096          1 431               2.5 µs           0           0
+Op           Workload      Chapter2        btree
+Put          Dense         769.3 µs     141.5 µs
+Put          Sparse        39.27 ms     213.5 µs
+Put          URL           14.11 ms     244.4 µs
+Get          Dense          11.0 ns     107.0 ns
+Get          Sparse        157.0 ns     130.0 ns
+Get          URL           228.0 ns     145.0 ns
+Range        Dense         136.0 µs       5.9 µs
+Range        Sparse         4.00 ms       5.9 µs
+Range        URL            1.41 ms       5.7 µs
+RangeWindow  Dense         146.4 µs     284.0 ns
+RangeWindow  Sparse         3.02 ms     288.0 ns
+RangeWindow  URL            1.45 ms     360.0 ns
 ```
+<!-- bench:optime:end -->
 
-Get-on-Sparse beats btree (65.6 ns vs 74 ns) — the alphabet-as-index
-descent is genuinely fast on randomly distributed keys, where the
-trie is short. Get-on-Dense beats btree by 20× for the same
-reason. Everything else is a bloodbath: Put on Sparse is 34×
-slower than btree and allocates 16 000 nodes for 1 000 keys.
-Range on Sparse is 580× slower than btree.
+<!-- bench:opspace:start -->
+```
+Op     Workload    Chapter2 B   allocs      btree B   allocs
+Put    Dense           2.3 MB    2 012     109.6 KB    1 115
+Put    Sparse         35.1 MB   16 247      86.3 KB    1 085
+Put    URL            18.6 MB    9 086     121.4 KB    1 088
+Range  Dense           8.1 KB    1 004         96 B        3
+Range  Sparse         34.1 KB    2 250         96 B        3
+Range  URL            75.2 KB    1 434         96 B        3
+```
+<!-- bench:opspace:end -->
 
-The headline number is bytes/key, captured by a 100 MB capacity
+Get on Dense beats btree by an order of magnitude, and Get on
+Sparse sits in btree's neighborhood — the alphabet-as-index
+descent is genuinely fast when each level is a single array load.
+Everything else is a bloodbath: Put on Sparse is two orders of
+magnitude slower than btree and allocates sixteen 2 KB nodes per
+key; Range on Sparse is hundreds of times slower; and a
+`RangeWindow` over 1% of the keys costs as much as a full walk,
+because without prefix pruning the iterator visits every node and
+filters at the leaf.
+
+The headline number is bytes/key, captured by the 100 MB capacity
 probe (`harness.MeasureCapacity`):
 
+<!-- bench:capacity:start -->
 ```
-Workload    Stage 2 keys-fit   Stage 2 B/key   btree keys-fit   btree B/key
-Dense           45 000             2 330         1 240 000           84.7
-Sparse           4 000            34 653         1 620 000           64.6
-URL              7 000            16 139         1 090 000           96.4
+Workload    Chapter2 keys     B/key      btree keys     B/key
+Dense              46 009     2 329       1 239 809      84.6
+Sparse              3 984    34 654       1 634 046      64.6
+URL                 7 373    16 091       1 091 007      96.4
 ```
+<!-- bench:capacity:end -->
 
-≈ 4 000 keys before 100 MB on Sparse. That number is the chapter's
-headline and the motivator for chapter 3.
+A few thousand keys before 100 MB on Sparse, against btree's
+million and a half. That gap is the chapter's headline and the
+motivator for chapter [3](../03-lazy-expansion/tutorial.md).
 
 ## What's wrong, in one sentence
 
