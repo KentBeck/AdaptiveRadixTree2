@@ -6,13 +6,14 @@ or one of the third-party red-black tree libraries —
 and got a feel for the API. It does *not* assume you know what a
 trie is or how an Adaptive Radix Tree differs from one.
 
-Chapter 1 builds the test harness. Chapter 2 builds the simplest
-imaginable trie — a working sorted map, and a memory disaster.
-Chapters 3 through 8 each add one decision: lazy expansion, path
-compression, smaller node types, polymorphism. By chapter 9 you can
-read the project's main `art.Tree` source as a known artifact
-rather than a wall of code. This chapter is just the primer — no
-Go yet.
+Chapter [1](../01-test-harness/tutorial.md) builds the test
+harness. Chapter [2](../02-node256-only/tutorial.md) builds the
+simplest imaginable trie — a working sorted map, and a memory
+disaster. Chapters 3 through 8 each add one decision: lazy
+expansion, path compression, smaller node types, polymorphism. By
+chapter 9 you can read the project's main `art.Tree` source as a
+known artifact rather than a wall of code. This chapter is just
+the primer — no Go yet.
 
 ## The premise
 
@@ -96,29 +97,36 @@ The honest tradeoffs are equally direct:
 - **Wasted nodes for sparse keysets.** Every byte position where
   any key has a unique value gets its own node. If your keys are
   random 16-byte blobs, almost every level branches, and you pay
-  for one inner node per byte per key. Chapter 2 makes this
-  visible: ~35 MB to store 1 000 random 16-byte keys in the
-  simplest possible trie.
+  for one inner node per byte per key. Chapter
+  [2](../02-node256-only/tutorial.md) makes this visible: ~35 MB
+  to store 1 000 random 16-byte keys in the simplest possible
+  trie.
 
 The chapters that follow are a series of decisions that keep the
 **byte-by-byte descent** and remove the wasted nodes:
 
-- **Lazy expansion** (chapter 3) — stop allocating inner nodes
-  along a tail with no siblings.
-- **Path compression** (chapter 4) — let one node represent
-  several consecutive bytes when none of them branch.
-- **Smaller node types** (chapters 5, 7, and 8) — when a node has
-  only a handful of children, don't allocate room for 256.
-- **Polymorphism** (chapter 6) — between adding the second and
-  third node types, refactor so that adding the rest is mechanical.
-- **Polish** (chapter 9) — inline-key buffers, embedded headers,
-  a reused path buffer for `Range`. Allocations per key drop to
-  roughly one.
+- **Lazy expansion** (chapter [3](../03-lazy-expansion/tutorial.md))
+  — stop allocating inner nodes along a tail with no siblings.
+- **Path compression** (chapter
+  [4](../04-path-compression/tutorial.md)) — let one node
+  represent several consecutive bytes when none of them branch.
+- **Smaller node types** (chapters [5](../05-add-node4/tutorial.md),
+  [7](../07-add-node16/tutorial.md), and
+  [8](../08-add-node48/tutorial.md)) — when a node has only a
+  handful of children, don't allocate room for 256.
+- **Polymorphism** (chapter
+  [6](../06-introduce-polymorphism/tutorial.md)) — between adding
+  the second and third node types, refactor so that adding the
+  rest is mechanical.
+- **Polish** (chapter [9](../09-polish/tutorial.md)) — inline-key
+  buffers, embedded headers, a reused path buffer for `Range`.
+  Allocations per key drop to roughly one.
 
 By chapter 9 the implementation is the same shape as the
 production `art.Tree` in the parent package. You will have built
 it, decision by decision, and you will have measured what each
 decision was worth.
 
-Onward to chapter 1, where we build the lie-detector — and then
-chapter 2, where we build the disaster.
+Onward to chapter [1](../01-test-harness/tutorial.md), where we
+build the lie-detector — and then chapter
+[2](../02-node256-only/tutorial.md), where we build the disaster.

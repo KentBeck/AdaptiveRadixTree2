@@ -43,7 +43,7 @@ underlying engineering lesson is below it.
 | # | Technique | Lesson |
 |---|---|---|
 | 0 | What a trie is | Shorter explanation than expected. Byte-by-byte descent gives sorted iteration for free, and trades one node-traversal per byte for the lookup-by-comparison cost of a B-tree. |
-| 1 | Test harness | Build the lie-detector first. Differential tester (`RunDiff`) against `google/btree`, 14 named regression scenarios, random-trace generator with a logged seed, a meta-test that proves the harness fires on a broken adapter, and a 100 MB capacity probe. Every chapter from 2 onward is exercised by it. |
+| 1 | Test harness | Build the lie-detector first. One acceptance bar (`RunAcceptance`: 14 named scenarios + a seeded random trace, diffed op-by-op against `google/btree`) and one set of yardsticks (shared time benchmarks + a 100 MB capacity probe) applied identically to every chapter's tree. |
 | 2 | The simplest possible trie (node256-only) | Disaster baseline. One node type, full 256-fanout, no leaves, no prefix compression. ~31 KB/key on Sparse, ~4 000 keys before the 100 MB budget. The cost-to-beat for every later chapter. |
 | 3 | Lazy expansion | When unique tails are common, a leaf is cheaper than a chain of inner nodes. Stop expanding past the last branching point. |
 | 4 | Path compression | When prefixes are shared, encode the run in one prefix field instead of one inner node per byte. Mirror image of chapter 3: chapter 3 saved tail bytes; chapter 4 saves prefix bytes. |
@@ -64,9 +64,9 @@ single speedup is bookkeeping.
 | # | Path | What's added | Status |
 |---|---|---|---|
 | 0 | [`00-what-is-a-trie/`](00-what-is-a-trie/tutorial.md) | Prose primer: what a trie is, why byte-by-byte descent, where it shines and where it doesn't. No code. | ✅ shipped |
-| 1 | [`01-test-harness/`](01-test-harness/tutorial.md) | Test harness: `SortedMap` interface + btree adapter, `RunDiff` op-trace runner with random + 14 regression scenarios + meta-test, `MeasureCapacity` for a 100 MB budget. | ✅ shipped |
-| 2 | [`02-node256-only/`](02-node256-only/tutorial.md) | Disaster baseline: one node type, full 256-fanout, no leaves, no prefix compression. Get / Put / Delete / Range walked through end-to-end. First chapter wired into the chapter-1 differential test harness (`harness.RunRegression` + `harness.RunDiff`). ~31 KB/key on Sparse; ≈ 4 000 keys before 100 MB. | ✅ shipped |
-| 3 | [`03-lazy-expansion/`](03-lazy-expansion/tutorial.md) | Add a leaf type for tail-only paths. Sparse bytes/key drops 30×; All allocations drop to zero. | ✅ shipped |
+| 1 | [`01-test-harness/`](01-test-harness/tutorial.md) | Test harness: `SortedMap` interface + btree oracle, `RunAcceptance` (14 regression scenarios + seeded random trace, diffed op-by-op), shared op benchmarks (`RunOpBenchmarks`/`BenchAll`), `MeasureCapacity` + `CapacityTable` for the 100 MB question. | ✅ shipped |
+| 2 | [`02-node256-only/`](02-node256-only/tutorial.md) | Disaster baseline: one node type, full 256-fanout, no leaves, no prefix compression. Get / Put / Delete / Range walked through end-to-end. First chapter held to the chapter-1 acceptance bar and yardsticks. ~31 KB/key on Sparse; a few thousand keys before 100 MB. | ✅ shipped |
+| 3 | [`03-lazy-expansion/`](03-lazy-expansion/tutorial.md) | Add a leaf type for tail-only paths. Sparse heap drops ~30×; Range allocations drop to zero; Dense capacity passes btree. | ✅ shipped |
 | 4 | [`04-path-compression/`](04-path-compression/tutorial.md) | `prefix []byte` on inner nodes; one node can consume a run of bytes that don't branch. URL bytes/key drops 2×; URL Get drops 2.8×; Stage 3 Get is faster than btree on every workload. | ✅ shipped |
 | 5 | [`05-add-node4/`](05-add-node4/tutorial.md) | Add a 4-child sorted-array node and dispatch via type-switch helpers. URL bytes/key drops 3.9×; Range on URL is 4.4× faster. Get gets slower (1.3–2.3×) — the dispatch cost. | ✅ shipped |
 | 6 | [`06-introduce-polymorphism/`](06-introduce-polymorphism/tutorial.md) | Refactor: nine type-switch helpers become 11 methods on an `innerNode` interface. Behaviour identical; chapter 7's diff for adding node16 becomes new-file-only. The price: ~10–25% on hot-path Get latency and a closure allocation per inner node during Range. Engineering — quality of decision, not size of speedup. | ✅ shipped |
@@ -76,30 +76,41 @@ single speedup is bookkeeping.
 
 ## How the per-chapter numbers work
 
-`tutorial/bench/` is a shared workload package every chapter imports.
-It exposes three deterministic key generators — `Dense`, `Sparse`,
-`URL` — plus a `google/btree` constructor for side-by-side
-comparison. Chapter `N` benchmarks the same key set on the same
-machine against:
+The same acceptance criteria — and the same yardsticks — apply to
+every version of the tree. Each chapter lists its *contenders*
+(its own tree, the previous chapter's, `google/btree`) and hands
+them to the chapter-1 harness, which runs the identical operation
+benchmarks (`Put`, `Get`, `Range`, `RangeWindow` over `Dense`,
+`Sparse`, `URL` — deterministic key sets from `tutorial/bench/`)
+and the identical 100 MB capacity probe against each one.
 
-- **`google/btree`**, the well-known sorted-map alternative
-- **chapter `N-1`**, when applicable, to make each
-  decision's contribution visible
-
-Numbers are committed in each chapter's `tutorial.md`. They were
-captured on a 4-core 64-bit machine with Go 1.23. To reproduce:
+The measured tables in each chapter's `tutorial.md` are *rendered*
+from those runners, never hand-typed. They live between
+`<!-- bench:...:start/end -->` markers and are refreshed wholesale
+by:
 
 ```
-cd tutorial && go test -bench=. -benchmem -benchtime=300ms ./...
+cd tutorial && go test -update-bench -benchtime=300ms ./...
 ```
 
-`-benchtime=300ms` is the convention. Without it, fast operations
-(`Get` ~10 ns) finish before Go's bench framework reaches a stable
-sample and report numbers heavily inflated by startup overhead.
+The committed numbers come from one such run on one machine, so
+they are comparable to each other but not to your hardware; rerun
+the command (or reproduce a single cell with
+`go test -bench=. -benchmem -benchtime=300ms ./<chapter>/`) to see
+your own. `-benchtime=300ms` keeps the refresh quick; without it,
+each cell takes a full second.
 
-Bench-output labels `Stage1`/`Stage2`/... in chapters 3-9 are
-historical: they retain pre-renumber numbering. New labels will
-appear when chapter content is rewritten.
+Cheap deterministic tables (node counts, sizeof arithmetic) are
+verified on every `go test` run and healed by `-update-prose`,
+which also re-extracts the prose code blocks from source. Prose
+cross-references to other chapters are written as markdown links,
+which the build check verifies against the chapter directory
+numbers — a renumbering breaks the build instead of the prose.
+
+Bench-output labels `Stage1`/`Stage2`/... in chapters 4-9 are
+historical: they retain pre-renumber numbering. Chapters 2-3
+already use `Chapter<N>` labels; the rest follow as their content
+is rewritten.
 
 ## Beyond per-chapter — the scaling annex
 
