@@ -6,12 +6,13 @@ or one of the third-party red-black tree libraries —
 and got a feel for the API. It does *not* assume you know what a
 trie is or how an Adaptive Radix Tree differs from one.
 
-Each chapter builds a working sorted map. Chapter 2 is the simplest
-imaginable trie. Chapters 2 through 7 each add one decision: lazy
-expansion, path compression, smaller node types, polymorphism. By
-chapter 9 you can read the project's main `art.Tree` source as a
-known artifact rather than a wall of code. This chapter is just the
-primer — no Go yet.
+Chapter 1 builds the test harness. Chapter 2 builds the simplest
+imaginable trie — a working sorted map, and a memory disaster.
+Chapters 3 through 8 each add one decision: lazy expansion, path
+compression, smaller node types, polymorphism. By chapter 9 you can
+read the project's main `art.Tree` source as a known artifact
+rather than a wall of code. This chapter is just the primer — no
+Go yet.
 
 ## The premise
 
@@ -52,37 +53,18 @@ every key reachable below it. There is no key comparison. Lookup
 reads the key byte by byte and follows the edge labelled with that
 byte.
 
-An ASCII picture of the keys `{hello, help, hi}`:
-
-```
-                  (root)
-                    |
-                  h ●
-                  /   \
-                e ●    ● i  ── value: 3 (the key "hi")
-                  |
-                l ●
-                  |
-                l ●
-                  |
-                o ●  ── value: 1 (the key "hello")
-                  |
-                  +── on different edge: p ●  ── value: 2 (the key "help")
-```
-
-A more honest layout, showing each edge between the parent and
-child:
+The trie for the map `{hello: 1, help: 2, hi: 3}`, one byte per
+edge:
 
 ```
 (root)
-└── h
-    ├── e
-    │   └── l
-    │       └── l
-    │           ├── o   "hello" → 1
-    │           ; (sibling shown below at the divergence point)
-    │           └── p   (no — see below)
-    └── i             "hi" → 3
+└─ h
+   ├─ e
+   │  └─ l
+   │     └─ l
+   │        ├─ o        "hello" → 1
+   │        └─ p        "help"  → 2
+   └─ i                 "hi"    → 3
 ```
 
 The keys `hello` and `help` share the four-byte prefix `hell`. They
@@ -115,18 +97,18 @@ The honest tradeoffs are equally direct:
   any key has a unique value gets its own node. If your keys are
   random 16-byte blobs, almost every level branches, and you pay
   for one inner node per byte per key. Chapter 2 makes this
-  visible: ~33 MB to store 1 000 random 16-byte keys in the
+  visible: ~35 MB to store 1 000 random 16-byte keys in the
   simplest possible trie.
 
-The eight chapters that follow are a series of decisions that keep
-the **byte-by-byte descent** and remove the wasted nodes:
+The chapters that follow are a series of decisions that keep the
+**byte-by-byte descent** and remove the wasted nodes:
 
 - **Lazy expansion** (chapter 3) — stop allocating inner nodes
   along a tail with no siblings.
 - **Path compression** (chapter 4) — let one node represent
   several consecutive bytes when none of them branch.
-- **Smaller node types** (chapters 4 — 7) — when a node has only a
-  handful of children, don't allocate room for 256.
+- **Smaller node types** (chapters 5, 7, and 8) — when a node has
+  only a handful of children, don't allocate room for 256.
 - **Polymorphism** (chapter 6) — between adding the second and
   third node types, refactor so that adding the rest is mechanical.
 - **Polish** (chapter 9) — inline-key buffers, embedded headers,
@@ -138,4 +120,5 @@ production `art.Tree` in the parent package. You will have built
 it, decision by decision, and you will have measured what each
 decision was worth.
 
-Onward to chapter 2, where we build the disaster.
+Onward to chapter 1, where we build the lie-detector — and then
+chapter 2, where we build the disaster.
