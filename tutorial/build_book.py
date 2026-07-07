@@ -45,14 +45,34 @@ def read(path):
         return f.read()
 
 
+def anchor_for(title):
+    return "#" + re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+
+
+# Cross-chapter links in the per-chapter markdown point at sibling
+# files (../NN-dir/tutorial.md). In the single-file book those
+# targets don't exist, so rewrite them to the chapter anchors.
+PART_ANCHORS = {path: anchor_for(title) for path, title in PARTS}
+CROSS_LINK_RE = re.compile(r"\]\((?:\.\./)?([0-9A-Za-z][^)#\s]*)(#[^)]*)?\)")
+
+
+def rewrite_links(body):
+    def sub(m):
+        target = m.group(1)
+        if target in PART_ANCHORS:
+            return "](" + PART_ANCHORS[target] + ")"
+        return m.group(0)
+
+    return CROSS_LINK_RE.sub(sub, body)
+
+
 def assemble_md():
     out = []
     out.append("# Adaptive Radix Tree — the literate tutorial\n")
     out.append("*Single-file build assembled from the per-chapter markdown.*\n")
     out.append("\n## Table of contents\n")
     for path, title in PARTS:
-        anchor = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
-        out.append(f"- [{title}](#{anchor})")
+        out.append(f"- [{title}]({anchor_for(title)})")
     out.append("\n")
 
     for path, title in PARTS:
@@ -64,7 +84,7 @@ def assemble_md():
         # two competing H1s and the TOC anchors would collide.
         body = read(path)
         body = re.sub(r"^(#{1,5}) ", lambda m: "#" + m.group(1) + " ", body, flags=re.M)
-        out.append(body)
+        out.append(rewrite_links(body))
         out.append("\n")
     return "".join(out)
 

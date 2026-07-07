@@ -35,6 +35,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -43,12 +44,24 @@ import (
 // causes Check to rewrite tutorial.md in place rather than fail.
 var UpdateProse = flag.Bool("update-prose", false, "rewrite tutorial.md code blocks and bench regions in place")
 
+// UpdateBench additionally re-renders Volatile regions -- the
+// measured time/capacity tables, whose numbers change run to run
+// and machine to machine. -update-prose alone leaves them as
+// committed so routine prose healing doesn't churn bench numbers.
+var UpdateBench = flag.Bool("update-bench", false, "also re-render volatile (measured) regions; implies -update-prose")
+
 // Region is a bench-driven section of tutorial.md. Render is invoked
 // at test time; the resulting text replaces (or is verified against)
 // the body between <!-- bench:Name:start --> and <!-- bench:Name:end -->.
+//
+// A Volatile region's Render measures wall-clock or heap and is too
+// slow (and too noisy) to verify on every test run. It is rendered
+// only under -update-bench; otherwise Check just confirms the
+// markers exist.
 type Region struct {
-	Name   string
-	Render func() string
+	Name     string
+	Render   func() string
+	Volatile bool
 }
 
 // Check verifies (and, with -update-prose, rewrites) tutorial.md at
@@ -63,13 +76,16 @@ func Check(t *testing.T, mdPath string, regions []Region) {
 	body := string(raw)
 	body = checkCodeBlocks(t, mdPath, body)
 	body = checkRegions(t, mdPath, body, regions)
-	if *UpdateProse && body != string(raw) {
+	checkLinks(t, mdPath, body)
+	if updating() && body != string(raw) {
 		if err := os.WriteFile(mdPath, []byte(body), 0644); err != nil {
 			t.Fatal(err)
 		}
 		t.Logf("%s: rewrote prose", mdPath)
 	}
 }
+
+func updating() bool { return *UpdateProse || *UpdateBench }
 
 // ---- code blocks ---------------------------------------------------------
 
@@ -122,7 +138,7 @@ func checkCodeBlocks(t *testing.T, mdPath, body string) string {
 				if err != nil {
 					t.Errorf("%s:%d: %v", mdPath, openIdx+1, err)
 				} else if extracted != blockBody {
-					if !*UpdateProse {
+					if !updating() {
 						t.Errorf("%s:%d: code block stale vs %s decls=%s (rerun with -update-prose to refresh)\n--- want ---\n%s\n--- got ---\n%s",
 							mdPath, openIdx+1, srcRel, declList, extracted, blockBody)
 					}
@@ -342,12 +358,15 @@ func checkRegions(t *testing.T, mdPath, body string, regions []Region) string {
 			t.Errorf("%s: markers reversed for region %q", mdPath, r.Name)
 			continue
 		}
+		if r.Volatile && !*UpdateBench {
+			continue // measured numbers; refreshed only by -update-bench
+		}
 		want := "\n" + r.Render() + "\n"
 		got := body[si+len(startMarker) : ei]
 		if want == got {
 			continue
 		}
-		if !*UpdateProse {
+		if !r.Volatile && !updating() {
 			t.Errorf("%s: region %q is stale (rerun with -update-prose to refresh)\n--- want ---\n%s\n--- got ---\n%s",
 				mdPath, r.Name, want, got)
 			continue
@@ -355,4 +374,54 @@ func checkRegions(t *testing.T, mdPath, body string, regions []Region) string {
 		body = body[:si+len(startMarker)] + want + body[ei:]
 	}
 	return body
+}
+
+// ---- link verification ----------------------------------------------------
+
+var (
+	linkRE        = regexp.MustCompile(`\[([^\]]*)\]\(([^)\s]+)\)`)
+	chapterDirRE  = regexp.MustCompile(`(?:^|/)(\d{2})-[^/]+/tutorial\.md$`)
+	chapterTextRE = regexp.MustCompile(`(?i)^(?:chapters?\s+)?(\d+)$`)
+)
+
+// checkLinks verifies every relative markdown link outside fenced
+// code blocks: the target file must exist, and when the link text is
+// a chapter reference ("chapter 4", "4") pointing at a chapter
+// directory, the number must match the directory prefix. This is what
+// keeps prose chapter numbers honest across renumberings: write
+// cross-chapter references as links and the build enforces them.
+func checkLinks(t *testing.T, mdPath, body string) {
+	t.Helper()
+	chDir := filepath.Dir(mdPath)
+	inFence := false
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		for _, m := range linkRE.FindAllStringSubmatch(line, -1) {
+			text, target := m[1], m[2]
+			if strings.Contains(target, "://") || strings.HasPrefix(target, "#") {
+				continue
+			}
+			target, _, _ = strings.Cut(target, "#")
+			if _, err := os.Stat(filepath.Join(chDir, target)); err != nil {
+				t.Errorf("%s: link target %q does not exist", mdPath, target)
+				continue
+			}
+			dm := chapterDirRE.FindStringSubmatch(target)
+			tm := chapterTextRE.FindStringSubmatch(strings.TrimSpace(text))
+			if dm == nil || tm == nil {
+				continue
+			}
+			dirNum, _ := strconv.Atoi(dm[1])
+			textNum, _ := strconv.Atoi(tm[1])
+			if dirNum != textNum {
+				t.Errorf("%s: link text %q disagrees with target %q", mdPath, text, target)
+			}
+		}
+	}
 }
