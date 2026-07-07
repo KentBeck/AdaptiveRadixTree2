@@ -17,10 +17,20 @@ type CapacityResult struct {
 	BytesPerKey float64
 }
 
+// heapAlloc returns HeapAlloc after two GC passes, so transient
+// garbage doesn't count against the budget.
+func heapAlloc() uint64 {
+	runtime.GC()
+	runtime.GC()
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	return ms.HeapAlloc
+}
+
 // MeasureCapacity inserts keys from gen() in batches, taking a heap
-// snapshot every batchSize keys (after two runtime.GC calls), and
-// returns when HeapAlloc - baseline >= budget. The factory is called
-// once; the same SortedMap accumulates throughout.
+// snapshot every batchSize keys, and returns when the heap has grown
+// by budget. The factory is called once; the same SortedMap
+// accumulates throughout.
 //
 // gen is called repeatedly to produce keys; it returns a key slice
 // (which the SortedMap MUST copy, by contract) and a value.
@@ -29,59 +39,28 @@ func MeasureCapacity(factory Factory, workload string, gen func(i int) (key []by
 		batchSize = 1000
 	}
 	m := factory()
-
-	runtime.GC()
-	runtime.GC()
-	var base runtime.MemStats
-	runtime.ReadMemStats(&base)
-
-	var (
-		keysFit  int
-		heapNow  uint64
-		totalLen uint64
-	)
-
-	i := 0
-	for {
+	base := heapAlloc()
+	var used, totalLen uint64
+	for i := 0; used < budget; {
 		for j := 0; j < batchSize; j++ {
 			k, v := gen(i)
 			m.Put(k, v)
 			totalLen += uint64(len(k))
 			i++
 		}
-		runtime.GC()
-		runtime.GC()
-		var ms runtime.MemStats
-		runtime.ReadMemStats(&ms)
-		heapNow = ms.HeapAlloc
-		used := uint64(0)
-		if heapNow > base.HeapAlloc {
-			used = heapNow - base.HeapAlloc
-		}
-		keysFit = m.Len()
-		if used >= budget {
-			break
+		if h := heapAlloc(); h > base {
+			used = h - base
 		}
 	}
-
-	used := uint64(0)
-	if heapNow > base.HeapAlloc {
-		used = heapNow - base.HeapAlloc
-	}
-	avg := 0.0
-	bpk := 0.0
-	if keysFit > 0 {
-		avg = float64(totalLen) / float64(keysFit)
-		bpk = float64(used) / float64(keysFit)
-	}
+	keysFit := m.Len()
 	runtime.KeepAlive(m)
 	return CapacityResult{
 		Workload:    workload,
 		BudgetBytes: budget,
 		KeysFit:     keysFit,
 		HeapBytes:   used,
-		AvgKeyLen:   avg,
-		BytesPerKey: bpk,
+		AvgKeyLen:   float64(totalLen) / float64(keysFit),
+		BytesPerKey: float64(used) / float64(keysFit),
 	}
 }
 

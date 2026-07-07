@@ -175,75 +175,50 @@ func formatOp(op Op) string {
 	return "??"
 }
 
-// RandomConfig parameterizes RandomTrace. Zero-value fields fall
-// back to defaults that produce a small alphabet (so collisions are
-// frequent), 1000 mixed ops, and Put-heavy weights. Seed == 0 means
-// auto-generate a fresh seed from the wall clock.
-type RandomConfig struct {
-	Seed                                            uint64
-	NumOps                                          int
-	KeyAlphabet                                     []byte
-	MaxKeyLen                                       int
-	PutWeight, GetWeight, DeleteWeight, RangeWeight int
-}
-
-// RandomTrace generates a deterministic op sequence based on cfg.
-// It returns the effective seed alongside the ops so callers can
-// log it and reproduce a failing trace by pinning cfg.Seed.
-func RandomTrace(cfg RandomConfig) (seed uint64, ops []Op) {
-	if cfg.Seed == 0 {
-		cfg.Seed = uint64(time.Now().UnixNano())
+// RandomTrace generates numOps pseudo-random ops. Keys are 1-8
+// bytes over the alphabet "abc", so collisions and shared prefixes
+// are frequent. The mix is Put-heavy: 4 Put : 2 Get : 2 Delete :
+// 1 Range. A zero seed draws one from the clock; the effective
+// seed is returned so a failing trace can be reproduced by passing
+// it back in.
+func RandomTrace(seed uint64, numOps int) (uint64, []Op) {
+	if seed == 0 {
+		seed = uint64(time.Now().UnixNano())
 	}
-	seed = cfg.Seed
-	if cfg.NumOps == 0 {
-		cfg.NumOps = 1000
-	}
-	if len(cfg.KeyAlphabet) == 0 {
-		cfg.KeyAlphabet = []byte("abc")
-	}
-	if cfg.MaxKeyLen == 0 {
-		cfg.MaxKeyLen = 8
-	}
-	if cfg.PutWeight == 0 && cfg.GetWeight == 0 && cfg.DeleteWeight == 0 && cfg.RangeWeight == 0 {
-		cfg.PutWeight, cfg.GetWeight, cfg.DeleteWeight, cfg.RangeWeight = 4, 2, 2, 1
-	}
-	r := rand.New(rand.NewPCG(cfg.Seed, cfg.Seed^0x9e3779b97f4a7c15))
-	total := cfg.PutWeight + cfg.GetWeight + cfg.DeleteWeight + cfg.RangeWeight
-	ops = make([]Op, 0, cfg.NumOps)
+	r := rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))
 	randKey := func() []byte {
-		n := 1 + r.IntN(cfg.MaxKeyLen)
-		k := make([]byte, n)
+		k := make([]byte, 1+r.IntN(8))
 		for i := range k {
-			k[i] = cfg.KeyAlphabet[r.IntN(len(cfg.KeyAlphabet))]
+			k[i] = "abc"[r.IntN(3)]
 		}
 		return k
 	}
-	for i := 0; i < cfg.NumOps; i++ {
-		pick := r.IntN(total)
-		switch {
-		case pick < cfg.PutWeight:
-			ops = append(ops, Put(randKey(), r.IntN(1<<20)))
-		case pick < cfg.PutWeight+cfg.GetWeight:
-			ops = append(ops, Get(randKey()))
-		case pick < cfg.PutWeight+cfg.GetWeight+cfg.DeleteWeight:
-			ops = append(ops, Del(randKey()))
+	ops := make([]Op, numOps)
+	for i := range ops {
+		switch pick := r.IntN(9); {
+		case pick < 4:
+			ops[i] = Put(randKey(), r.IntN(1<<20))
+		case pick < 6:
+			ops[i] = Get(randKey())
+		case pick < 8:
+			ops[i] = Del(randKey())
 		default:
 			a, b := randKey(), randKey()
 			if bytes.Compare(a, b) > 0 {
 				a, b = b, a
 			}
-			ops = append(ops, Rng(a, b))
+			ops[i] = Rng(a, b)
 		}
 	}
 	return seed, ops
 }
 
 // RandomTraceForT generates a random trace and logs the effective
-// seed via t.Logf so failing tests are reproducible. Pin cfg.Seed
-// explicitly when reducing a failure.
-func RandomTraceForT(t *testing.T, cfg RandomConfig) []Op {
+// seed via t.Logf so failing tests are reproducible. Pin the seed
+// by calling RandomTrace directly when reducing a failure.
+func RandomTraceForT(t *testing.T, numOps int) []Op {
 	t.Helper()
-	seed, ops := RandomTrace(cfg)
+	seed, ops := RandomTrace(0, numOps)
 	t.Logf("RandomTrace seed=%d numOps=%d", seed, len(ops))
 	return ops
 }

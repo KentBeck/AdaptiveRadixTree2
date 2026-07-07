@@ -29,7 +29,7 @@ func TestRegression(t *testing.T) {
 }
 
 func TestRandomDiff(t *testing.T) {
-	ops := harness.RandomTraceForT(t, harness.RandomConfig{})
+	ops := harness.RandomTraceForT(t, 1000)
 	cand := factory()()
 	ref := harness.NewBTree()
 	harness.RunDiff(t, cand, ref, ops)

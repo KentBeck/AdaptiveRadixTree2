@@ -29,12 +29,6 @@ type SortedMap interface {
 // runners so each scenario starts from a clean state.
 type Factory func() SortedMap
 
-// NamedFactory attaches a human label to a Factory for test output.
-type NamedFactory struct {
-	Name string
-	New  Factory
-}
-
 // BTreeAdapter wraps google/btree behind the SortedMap interface.
 // Range translates nil bounds into the appropriate Ascend variant
 // so callers can use nil/nil for "everything".

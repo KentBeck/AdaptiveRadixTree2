@@ -1,10 +1,14 @@
 # Chapter 1 — Test harness
 
-A new tree implementation is a maze of off-by-one errors.Without a reference to compare against op-by-op, debugging isguessing where the bug is — at insert time? at delete time? inthe iterator? Build the lie-detector first; debug everythingelse through it.
+A new tree implementation is a maze of off-by-one errors. Without
+a reference to compare against op-by-op, debugging is guessing
+where the bug is — at insert time? at delete time? in the
+iterator? Build the lie-detector first; debug everything else
+through it.
 
 ## The shared shape: SortedMap
 
-```go
+```go {src=sortedmap.go decls=SortedMap,Factory}
 type SortedMap interface {
 	Put(key []byte, value int)
 	Get(key []byte) (int, bool)
@@ -12,17 +16,19 @@ type SortedMap interface {
 	Len() int
 	Range(from, to []byte) iter.Seq2[[]byte, int]
 }
-```
 
-```go
 type Factory func() SortedMap
 ```
 
-`SortedMap` is the minimum surface every chapter must implement:`Put`, `Get`, `Delete`, `Len`, `Range`. `Factory` lets theharness build a fresh tree per scenario without knowing theconcrete type. Every chapter's tree and `google/btree` satisfythis same shape, so either can be diffed against the other.
+`SortedMap` is the minimum surface every chapter must implement:
+`Put`, `Get`, `Delete`, `Len`, `Range`. `Factory` lets the harness
+build a fresh tree per scenario without knowing the concrete type.
+Every chapter's tree and `google/btree` satisfy this same shape,
+so either can be diffed against the other.
 
 ## The btree oracle
 
-```go
+```go {src=sortedmap.go decls=BTreeAdapter,NewBTree,BTreeFactory}
 type BTreeAdapter struct {
 	t *btree.BTreeG[bench.BtreeItem]
 	n int
@@ -33,11 +39,16 @@ func NewBTree() SortedMap { return &BTreeAdapter{t: bench.NewBtree()} }
 func BTreeFactory() Factory { return func() SortedMap { return NewBTree() } }
 ```
 
-`google/btree` is the reference because it implements orderediteration — `Range` produces sorted output we can diff directly.It is the only oracle the harness ships; every chapter diffs itstree against it.
+`google/btree` is the reference because it implements ordered
+iteration — `Range` produces sorted output we can diff directly.
+It is the only oracle the harness ships; every chapter diffs its
+tree against it. The adapter methods are mechanical: copy the key
+on `Put`, count inserts and deletes for `Len`, map nil `Range`
+bounds onto btree's `Ascend*` variants.
 
 ## Operations as data: `Op` and the diff loop
 
-```go
+```go {src=diff.go decls=OpKind,OpPut,Op}
 type OpKind int
 
 const (
@@ -57,88 +68,138 @@ type Op struct {
 }
 ```
 
-```go
-func RunDiff(t *testing.T, candidate, reference SortedMap, ops []Op) {
-	t.Helper()
-	runDiff(t, candidate, reference, ops)
+Every test reduces to a list of `Op` values. One-line builders —
+`Put(k, v)`, `Get(k)`, `Del(k)`, `Rng(from, to)`, `Length()` —
+keep traces readable.
+
+The exported `RunDiff` is a thin wrapper; the loop lives in
+`runDiff`, which takes only the `Errorf` corner of `testing.T` so
+the meta-test below can watch it fail on purpose:
+
+```go {src=diff.go decls=reporter,runDiff}
+type reporter interface {
+	Errorf(format string, args ...any)
+}
+
+func runDiff(r reporter, candidate, reference SortedMap, ops []Op) {
+	for i, op := range ops {
+		switch op.Kind {
+		case OpPut:
+			candidate.Put(op.Key, op.Value)
+			reference.Put(op.Key, op.Value)
+		case OpGet:
+			gv, gok := candidate.Get(op.Key)
+			rv, rok := reference.Get(op.Key)
+			if gv != rv || gok != rok {
+				r.Errorf("op %d Get(%q): candidate=(%d,%v) reference=(%d,%v)\n%s",
+					i, op.Key, gv, gok, rv, rok, traceTail(ops, i))
+			}
+		case OpDelete:
+			gok := candidate.Delete(op.Key)
+			rok := reference.Delete(op.Key)
+			if gok != rok {
+				r.Errorf("op %d Delete(%q): candidate=%v reference=%v\n%s",
+					i, op.Key, gok, rok, traceTail(ops, i))
+			}
+		case OpRange:
+			gPairs := collect(candidate.Range(op.From, op.To))
+			rPairs := collect(reference.Range(op.From, op.To))
+			if !pairsEqual(gPairs, rPairs) {
+				r.Errorf("op %d Range(%q,%q):\n  candidate=%s\n  reference=%s\n%s",
+					i, op.From, op.To, formatPairs(gPairs), formatPairs(rPairs), traceTail(ops, i))
+			}
+		case OpLen:
+			// Len parity is asserted by the post-step check below.
+		}
+		if g, ref := candidate.Len(), reference.Len(); g != ref {
+			r.Errorf("op %d (%s): Len mismatch: candidate=%d reference=%d\n%s",
+				i, formatOp(op), g, ref, traceTail(ops, i))
+			return
+		}
+	}
+	gPairs := collect(candidate.Range(nil, nil))
+	rPairs := collect(reference.Range(nil, nil))
+	if !pairsEqual(gPairs, rPairs) {
+		r.Errorf("final Range(nil,nil):\n  candidate=%s\n  reference=%s",
+			formatPairs(gPairs), formatPairs(rPairs))
+	}
 }
 ```
 
-Every test reduces to a list of `Op` values. `RunDiff` walksthem in lockstep against the candidate and the reference; onmismatch it stops at the offending op and prints a short tail ofthe trace so the failure is locatable. The single most importantproperty: `Len`** is checked after every op, not just at theend.** Off-by-one bugs are caught on the next operation, not20 000 ops later when the symptom has drifted miles from thecause.
+`runDiff` walks the ops in lockstep against the candidate and the
+reference and reports any disagreement. The single most important
+property: **`Len` is checked after every op, not just at the
+end.** Off-by-one bugs are caught on the next operation, not
+20 000 ops later when the symptom has drifted miles from the
+cause. Every mismatch prints a short tail of the recent trace so
+the failure is locatable, and after the last op a full
+`Range(nil, nil)` sweep confirms the surviving contents match
+key-for-key.
 
 ## Random traces with a logged seed
 
-```go
-type RandomConfig struct {
-	Seed                                            uint64
-	NumOps                                          int
-	KeyAlphabet                                     []byte
-	MaxKeyLen                                       int
-	PutWeight, GetWeight, DeleteWeight, RangeWeight int
-}
-
-func RandomTrace(cfg RandomConfig) (seed uint64, ops []Op) {
-	if cfg.Seed == 0 {
-		cfg.Seed = uint64(time.Now().UnixNano())
+```go {src=diff.go decls=RandomTrace,RandomTraceForT}
+func RandomTrace(seed uint64, numOps int) (uint64, []Op) {
+	if seed == 0 {
+		seed = uint64(time.Now().UnixNano())
 	}
-	seed = cfg.Seed
-	if cfg.NumOps == 0 {
-		cfg.NumOps = 1000
-	}
-	if len(cfg.KeyAlphabet) == 0 {
-		cfg.KeyAlphabet = []byte("abc")
-	}
-	if cfg.MaxKeyLen == 0 {
-		cfg.MaxKeyLen = 8
-	}
-	if cfg.PutWeight == 0 && cfg.GetWeight == 0 && cfg.DeleteWeight == 0 && cfg.RangeWeight == 0 {
-		cfg.PutWeight, cfg.GetWeight, cfg.DeleteWeight, cfg.RangeWeight = 4, 2, 2, 1
-	}
-	r := rand.New(rand.NewPCG(cfg.Seed, cfg.Seed^0x9e3779b97f4a7c15))
-	total := cfg.PutWeight + cfg.GetWeight + cfg.DeleteWeight + cfg.RangeWeight
-	ops = make([]Op, 0, cfg.NumOps)
+	r := rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))
 	randKey := func() []byte {
-		n := 1 + r.IntN(cfg.MaxKeyLen)
-		k := make([]byte, n)
+		k := make([]byte, 1+r.IntN(8))
 		for i := range k {
-			k[i] = cfg.KeyAlphabet[r.IntN(len(cfg.KeyAlphabet))]
+			k[i] = "abc"[r.IntN(3)]
 		}
 		return k
 	}
-	for i := 0; i < cfg.NumOps; i++ {
-		pick := r.IntN(total)
-		switch {
-		case pick < cfg.PutWeight:
-			ops = append(ops, Put(randKey(), r.IntN(1<<20)))
-		case pick < cfg.PutWeight+cfg.GetWeight:
-			ops = append(ops, Get(randKey()))
-		case pick < cfg.PutWeight+cfg.GetWeight+cfg.DeleteWeight:
-			ops = append(ops, Del(randKey()))
+	ops := make([]Op, numOps)
+	for i := range ops {
+		switch pick := r.IntN(9); {
+		case pick < 4:
+			ops[i] = Put(randKey(), r.IntN(1<<20))
+		case pick < 6:
+			ops[i] = Get(randKey())
+		case pick < 8:
+			ops[i] = Del(randKey())
 		default:
 			a, b := randKey(), randKey()
 			if bytes.Compare(a, b) > 0 {
 				a, b = b, a
 			}
-			ops = append(ops, Rng(a, b))
+			ops[i] = Rng(a, b)
 		}
 	}
 	return seed, ops
 }
+
+func RandomTraceForT(t *testing.T, numOps int) []Op {
+	t.Helper()
+	seed, ops := RandomTrace(0, numOps)
+	t.Logf("RandomTrace seed=%d numOps=%d", seed, len(ops))
+	return ops
+}
 ```
 
-`RandomTrace` generates an op sequence from a seed. Thedefaults: alphabet `[]byte("abc")` so collisions are likely,`NumOps=1000`, weighted op mix favouring `Put` (4:2:2:1 acrossPut/Get/Delete/Range). A zero `Seed` auto-generates a fresh onefrom the wall clock, so every run varies; the typical callergoes through the `RandomTraceForT` helper, which logs theeffective seed via `t.Logf`, so every failure is reproducible bypinning that seed back into `cfg.Seed`:
+The constants are tuned for collision, not realism: a
+three-letter alphabet and keys of at most 8 bytes mean the same
+keys recur constantly, so overwrites, deletes of present keys,
+and prefix pile-ups all actually happen within a 1000-op trace.
+A zero seed draws a fresh one from the clock, so every run
+explores new ground; `RandomTraceForT` logs the effective seed,
+so any failure can be replayed by passing that seed to
+`RandomTrace` directly.
 
-```go
-ops := harness.RandomTraceForT(t, harness.RandomConfig{NumOps: 1000})
-```
-
-Random tests find bugs the named scenarios miss; named scenariosmake those bugs easy to debug.
+Random tests find bugs the named scenarios miss; named scenarios
+make those bugs easy to debug.
 
 ## Named scenarios for fast debugging
 
-Each scenario is its own top-level function returning a`Scenario` value, so a single one is easy to cite or run inisolation. For example, `prefix-of` checks that storing keysthat are prefixes of each other (`h`, `hi`, `hello`, `help`)keeps reads consistent through a delete:
+Each scenario is its own top-level function returning a
+`Scenario` value, so a single one is easy to cite or run in
+isolation. For example, `prefix-of` checks that storing keys that
+are prefixes of each other (`h`, `hi`, `hello`, `help`) keeps
+reads consistent through a delete:
 
-```go
+```go {src=regression.go decl=prefixOf}
 func prefixOf() Scenario {
 	return Scenario{
 		Name: "prefix-of",
@@ -156,11 +217,21 @@ func prefixOf() Scenario {
 }
 ```
 
-The harness ships 14 such scenarios: `empty/get-missing`,`single-put-get`, `overwrite`, `delete-missing`, `empty-key`,`prefix-of`, `boundary-bytes`, `long-key`, `range-half-open`,`range-unbounded`, `range-empty-window`, `delete-then-reinsert`,`large-fanout`, `mass-insert-then-delete-all`. Each is onespecific shape that either bit us once or is obvious from theAPI surface — boundary bytes (0x00, 0x7f, 0x80, 0xff), a1024-byte key, the full 256-fanout, mass insert followed by massdelete in reverse. When one fails, the test name says what thebug is. A random trace fails with "op 137" plus a logged seed —informative once you replay it, slow to triage cold.
+The harness ships 14 such scenarios: `empty/get-missing`,
+`single-put-get`, `overwrite`, `delete-missing`, `empty-key`,
+`prefix-of`, `boundary-bytes`, `long-key`, `range-half-open`,
+`range-unbounded`, `range-empty-window`, `delete-then-reinsert`,
+`large-fanout`, `mass-insert-then-delete-all`. Each is one
+specific shape that either bit us once or is obvious from the API
+surface — boundary bytes (0x00, 0x7f, 0x80, 0xff), a 1024-byte
+key, the full 256-fanout, mass insert followed by mass delete in
+reverse. When one fails, the test name says what the bug is. A
+random trace fails with "op 137" plus a logged seed — informative
+once you replay it, slow to triage cold.
 
 `RunRegression` runs them all:
 
-```go
+```go {src=regression.go decl=RunRegression}
 func RunRegression(t *testing.T, candidate, reference Factory) {
 	t.Helper()
 	for _, sc := range Scenarios() {
@@ -172,11 +243,14 @@ func RunRegression(t *testing.T, candidate, reference Factory) {
 }
 ```
 
-Each scenario gets its own `t.Run` sub-test so a failureattributes to the named scenario, not to the suite as a whole.
+Each scenario gets its own `t.Run` sub-test so a failure
+attributes to the named scenario, not to the suite as a whole.
 
 ## How we know the harness works
 
-```go
+```go {src=harness_test.go decls=brokenMap,TestDiff_DetectsDivergence}
+type brokenMap struct{}
+
 func TestDiff_DetectsDivergence(t *testing.T) {
 	rec := &recorder{}
 	ops := []Op{
@@ -192,94 +266,96 @@ func TestDiff_DetectsDivergence(t *testing.T) {
 }
 ```
 
-A deliberately broken adapter (`brokenMap`: every `Get` returnsnothing, `Len` is always zero) must make the harness fail. Thetest passes when `RunDiff` records at least one error. Withoutthis meta-test, a green build proves nothing about the harnessitself — only about the trees. A vacuous diff suite (one thatnever disagrees no matter what) would look identical to aworking one until the day a real bug slipped through.
+`brokenMap` insists the map is always empty (`Get` finds nothing,
+`Len` is zero); `recorder` counts `Errorf` calls instead of
+failing. Pitted against the real reference, the broken map must
+make `runDiff` record at least one error. Without this meta-test,
+a green build proves nothing about the harness itself — only
+about the trees. A vacuous diff suite (one that never disagrees
+no matter what) would look identical to a working one until the
+day a real bug slipped through.
 
 ## A different question: capacity
 
-```go
+```go {src=capacity.go decls=heapAlloc,MeasureCapacity}
+func heapAlloc() uint64 {
+	runtime.GC()
+	runtime.GC()
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	return ms.HeapAlloc
+}
+
 func MeasureCapacity(factory Factory, workload string, gen func(i int) (key []byte, value int), budget uint64, batchSize int) CapacityResult {
 	if batchSize <= 0 {
 		batchSize = 1000
 	}
 	m := factory()
-
-	runtime.GC()
-	runtime.GC()
-	var base runtime.MemStats
-	runtime.ReadMemStats(&base)
-
-	var (
-		keysFit  int
-		heapNow  uint64
-		totalLen uint64
-	)
-
-	i := 0
-	for {
+	base := heapAlloc()
+	var used, totalLen uint64
+	for i := 0; used < budget; {
 		for j := 0; j < batchSize; j++ {
 			k, v := gen(i)
 			m.Put(k, v)
 			totalLen += uint64(len(k))
 			i++
 		}
-		runtime.GC()
-		runtime.GC()
-		var ms runtime.MemStats
-		runtime.ReadMemStats(&ms)
-		heapNow = ms.HeapAlloc
-		used := uint64(0)
-		if heapNow > base.HeapAlloc {
-			used = heapNow - base.HeapAlloc
-		}
-		keysFit = m.Len()
-		if used >= budget {
-			break
+		if h := heapAlloc(); h > base {
+			used = h - base
 		}
 	}
-
-	used := uint64(0)
-	if heapNow > base.HeapAlloc {
-		used = heapNow - base.HeapAlloc
-	}
-	avg := 0.0
-	bpk := 0.0
-	if keysFit > 0 {
-		avg = float64(totalLen) / float64(keysFit)
-		bpk = float64(used) / float64(keysFit)
-	}
+	keysFit := m.Len()
 	runtime.KeepAlive(m)
 	return CapacityResult{
 		Workload:    workload,
 		BudgetBytes: budget,
 		KeysFit:     keysFit,
 		HeapBytes:   used,
-		AvgKeyLen:   avg,
-		BytesPerKey: bpk,
+		AvgKeyLen:   float64(totalLen) / float64(keysFit),
+		BytesPerKey: float64(used) / float64(keysFit),
 	}
 }
 ```
 
-Not "is it correct" but "how many keys before 100 MB". The probeinserts keys from `gen` in batches; after each batch it calls`runtime.GC()` twice and reads `HeapAlloc`. When `HeapAlloc`exceeds the baseline by `budget`, it returns the keys that fitplus the bytes-per-key average. Chapter 2's headline number — 4000 keys on Sparse, 34 653 B/key — is measured by this function.Every chapter from 2 onward reports the same triple (Dense,Sparse, URL) so the bytes/key column tells a story across theladder.
+Not "is it correct" but "how many keys before 100 MB". The probe
+inserts keys from `gen` in batches; after each batch it GCs twice
+and reads `HeapAlloc`. When the heap has grown by `budget` over
+the baseline, it reports the keys that fit and the bytes-per-key
+average. Chapter 2's headline number — 4 000 keys on Sparse,
+34 653 B/key — is measured by this function. Every chapter from 2
+onward reports the same triple (Dense, Sparse, URL) so the
+bytes/key column tells a story across the ladder.
 
 ## How chapters consume the harness
 
-A typical chapter's test file wires its `Tree[int]` into`SortedMap` via a small adapter plus a `factory()`, then dropstwo short tests in:
+A typical chapter's test file wires its `Tree[int]` into
+`SortedMap` via a small adapter plus a `factory()`, then drops
+two short tests in:
 
-```go
+```go {src=../02-node256-only/art_test.go}
 func TestRegression(t *testing.T) {
 	harness.RunRegression(t, factory(), harness.BTreeFactory())
 }
 
 func TestRandomDiff(t *testing.T) {
-	ops := harness.RandomTraceForT(t, harness.RandomConfig{})
+	ops := harness.RandomTraceForT(t, 1000)
 	cand := factory()()
 	ref := harness.NewBTree()
 	harness.RunDiff(t, cand, ref, ops)
 }
 ```
 
-`BTreeFactory()` is the reference. The first test runs all 14named scenarios. The second runs a 1000-op random trace underthe default config. A few lines of adapter glue per chapter; therest of the correctness suite comes for free.
+`BTreeFactory()` is the reference. The first test runs all 14
+named scenarios. The second runs a 1000-op random trace. A few
+lines of adapter glue per chapter; the rest of the correctness
+suite comes for free.
 
 ## What's deliberately not here yet
 
-No streaming key generators driving capacity from disk —`MeasureCapacity` calls `gen(i)` per key but the probe holds thewhole `SortedMap` (and therefore the whole key set) in memory byconstruction; a TODO in `capacity.go` flags this for the day afuture implementation outlasts the pre-allocated workloads. Nofuzzing beyond random traces. No sharded benches.`range-empty-window` is treated as a consistency check, not acontract — an empty range may or may not yield in a givenimplementation, but candidate and reference must agree.
+`MeasureCapacity` holds the whole map (and therefore the whole
+key set) in memory by construction; a TODO in `capacity.go` flags
+streaming generators for the day a future implementation outlasts
+the pre-allocated workloads. No fuzzing beyond random traces. No
+sharded benches. `range-empty-window` is treated as a consistency
+check, not a contract — an empty range may or may not yield in a
+given implementation, but candidate and reference must agree.
