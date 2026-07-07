@@ -7,7 +7,7 @@ the inner-node mix is small enough to print in a table. A natural
 question is whether the per-chapter story still holds at
 production scale.
 
-This annex tracks the **chapter-8 implementation** (which has the
+This annex tracks the **chapter-9 implementation** (which has the
 same shape as the production `art.Tree`) against
 [`google/btree`](https://github.com/google/btree) across map sizes
 from **1 000 to 100 000 000** keys, on each of the three workloads.
@@ -23,7 +23,7 @@ For each cell, four numbers:
   triggered GC.
 - **mid1% ns/k** — wall-clock time per yielded key when iterating
   the **middle 1 %** of the sorted keys (the window between the
-  49.5th and 50.5th percentile keys). For chapter 8's ART this
+  49.5th and 50.5th percentile keys). For chapter 9's ART this
   uses `tree.Range(lo, hi)`; for btree it uses `AscendRange`.
   The bounds are computed once per cell from a sorted copy of
   the workload so both implementations see the same window.
@@ -37,7 +37,7 @@ numbers diverge across the columns; the trends tell the story.
 ## Methodology
 
 Captured by `TestScalingAnnex` in
-[`08-polish/scaling_test.go`](08-polish/scaling_test.go), which
+[`09-polish/scaling_test.go`](09-polish/scaling_test.go), which
 builds each (workload, size, implementation) cell exactly once,
 times the build, GCs, snapshots heap, samples Get for 1 second,
 and finally samples middle-1 %-range iteration for 1 second. No
@@ -58,25 +58,32 @@ on a 16 GB box:
 To reproduce the small tier (up to 1M):
 
 ```
-cd tutorial && go test ./08-polish/ -run TestScalingAnnex -v -timeout 5m
+cd tutorial && go test ./09-polish/ -run TestScalingAnnex -v -timeout 5m
 ```
 
 To include the full ladder (needs ~10 GB free RAM and ~8 minutes):
 
 ```
-cd tutorial && go test ./08-polish/ -run TestScalingAnnex -v -huge -timeout 30m
+cd tutorial && go test ./09-polish/ -run TestScalingAnnex -v -huge -timeout 30m
 ```
 
 The harness reports per-cell results to `t.Log`. The tables
 below are copied from one captured run on a 16 GB Linux box with
 Go 1.23. The full run took 497 seconds.
 
+This capture is a separate run from the per-chapter tables (a
+different machine). Heap B/k is largely machine-independent and
+lines up with chapter 9's per-chapter numbers; the time columns
+(Put, Get, mid1%) reflect *this* box, so read them for
+scaling trends within the annex rather than head-to-head against
+the per-chapter timings.
+
 ## Sparse — random 16-byte keys, no shared prefixes
 
 The hard case for a trie. Random first bytes mean the root must
 fan out to ~250 children; deeper nodes settle into the smaller
-node types. This is the workload where the chapter 6 (node16) and
-chapter 7 (node48) decisions earn their keep.
+node types. This is the workload where the chapter 7 (node16) and
+chapter 8 (node48) decisions earn their keep.
 
 | keys | Chapter 9 Put µs/k | Chapter 9 Get ns | Chapter 9 heap B/k | Chapter 9 mid1% ns/k | btree Put µs/k | btree Get ns | btree heap B/k | btree mid1% ns/k |
 |------|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -107,7 +114,7 @@ widens with N because the trie's tree depth grows.
 
 Maximum prefix sharing — every adjacent pair differs only in the
 trailing byte or two. This is the workload where path compression
-(chapter 3) and lazy expansion (chapter 2) most help; the
+(chapter 4) and lazy expansion (chapter 3) most help; the
 adaptive node sizes contribute little because the leaf-bearing
 nodes still use node256 to hold 256 sequential leaves.
 
@@ -140,7 +147,7 @@ setup amortising across only 10 yields.
 Realistic shape. Long shared prefixes at the top, divergent
 suffixes at the leaves. Roughly 25–80 bytes per key. This is the
 workload that drove path compression's headline number (chapter
-3, 2× tighter heap) and node16's (chapter 6, 3× tighter heap).
+4, 2× tighter heap) and node16's (chapter 7, 3× tighter heap).
 
 | keys | Chapter 9 Put µs/k | Chapter 9 Get ns | Chapter 9 heap B/k | Chapter 9 mid1% ns/k | btree Put µs/k | btree Get ns | btree heap B/k | btree mid1% ns/k |
 |------|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -185,7 +192,7 @@ Four patterns hold across all three workloads:
    the per-yield interface dispatch dominates, the gap is 5–10×.
    In every case, ART's polished `Range` is dramatically faster
    than the naive walk-and-filter `Range` of earlier chapters (the
-   per-chapter `BenchmarkMid1pct_*` numbers in chapters 1–7 confirm
+   per-chapter `RangeWindow` numbers in chapters 2–8 confirm
    this).
 
 The two implementations are not interchangeable. Picking between

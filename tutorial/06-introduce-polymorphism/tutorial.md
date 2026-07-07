@@ -1,7 +1,7 @@
 # Chapter 6 — Introduce polymorphism
 
 This chapter is engineering. It adds no features and changes no
-edge cases. It refactors chapter 5's nine type-switch dispatch
+edge cases. It refactors chapter 5's ten type-switch dispatch
 helpers into method calls on an `innerNode` interface that both
 `*node4` and `*node256` implement.
 
@@ -303,8 +303,8 @@ Code shape, measured by counts that don't lie:
 
 ```
                        Chapter 5    Chapter 6
-free dispatch fns          9            0
-type-switch cases         18            0
+free dispatch fns         10            0
+type-switch cases         20            0
 per-type method sets       0            2
 inner-node interface
   methods                  —           11
@@ -312,10 +312,11 @@ inner-node interface
 
 The decision was: spend a modest hot-path latency tax and ~one
 allocation per inner-node visit during `Range`, in exchange for
-deleting nine type-switch helpers, splitting `reshape` along type
+deleting ten type-switch helpers, splitting `reshape` along type
 boundaries, and **making the chapter
 [7](../07-add-node16/tutorial.md) / chapter
-[8](../08-add-node48/tutorial.md) diffs new-file-only**.
+[8](../08-add-node48/tutorial.md) diffs a new file plus a few
+boundary edits, with no changes to the operation bodies**.
 
 Whether that's a good trade depends on what we're optimising for.
 We are not optimising for raw point-lookup latency — chapter 5
@@ -325,7 +326,7 @@ changing** the code: a future maintainer (human or AI) seeing
 `n.findChild(b)` in `Put` doesn't need to know whether `n` is a
 node4 or node256 or, in chapters [7](../07-add-node16/tutorial.md)
 and [8](../08-add-node48/tutorial.md), a node16 or node48. That
-maintainer also doesn't need to remember to update nine helpers
+maintainer also doesn't need to remember to update ten helpers
 when adding a fifth node type.
 
 ## The chapter-6 promise

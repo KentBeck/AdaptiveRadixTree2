@@ -224,18 +224,18 @@ savings only where they appear.
 ## What's left
 
 Chapter 8 reaches the same node-type structure as the production
-`art.Tree`. The remaining gap to production is *polish*:
+`art.Tree`. The remaining gap to production is *polish* — three
+refinements chapter 9 applies:
 
 - An inline-key buffer on `*leaf[V]` so short keys (≤ 24 B) avoid
   a second allocation.
 - An embedded `innerHeader` so each inner node's prefix/terminal
   accessors come from method promotion instead of being written
   out four times.
-- A reused path buffer in `Range` so range-iteration becomes
-  zero-alloc.
-- A unified `kind() nodeKind` method for cheap leaf-vs-inner
-  branching.
+- A reused path buffer in `Range`, alongside subtree pruning, so
+  windowed iteration is fast and per-yield-allocation-free.
 
-Chapter [9](../09-polish/tutorial.md) will be a reading guide to
-the production source plus a small set of polish demos. There is
-no fifth node type.
+Chapter [9](../09-polish/tutorial.md) applies those three, then
+turns into a reading guide to the production source (which adds a
+few refinements of its own, like a `kind() nodeKind` method for
+cheap leaf-vs-inner branching). There is no fifth node type.

@@ -20,8 +20,9 @@ form a reader can follow, criticise, and learn from. We "fake" the
 rational design by documenting it as if it had been planned from
 the start.
 
-This tutorial is exactly that fake. The eight chapters present
-ART as a linear sequence of decisions, each one motivated by the
+This tutorial is exactly that fake. The eight decision chapters
+(2–9) present ART as a linear sequence of decisions, each one
+motivated by the
 previous chapter's measured shortfall, each one closing a
 specific gap. The actual history of ART (and of this tutorial's
 construction) was not nearly so tidy. But for a reader trying to
@@ -49,7 +50,7 @@ underlying engineering lesson is below it.
 | 4 | Path compression | When prefixes are shared, encode the run in one prefix field instead of one inner node per byte. Mirror image of chapter 3: chapter 3 saved tail bytes; chapter 4 saves prefix bytes. |
 | 5 | Smaller node types (node4) with two-case dispatch | Smaller nodes save space when fanout is low. The naive way to dispatch — a type switch per operation — is bearable at two cases and visibly painful at four. Hold that pain for one chapter. |
 | 6 | Polymorphism | "Make the change easy, then make the easy change." Refactor before adding the third and fourth node types, not after. The numbers you measure during a refactor describe what the trade cost; they do not drive the decision. |
-| 7 | The easy change (node16) | One new struct + 11 method implementations + 5 lines of surgical edits. Adding the third node type costs no edits to operation bodies. The chapter-6 investment is collected here. |
+| 7 | The easy change (node16) | One new struct + 11 method implementations + a handful of surgical edits. Adding the third node type costs no edits to operation bodies. The chapter-6 investment is collected here. |
 | 8 | The completed ladder (node48) | The "Adaptive" in *Adaptive Radix Tree* means the *shape of the data* picks which sizes to use. Not every node type earns its seat for every workload. |
 | 9 | Polish + reading guide | Three small refinements (inline-key buffer, embedded `innerHeader`, reused path buffer in `Range`) close the gap to the production code. Each is a focused trade — bytes for allocs, repetition for promotion, per-yield allocation for per-call buffer. |
 
@@ -69,10 +70,10 @@ single speedup is bookkeeping.
 | 3 | [`03-lazy-expansion/`](03-lazy-expansion/tutorial.md) | Add a leaf type for tail-only paths. Sparse heap drops ~30×; Range allocations drop to zero; Dense capacity passes btree. | ✅ shipped |
 | 4 | [`04-path-compression/`](04-path-compression/tutorial.md) | `prefix []byte` on inner nodes; one node can consume a run of bytes that don't branch. URL bytes/key drops ~2×; URL Get drops ~2.5×; Get is at or below btree's time on every workload. | ✅ shipped |
 | 5 | [`05-add-node4/`](05-add-node4/tutorial.md) | Add a 4-child sorted-array node and dispatch via type-switch helpers. URL bytes/key drops ~4×; Range on URL is ~4× faster. Get gets slower across the board — the dispatch cost. | ✅ shipped |
-| 6 | [`06-introduce-polymorphism/`](06-introduce-polymorphism/tutorial.md) | Refactor: nine type-switch helpers become 11 methods on an `innerNode` interface. Behaviour identical; chapter 7's diff for adding node16 becomes new-file-only. The price: ~10–25% on hot-path Get latency and a closure allocation per inner node during Range. Engineering — quality of decision, not size of speedup. | ✅ shipped |
-| 7 | [`07-add-node16/`](07-add-node16/tutorial.md) | New struct + 11 method implementations + 5 lines of edits to existing types. Sparse heap drops ~5×; URL ~3×. Chapter 7 lands within 1.5–2× of btree's heap on Sparse / URL. The price: ~10–20% more time on Get for medium-fanout workloads (linear scan vs array index). | ✅ shipped |
-| 8 | [`08-add-node48/`](08-add-node48/tutorial.md) | New struct + 11 method impls + 3 surgical edits. Same diff shape as chapter 7. node48 is unused at 1k fixture size — the 17–48 fanout band is empty there — but at Sparse-5k the heap drops ~2.4× (234 → 99 B/key, 182 inner nodes settle into node48) and Put beats btree outright. The lesson: the four-type ladder is workload-adaptive; not every type earns its seat for every workload. | ✅ shipped |
-| 9 | [`09-polish/`](09-polish/tutorial.md) | Three polishes: inline-key buffer (Put allocs drop ~2× on short keys), embedded `innerHeader` (16 trivial methods deleted), `Range` with reused path buffer (zero per-yield allocations). Plus a reading guide to the parent `art.Tree` source. | ✅ shipped |
+| 6 | [`06-introduce-polymorphism/`](06-introduce-polymorphism/tutorial.md) | Refactor: ten type-switch helpers become 11 methods on an `innerNode` interface. Behaviour identical; chapter 7's diff for adding node16 becomes new-file-only. The price: ~10–25% on hot-path Get latency and a closure allocation per inner node during Range. Engineering — quality of decision, not size of speedup. | ✅ shipped |
+| 7 | [`07-add-node16/`](07-add-node16/tutorial.md) | New struct + 11 method implementations + a handful of edits to existing types (no operation-body changes). Sparse heap drops ~5×; URL ~3×. Chapter 7 lands within 1.5–2× of btree's heap on Sparse / URL. The price: ~10–20% more time on Get for medium-fanout workloads (linear scan vs array index). | ✅ shipped |
+| 8 | [`08-add-node48/`](08-add-node48/tutorial.md) | New struct + 11 method impls + 3 surgical edits. Same diff shape as chapter 7. node48 is unused at 1k fixture size — the 17–48 fanout band is empty there — but at Sparse-5k the heap drops ~2.4× (236 → 99 B/key, 182 inner nodes settle into node48) and Put beats btree outright. The lesson: the four-type ladder is workload-adaptive; not every type earns its seat for every workload. | ✅ shipped |
+| 9 | [`09-polish/`](09-polish/tutorial.md) | Three polishes: inline-key buffer (Put allocs drop ~2× on short keys), embedded `innerHeader` (16 trivial methods deleted), and `Range` upgraded to prune whole subtrees with a reused path buffer (windowed iteration an order of magnitude faster; zero per-yield allocations). Plus a reading guide to the parent `art.Tree` source. | ✅ shipped |
 
 ## How the per-chapter numbers work
 

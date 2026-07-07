@@ -18,7 +18,7 @@ costs 112 B versus a node256's 4 136 B.
 The cost: we now have *two* inner-node types. Every operation
 must dispatch on which type it has. Chapter 5 uses explicit
 type-switch helpers for that dispatch — `nodePrefix`,
-`nodeFindChild`, `nodeAddOrGrowChild`, etc. Nine of them. With two
+`nodeFindChild`, `nodeAddOrGrowChild`, etc. Ten of them. With two
 cases each.
 
 If two cases is uncomfortable, four cases (chapters
@@ -136,7 +136,7 @@ func nodeAddOrGrowChild[V any](n node, b byte, child node) node {
 `nodeRemoveChild`, `numChildren`, `eachAscending`. Each is a
 two-case type switch; the shape is uniform.)
 
-Nine helpers in total: `nodePrefix`, `setNodePrefix`,
+Ten helpers in total: `nodePrefix`, `setNodePrefix`,
 `nodeTerminal`, `setNodeTerminal`, `nodeFindChild`,
 `nodeAddOrGrowChild`, `nodeReplaceChild`, `nodeRemoveChild`,
 `numChildren`, plus `eachAscending` for iteration. Each is a
@@ -200,7 +200,7 @@ URL                1 695 B    1 992 B            370 B      424 B        4.70×
 <!-- bench:footprint:end -->
 
 This chapter lands within **~6× of btree's heap footprint on URL**
-and ~7× on Sparse, down from chapter 3's ~28× and ~17×.
+and ~7× on Sparse, down from chapter 3's ~40× and ~17×.
 
 The Sparse arithmetic, made concrete: 141 of the 234 inner nodes
 from chapter 4 became node4s. Each demoted node went from 4 136 B
