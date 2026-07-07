@@ -286,15 +286,22 @@ func heapAlloc() uint64 {
 	return ms.HeapAlloc
 }
 
-func MeasureCapacity(factory Factory, workload string, gen func(i int) (key []byte, value int), budget uint64, batchSize int) CapacityResult {
-	if batchSize <= 0 {
-		batchSize = 1000
-	}
+func MeasureCapacity(factory Factory, workload string, gen func(i int) (key []byte, value int), budget uint64) CapacityResult {
 	m := factory()
 	base := heapAlloc()
 	var used, totalLen uint64
 	for i := 0; used < budget; {
-		for j := 0; j < batchSize; j++ {
+		batch := 1000
+		if used > 0 {
+			batch = int(float64(budget-used) / float64(used) * float64(i))
+			if batch > 4*i {
+				batch = 4 * i
+			}
+			if batch < 1000 {
+				batch = 1000
+			}
+		}
+		for j := 0; j < batch; j++ {
 			k, v := gen(i)
 			m.Put(k, v)
 			totalLen += uint64(len(k))
@@ -321,34 +328,80 @@ Not "is it correct" but "how many keys before 100 MB". The probe
 inserts keys from `gen` in batches; after each batch it GCs twice
 and reads `HeapAlloc`. When the heap has grown by `budget` over
 the baseline, it reports the keys that fit and the bytes-per-key
-average. Chapter 2's headline number — 4 000 keys on Sparse,
-34 653 B/key — is measured by this function. Every chapter from 2
-onward reports the same triple (Dense, Sparse, URL) so the
+average. Batches are sized adaptively — first 1000 keys, then
+aim at the remaining budget using the bytes/key seen so far — so
+the probe pays a handful of GC pauses whether the answer is
+4 000 keys or 1.6 million. Chapter
+[2](../02-node256-only/tutorial.md)'s headline number on the
+Sparse workload is measured by this function. Every chapter from
+2 onward reports the same triple (Dense, Sparse, URL) so the
 bytes/key column tells a story across the ladder.
 
-## How chapters consume the harness
+## One acceptance bar for every version
 
-A typical chapter's test file wires its `Tree[int]` into
-`SortedMap` via a small adapter plus a `factory()`, then drops
-two short tests in:
+The point of the harness is that the acceptance criteria never
+change as the tree changes shape. `RunAcceptance` is the whole
+bar in one call:
 
-```go {src=../02-node256-only/art_test.go}
-func TestRegression(t *testing.T) {
-	harness.RunRegression(t, factory(), harness.BTreeFactory())
-}
-
-func TestRandomDiff(t *testing.T) {
-	ops := harness.RandomTraceForT(t, 1000)
-	cand := factory()()
-	ref := harness.NewBTree()
-	harness.RunDiff(t, cand, ref, ops)
+```go {src=regression.go decl=RunAcceptance}
+func RunAcceptance(t *testing.T, candidate Factory) {
+	t.Helper()
+	RunRegression(t, candidate, BTreeFactory())
+	t.Run("random-trace", func(t *testing.T) {
+		RunDiff(t, candidate(), NewBTree(), RandomTraceForT(t, 1000))
+	})
 }
 ```
 
-`BTreeFactory()` is the reference. The first test runs all 14
-named scenarios. The second runs a 1000-op random trace. A few
-lines of adapter glue per chapter; the rest of the correctness
-suite comes for free.
+A chapter's test file wires its `Tree[int]` into `SortedMap` via
+a small adapter plus a `factory()`, then drops in one test:
+
+```go {src=../02-node256-only/art_test.go}
+func TestAcceptance(t *testing.T) {
+	harness.RunAcceptance(t, factory())
+}
+```
+
+A few lines of adapter glue per chapter; the whole correctness
+suite comes for free, identical for every version.
+
+## The same yardsticks: time and capacity
+
+Correctness is only half the acceptance story. Every chapter also
+answers the same two questions — how long do the operations take,
+and how many keys fit in 100 MB — against the same contenders, so
+the numbers are comparable across the whole ladder.
+
+```go {src=benchmarks.go decls=Contender,RunOpBenchmarks}
+type Contender struct {
+	Name string
+	New  Factory
+}
+
+func RunOpBenchmarks(b *testing.B, contenders []Contender) {
+	for _, op := range opSpecs() {
+		for _, w := range Workloads1k() {
+			for _, c := range contenders {
+				b.Run(op.name+"/"+shortName(w)+"/"+c.Name, op.bench(c.New, w))
+			}
+		}
+	}
+}
+```
+
+A chapter lists its contenders — its own tree, the previous
+chapter's, `google/btree` — and gets one sub-benchmark per
+(operation, workload, contender): `Put`, `Get`, `Range`, and
+`RangeWindow` (the middle 1% of the keyspace) across Dense,
+Sparse, and URL. `RunCapacityProbe` asks the capacity question
+for the same contenders.
+
+The tables printed in each chapter's `tutorial.md` are rendered
+from these same functions (`BenchAll`, `CapacityTable`) through
+the build-check machinery (see the tutorial README), so a
+committed number is never hand-typed:
+`go test -update-bench ./<chapter>/` re-measures and rewrites
+them in place.
 
 ## What's deliberately not here yet
 

@@ -194,6 +194,18 @@ func Scenarios() []Scenario {
 	}
 }
 
+// RunAcceptance runs the acceptance criteria every chapter's tree
+// must pass, unchanged from version to version: all named regression
+// scenarios plus a 1000-op random trace, each diffed op-by-op
+// against the btree oracle.
+func RunAcceptance(t *testing.T, candidate Factory) {
+	t.Helper()
+	RunRegression(t, candidate, BTreeFactory())
+	t.Run("random-trace", func(t *testing.T) {
+		RunDiff(t, candidate(), NewBTree(), RandomTraceForT(t, 1000))
+	})
+}
+
 // RunRegression runs every scenario from Scenarios() against
 // freshly-built candidate and reference, via RunDiff. Each scenario
 // runs in its own t.Run sub-test so failures attribute cleanly.
