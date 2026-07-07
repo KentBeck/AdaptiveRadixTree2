@@ -1,11 +1,10 @@
 # Chapter 2 — A node256-only tree
 
-The chapter that follows builds the simplest trie that could
-possibly compile. One inner-node type, with a 256-slot child
-table. No leaves. No prefix compression. Every byte of every key
-forces a fresh node, so a 16-byte random key allocates 16 inner
-nodes — about 31 KB of pointer table per key on the Sparse
-workload. This is a disaster, and that is the point: chapter 2
+This chapter builds the simplest trie that could possibly
+compile. One inner-node type, with a 256-slot child table. No
+leaves. No prefix compression. Every byte of every key forces a
+fresh node, so a 16-byte random key allocates 16 inner nodes —
+about 31 KB of pointer table per key on the Sparse workload. This is a disaster, and that is the point: chapter 2
 sets the cost-to-beat that every later chapter measures itself
 against.
 
@@ -79,8 +78,7 @@ func (t *Tree[V]) Put(key []byte, value V) {
 	if n.terminal == nil {
 		t.size++
 	}
-	v := value
-	n.terminal = &v
+	n.terminal = &value
 }
 ```
 

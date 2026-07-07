@@ -64,8 +64,7 @@ func (t *Tree[V]) Put(key []byte, value V) {
 	if n.terminal == nil {
 		t.size++
 	}
-	v := value
-	n.terminal = &v
+	n.terminal = &value
 }
 
 func (t *Tree[V]) Delete(key []byte) bool {
