@@ -1,6 +1,7 @@
 # Chapter 7 — Add node16 (the easy change)
 
-This is chapter 6's payoff.
+This is chapter [6](../06-introduce-polymorphism/tutorial.md)'s
+payoff.
 
 Chapter 6 promised that adding the next inner-node type would be a
 new struct file plus minimal edits. Here is the diff that landed
@@ -82,8 +83,12 @@ automatically.
 
 ## What the new band catches — measured
 
-Reproduce with
-`go test -bench=. -benchmem -benchtime=300ms ./tutorial/07-add-node16/`.
+Same acceptance criteria, same yardsticks: the tables below are
+rendered by `go test -update-bench` from the shared harness
+benchmarks — this chapter's tree alongside chapter
+[6](../06-introduce-polymorphism/tutorial.md)'s, with
+`google/btree` for context. Reproduce any cell with
+`go test -bench=. -benchmem -benchtime=300ms ./07-add-node16/`.
 
 ### Per-node sizes
 
@@ -101,18 +106,18 @@ leaf          32   key slice header + value (V == int)
 
 <!-- bench:innernodemix:start -->
 ```
-Workload    Stage 5 (n4 + n256)        Stage 6 (n4 + n16 + n256)
+Workload    Chapter 6 (n4 + n256)      Chapter 7 (n4 + n16 + n256)
 Dense           1 + 4                      1 + 0 + 4
 Sparse        141 + 93                   141 + 92 + 1
 URL           330 + 63                   330 + 63 + 0
 ```
 <!-- bench:innernodemix:end -->
 
-URL is the most striking: every chapter-5 node256 — 63 of them —
+URL is the most striking: every chapter-6 node256 — 63 of them —
 fit in node16. Those 63 nodes shrank from 4 144 B to 320 B each,
 saving roughly 240 KB on a 1 000-key tree.
 
-Sparse is similar: 92 of the 93 chapter-5 node256s settled into
+Sparse is similar: 92 of the 93 chapter-6 node256s settled into
 node16. Only one root node256 remains, holding ~250 first-byte
 children that genuinely need node256's array indexing.
 
@@ -121,40 +126,61 @@ last byte, where node16 cannot help.
 
 ### Live heap
 
+<!-- bench:heapfootprint:start -->
 ```
-Workload    Stage 5    Stage 6    improvement     btree
-Dense        59 B/key   59 B/key      1.00×       ~70 B/key
-Sparse      518 B/key  100 B/key      5.17×       ~70 B/key
-URL         429 B/key  143 B/key      2.99×       ~70 B/key
+Workload    Chapter6 heap   Chapter7 heap improvement
+Dense            59 B/key        59 B/key    1.00×
+Sparse          518 B/key       100 B/key    5.18×
+URL             429 B/key       143 B/key    3.00×
 ```
+<!-- bench:heapfootprint:end -->
 
-Sparse is now within **1.4× of btree's heap** (100 B/key vs
-~70 B/key). URL is within **2.0×**. The trie was 30× over btree
-on Sparse at the end of chapter 2, 1.7× over at the end of
-chapter 3, and is now within striking distance.
+Sparse lands within **~1.5× of btree's heap**; URL within ~2×.
+The trie was two orders of magnitude over btree on Sparse at the
+end of chapter [2](../02-node256-only/tutorial.md), ~17× over at
+the end of chapter [3](../03-lazy-expansion/tutorial.md), ~7×
+after node4, and is now within striking distance.
 
-### Time per operation
+### Time and allocations per operation
 
+<!-- bench:optime:start -->
 ```
-Op    Workload   Stage 5         Stage 6         change
-Put    Dense        88 µs          83 µs            -6%
-Put    Sparse      240 µs         138 µs            -42%
-Put    URL         347 µs         274 µs            -21%
-Get    Dense        29 ns          24 ns            -17%
-Get    Sparse       27 ns          35 ns            +27%
-Get    URL          99 ns         118 ns            +19%
-Range  Dense       5.0 µs         5.0 µs            tied
-Range  Sparse       36 µs          16 µs            -56%
-Range  URL          38 µs          23 µs            -40%
+Op           Workload      Chapter7     Chapter6        btree
+Put          Dense         130.3 µs     118.1 µs     195.8 µs
+Put          Sparse        208.3 µs     398.1 µs     303.5 µs
+Put          URL           414.0 µs     551.7 µs     341.0 µs
+Get          Dense          41.0 ns      38.0 ns     138.0 ns
+Get          Sparse         47.0 ns      43.0 ns     198.0 ns
+Get          URL           136.0 ns     121.0 ns     204.0 ns
+Range        Dense           9.8 µs      10.0 µs       6.8 µs
+Range        Sparse         26.7 µs      47.7 µs       7.3 µs
+Range        URL            35.9 µs      49.8 µs       7.1 µs
+RangeWindow  Dense          14.5 µs      16.4 µs     406.0 ns
+RangeWindow  Sparse         31.2 µs      53.3 µs     380.0 ns
+RangeWindow  URL            41.5 µs      56.5 µs     464.0 ns
 ```
+<!-- bench:optime:end -->
 
-Put and Range got faster on Sparse and URL. Smaller per-node mallocs
-(node16's 320 B vs node256's 4 144 B) is the main driver for Put;
-fewer slots to scan per node is the driver for Range.
+<!-- bench:opspace:start -->
+```
+Op     Workload    Chapter7 B   allocs   Chapter6 B   allocs      btree B   allocs
+Put    Dense          61.4 KB    2 016      60.1 KB    2 012     109.6 KB    1 115
+Put    Sparse        112.6 KB    2 329     530.3 KB    2 328      86.3 KB    1 085
+Put    URL           151.8 KB    2 603     438.1 KB    2 603     121.4 KB    1 088
+Range  Dense            312 B        9        312 B        9         96 B        3
+Range  Sparse          5.8 KB      238       5.8 KB      238         96 B        3
+Range  URL             9.6 KB      397       9.6 KB      397         96 B        3
+```
+<!-- bench:opspace:end -->
 
-The honest cost is on `Get`: Sparse goes from 27 ns to 35 ns and
-URL from 99 ns to 118 ns. **That's the tradeoff we deliberately
-made.** A node16's `findChild` scans up to 16 keys linearly:
+Put and Range got faster on Sparse and URL. Smaller per-node
+mallocs (node16's 320 B vs node256's 4 144 B) is the main driver
+for Put; fewer slots to scan per node is the driver for Range.
+Put bytes on Sparse drop ~4.7× — within a small factor of btree.
+
+The honest cost is on `Get`: Sparse and URL each give back
+roughly 10-20%, run to run. **That's the tradeoff we deliberately made.** A
+node16's `findChild` scans up to 16 keys linearly:
 
 ```go {src=art.go decl=node16.findChild}
 func (n *node16[V]) findChild(b byte) node {
@@ -175,21 +201,24 @@ func (n *node256[V]) findChild(b byte) node { return n.children[b] }
 
 So at every formerly-node256 inner node that became a node16, Get
 now pays an O(fanout) loop instead of O(1) array indexing. On
-Sparse and URL we did exactly that conversion at scale. We accepted
-~20% more `Get` time for ~3-5× less heap. We are engineering: the
-numbers describe the trade, and we made it deliberately.
+Sparse and URL we did exactly that conversion at scale. We
+accepted ~10-20% more `Get` time for ~3-5× less heap. We are
+engineering: the numbers describe the trade, and we made it
+deliberately.
 
-### Allocations
+### Capacity
 
+<!-- bench:capacity:start -->
 ```
-Op       Workload     Stage 5 B/op    Stage 6 B/op    btree B/op
-Put      Dense          60 KB           61 KB            102 KB
-Put      Sparse        530 KB          113 KB             70 KB
-Put      URL           438 KB          152 KB             73 KB
+Workload    Chapter7 keys     B/key   Chapter6 keys     B/key      btree keys     B/key
+Dense           1 564 099      67.1       1 563 926      67.1       1 239 807      84.6
+Sparse          1 141 606     207.1         514 952     603.7       1 634 046      64.6
+URL               755 034     139.6         214 684     489.1       1 091 012      96.4
 ```
+<!-- bench:capacity:end -->
 
-Sparse Put now allocates **4.7× fewer bytes** than chapter 6 —
-within 1.6× of btree.
+The 100 MB ceilings tell the same story at scale: Sparse and URL
+capacity multiply, and Sparse now approaches btree's.
 
 ## What's still wrong
 
@@ -198,12 +227,12 @@ Look at the inner-node mix table again. URL has 330 node4s and
 not big enough for node256 to be needed, but the per-node-16
 overhead is still ~3× node4's. There's room for a *fourth* node
 type sized for 17–48 children to keep things tight, and that's
-chapter 8's `node48`.
+chapter [8](../08-add-node48/tutorial.md)'s `node48`.
 
 There is also still a meaningful Get cost we can claw back at
-the polish stage (chapter 9): inline-key buffers, embedded
-header-struct via Go promotion, a reused path buffer in `Range`,
-and so on.
+the polish stage (chapter [9](../09-polish/tutorial.md)):
+inline-key buffers, an embedded header struct via Go promotion, a
+reused path buffer in `Range`, and so on.
 
-The chapter-7 diff will look like this chapter's: one new struct
-file, two surgical edits, and that's it.
+The chapter-8 diff will look like this chapter's: one new struct
+file, a few surgical edits, and that's it.
