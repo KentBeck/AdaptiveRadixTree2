@@ -83,12 +83,12 @@ func TestScalingAnnex(t *testing.T) {
 			lo := sortedKeys[len(sortedKeys)*495/1000]
 			hi := sortedKeys[len(sortedKeys)*505/1000]
 
-			s8 := measureStage8(w, lo, hi)
+			c9 := measureChapter9(w, lo, hi)
 			bt := measureBtree(w, lo, hi)
 
 			t.Logf("%-10s  %-32s  %-32s",
 				humanize(n),
-				fmt.Sprintf("%6.2f | %6.0f | %6.0f | %5.0f", s8.putUsPerKey, s8.getNs, s8.heapBPerKey, s8.mid1pctNsPerKey),
+				fmt.Sprintf("%6.2f | %6.0f | %6.0f | %5.0f", c9.putUsPerKey, c9.getNs, c9.heapBPerKey, c9.mid1pctNsPerKey),
 				fmt.Sprintf("%6.2f | %6.0f | %6.0f | %5.0f", bt.putUsPerKey, bt.getNs, bt.heapBPerKey, bt.mid1pctNsPerKey))
 		}
 	}
@@ -103,7 +103,7 @@ type scalePoint struct {
 
 const getSampleSeconds = 1.0
 
-func measureStage8(w bench.Workload, lo, hi []byte) scalePoint {
+func measureChapter9(w bench.Workload, lo, hi []byte) scalePoint {
 	runtime.GC()
 	runtime.GC()
 	var before runtime.MemStats

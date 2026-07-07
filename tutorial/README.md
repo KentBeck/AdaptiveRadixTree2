@@ -67,11 +67,11 @@ single speedup is bookkeeping.
 | 1 | [`01-test-harness/`](01-test-harness/tutorial.md) | Test harness: `SortedMap` interface + btree oracle, `RunAcceptance` (14 regression scenarios + seeded random trace, diffed op-by-op), shared op benchmarks (`RunOpBenchmarks`/`BenchAll`), `MeasureCapacity` + `CapacityTable` for the 100 MB question. | ✅ shipped |
 | 2 | [`02-node256-only/`](02-node256-only/tutorial.md) | Disaster baseline: one node type, full 256-fanout, no leaves, no prefix compression. Get / Put / Delete / Range walked through end-to-end. First chapter held to the chapter-1 acceptance bar and yardsticks. ~31 KB/key on Sparse; a few thousand keys before 100 MB. | ✅ shipped |
 | 3 | [`03-lazy-expansion/`](03-lazy-expansion/tutorial.md) | Add a leaf type for tail-only paths. Sparse heap drops ~30×; Range allocations drop to zero; Dense capacity passes btree. | ✅ shipped |
-| 4 | [`04-path-compression/`](04-path-compression/tutorial.md) | `prefix []byte` on inner nodes; one node can consume a run of bytes that don't branch. URL bytes/key drops 2×; URL Get drops 2.8×; Stage 3 Get is faster than btree on every workload. | ✅ shipped |
-| 5 | [`05-add-node4/`](05-add-node4/tutorial.md) | Add a 4-child sorted-array node and dispatch via type-switch helpers. URL bytes/key drops 3.9×; Range on URL is 4.4× faster. Get gets slower (1.3–2.3×) — the dispatch cost. | ✅ shipped |
+| 4 | [`04-path-compression/`](04-path-compression/tutorial.md) | `prefix []byte` on inner nodes; one node can consume a run of bytes that don't branch. URL bytes/key drops ~2×; URL Get drops ~2.5×; Get is at or below btree's time on every workload. | ✅ shipped |
+| 5 | [`05-add-node4/`](05-add-node4/tutorial.md) | Add a 4-child sorted-array node and dispatch via type-switch helpers. URL bytes/key drops ~4×; Range on URL is ~4× faster. Get gets slower across the board — the dispatch cost. | ✅ shipped |
 | 6 | [`06-introduce-polymorphism/`](06-introduce-polymorphism/tutorial.md) | Refactor: nine type-switch helpers become 11 methods on an `innerNode` interface. Behaviour identical; chapter 7's diff for adding node16 becomes new-file-only. The price: ~10–25% on hot-path Get latency and a closure allocation per inner node during Range. Engineering — quality of decision, not size of speedup. | ✅ shipped |
-| 7 | [`07-add-node16/`](07-add-node16/tutorial.md) | New struct + 11 method implementations + 5 lines of edits to existing types. Sparse heap drops 5.17×; URL drops 3.0×. Stage 6 is within 1.4–2.0× of btree's heap on Sparse / URL. The price: ~20% more time on Get for medium-fanout workloads (linear scan vs array index). | ✅ shipped |
-| 8 | [`08-add-node48/`](08-add-node48/tutorial.md) | New struct + 11 method impls + 3 surgical edits. Same diff shape as chapter 7. node48 is unused at 1k fixture size — the 17–48 fanout band is empty there — but at Sparse-5k the heap drops 2.35× (234 → 99 B/key, 182 inner nodes settle into node48) and Put goes 1.7× faster than btree. The lesson: the four-type ladder is workload-adaptive; not every type earns its seat for every workload. | ✅ shipped |
+| 7 | [`07-add-node16/`](07-add-node16/tutorial.md) | New struct + 11 method implementations + 5 lines of edits to existing types. Sparse heap drops ~5×; URL ~3×. Chapter 7 lands within 1.5–2× of btree's heap on Sparse / URL. The price: ~10–20% more time on Get for medium-fanout workloads (linear scan vs array index). | ✅ shipped |
+| 8 | [`08-add-node48/`](08-add-node48/tutorial.md) | New struct + 11 method impls + 3 surgical edits. Same diff shape as chapter 7. node48 is unused at 1k fixture size — the 17–48 fanout band is empty there — but at Sparse-5k the heap drops ~2.4× (234 → 99 B/key, 182 inner nodes settle into node48) and Put beats btree outright. The lesson: the four-type ladder is workload-adaptive; not every type earns its seat for every workload. | ✅ shipped |
 | 9 | [`09-polish/`](09-polish/tutorial.md) | Three polishes: inline-key buffer (Put allocs drop ~2× on short keys), embedded `innerHeader` (16 trivial methods deleted), `Range` with reused path buffer (zero per-yield allocations). Plus a reading guide to the parent `art.Tree` source. | ✅ shipped |
 
 ## How the per-chapter numbers work
@@ -107,10 +107,9 @@ cross-references to other chapters are written as markdown links,
 which the build check verifies against the chapter directory
 numbers — a renumbering breaks the build instead of the prose.
 
-Bench-output labels `Stage1`/`Stage2`/... in chapters 4-9 are
-historical: they retain pre-renumber numbering. Chapters 2-3
-already use `Chapter<N>` labels; the rest follow as their content
-is rewritten.
+Every chapter's bench output and tables use `Chapter<N>` labels
+matching the directory numbering; the pre-renumber `Stage<N>`
+labels are gone.
 
 ## Beyond per-chapter — the scaling annex
 

@@ -226,9 +226,9 @@ so the live-heap footprint is unchanged:
 <!-- bench:heapfootprint:start -->
 ```
 Workload    Chapter5 heap   Chapter6 heap    ratio
-Dense            59 B/key        64 B/key    1.08×
+Dense            59 B/key        59 B/key    1.00×
 Sparse          516 B/key       518 B/key    1.00×
-URL             424 B/key       429 B/key    1.01×
+URL             429 B/key       429 B/key    1.00×
 ```
 <!-- bench:heapfootprint:end -->
 
@@ -237,18 +237,18 @@ URL             424 B/key       429 B/key    1.01×
 <!-- bench:optime:start -->
 ```
 Op           Workload      Chapter6     Chapter5        btree
-Put          Dense         130.1 µs     119.5 µs     194.5 µs
-Put          Sparse        344.9 µs     328.4 µs     279.5 µs
-Put          URL           473.7 µs     478.3 µs     325.1 µs
-Get          Dense          37.0 ns      35.0 ns     140.0 ns
-Get          Sparse         46.0 ns      37.0 ns     176.0 ns
-Get          URL           122.0 ns     104.0 ns     208.0 ns
-Range        Dense           9.7 µs       9.3 µs       6.6 µs
-Range        Sparse         47.3 µs      35.8 µs       6.4 µs
-Range        URL            51.2 µs      35.9 µs       6.3 µs
-RangeWindow  Dense          14.8 µs      14.4 µs     391.0 ns
-RangeWindow  Sparse         52.6 µs      41.4 µs     404.0 ns
-RangeWindow  URL            64.0 µs      40.5 µs     488.0 ns
+Put          Dense         130.7 µs     116.5 µs     212.2 µs
+Put          Sparse        401.6 µs     399.0 µs     270.0 µs
+Put          URL           509.3 µs     481.6 µs     325.1 µs
+Get          Dense          39.0 ns      33.0 ns     138.0 ns
+Get          Sparse         44.0 ns      40.0 ns     174.0 ns
+Get          URL           120.0 ns     102.0 ns     219.0 ns
+Range        Dense           9.6 µs      10.9 µs       6.4 µs
+Range        Sparse         45.3 µs      34.5 µs       6.2 µs
+Range        URL            48.6 µs      31.9 µs       6.3 µs
+RangeWindow  Dense          16.9 µs      14.5 µs     408.0 ns
+RangeWindow  Sparse         62.1 µs      41.3 µs     372.0 ns
+RangeWindow  URL            55.2 µs      37.8 µs     456.0 ns
 ```
 <!-- bench:optime:end -->
 
@@ -289,9 +289,9 @@ Two distinct costs:
 <!-- bench:capacity:start -->
 ```
 Workload    Chapter6 keys     B/key   Chapter5 keys     B/key      btree keys     B/key
-Dense           1 563 934      67.1       1 563 933      67.1       1 239 814      84.6
-Sparse            514 951     603.7         526 488     597.1       1 634 046      64.6
-URL               214 684     489.1         219 401     478.4       1 091 010      96.4
+Dense           1 563 926      67.1       1 563 930      67.1       1 239 809      84.6
+Sparse            514 952     603.7         526 482     597.1       1 634 039      64.6
+URL               214 683     489.1         219 401     478.4       1 091 012      96.4
 ```
 <!-- bench:capacity:end -->
 

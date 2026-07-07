@@ -352,18 +352,18 @@ target.
 <!-- bench:optime:start -->
 ```
 Op           Workload      Chapter3     Chapter2        btree
-Put          Dense          98.2 µs     772.9 µs     139.7 µs
-Put          Sparse        466.1 µs      9.84 ms     215.3 µs
-Put          URL            2.44 ms      5.39 ms     248.1 µs
-Get          Dense          18.0 ns      11.0 ns     107.0 ns
-Get          Sparse         11.0 ns     175.0 ns     131.0 ns
-Get          URL           203.0 ns     245.0 ns     143.0 ns
-Range        Dense           7.6 µs     217.1 µs       6.1 µs
-Range        Sparse         53.8 µs      4.16 ms       6.0 µs
-Range        URL           188.4 µs      1.84 ms       5.9 µs
-RangeWindow  Dense          10.8 µs     209.5 µs     307.0 ns
-RangeWindow  Sparse         56.8 µs      4.43 ms     304.0 ns
-RangeWindow  URL           204.2 µs      1.80 ms     368.0 ns
+Put          Dense         134.1 µs     980.0 µs     204.8 µs
+Put          Sparse        713.1 µs     16.95 ms     273.3 µs
+Put          URL            3.52 ms      9.67 ms     345.4 µs
+Get          Dense          30.0 ns      24.0 ns     155.0 ns
+Get          Sparse         22.0 ns     317.0 ns     171.0 ns
+Get          URL           228.0 ns     384.0 ns     202.0 ns
+Range        Dense           8.5 µs     206.9 µs       6.5 µs
+Range        Sparse         65.9 µs      8.63 ms       6.4 µs
+Range        URL           225.0 µs      2.40 ms       7.5 µs
+RangeWindow  Dense          14.0 µs     204.5 µs     389.0 ns
+RangeWindow  Sparse         70.5 µs      7.56 ms     384.0 ns
+RangeWindow  URL           253.6 µs      2.30 ms     483.0 ns
 ```
 <!-- bench:optime:end -->
 
@@ -411,7 +411,7 @@ The same 100 MB question as chapter
 ```
 Workload    Chapter3 keys     B/key   Chapter2 keys     B/key      btree keys     B/key
 Dense           1 563 028      67.1          46 009     2 329       1 239 809      84.6
-Sparse            125 000     1 527           3 984    34 654       1 634 035      64.6
+Sparse            125 000     1 527           3 984    34 654       1 634 046      64.6
 URL                54 997     1 916           7 373    16 091       1 091 012      96.4
 ```
 <!-- bench:capacity:end -->

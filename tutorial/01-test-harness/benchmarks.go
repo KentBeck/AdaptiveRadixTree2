@@ -125,10 +125,15 @@ func benchRangeWindow(f Factory, w bench.Workload) func(*testing.B) {
 // RunOpBenchmarks is the `go test -bench` entry point: one
 // sub-benchmark per (operation, workload, contender), so every cell
 // of the chapter's comparison tables can be reproduced with
-// `go test -bench=. -benchmem`.
-func RunOpBenchmarks(b *testing.B, contenders []Contender) {
+// `go test -bench=. -benchmem`. Extra workloads beyond the standard
+// 1000-key trio (e.g. a chapter-specific Sparse/5000) can be passed
+// explicitly; omitting them runs the standard trio.
+func RunOpBenchmarks(b *testing.B, contenders []Contender, workloads ...bench.Workload) {
+	if len(workloads) == 0 {
+		workloads = Workloads1k()
+	}
 	for _, op := range opSpecs() {
-		for _, w := range Workloads1k() {
+		for _, w := range workloads {
 			for _, c := range contenders {
 				b.Run(op.name+"/"+shortName(w)+"/"+c.Name, op.bench(c.New, w))
 			}
@@ -142,6 +147,7 @@ func RunOpBenchmarks(b *testing.B, contenders []Contender) {
 // contender) cell, ready to be rendered as tutorial.md tables.
 type BenchResults struct {
 	contenders []string
+	workloads  []string
 	cells      map[string]testing.BenchmarkResult
 }
 
@@ -152,14 +158,20 @@ func cellKey(op, workload, contender string) string {
 // BenchAll measures every cell via testing.Benchmark. Slow — up to
 // a second per cell at the default -benchtime — so chapters call it
 // from Volatile buildcheck regions, which render only under
-// -update-bench.
-func BenchAll(contenders []Contender) BenchResults {
+// -update-bench. Omitting workloads runs the standard 1000-key trio.
+func BenchAll(contenders []Contender, workloads ...bench.Workload) BenchResults {
+	if len(workloads) == 0 {
+		workloads = Workloads1k()
+	}
 	res := BenchResults{cells: map[string]testing.BenchmarkResult{}}
 	for _, c := range contenders {
 		res.contenders = append(res.contenders, c.Name)
 	}
+	for _, w := range workloads {
+		res.workloads = append(res.workloads, shortName(w))
+	}
 	for _, op := range opSpecs() {
-		for _, w := range Workloads1k() {
+		for _, w := range workloads {
 			for _, c := range contenders {
 				res.cells[cellKey(op.name, shortName(w), c.Name)] = testing.Benchmark(op.bench(c.New, w))
 			}
@@ -178,10 +190,10 @@ func (r BenchResults) TimeTable() string {
 	}
 	b.WriteByte('\n')
 	for _, op := range opSpecs() {
-		for _, w := range Workloads1k() {
-			fmt.Fprintf(&b, "%-12s %-9s", op.name, shortName(w))
+		for _, w := range r.workloads {
+			fmt.Fprintf(&b, "%-12s %-9s", op.name, w)
 			for _, c := range r.contenders {
-				cell := r.cells[cellKey(op.name, shortName(w), c)]
+				cell := r.cells[cellKey(op.name, w, c)]
 				fmt.Fprintf(&b, "  %11s", fmtDuration(float64(cell.NsPerOp())))
 			}
 			b.WriteByte('\n')
@@ -201,10 +213,10 @@ func (r BenchResults) SpaceTable() string {
 	}
 	b.WriteByte('\n')
 	for _, op := range []string{"Put", "Range"} {
-		for _, w := range Workloads1k() {
-			fmt.Fprintf(&b, "%-6s %-9s", op, shortName(w))
+		for _, w := range r.workloads {
+			fmt.Fprintf(&b, "%-6s %-9s", op, w)
 			for _, c := range r.contenders {
-				cell := r.cells[cellKey(op, shortName(w), c)]
+				cell := r.cells[cellKey(op, w, c)]
 				fmt.Fprintf(&b, "  %11s %8s", fmtBytes(float64(cell.AllocedBytesPerOp())), group(int(cell.AllocsPerOp())))
 			}
 			b.WriteByte('\n')

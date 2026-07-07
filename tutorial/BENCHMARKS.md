@@ -78,7 +78,7 @@ fan out to ~250 children; deeper nodes settle into the smaller
 node types. This is the workload where the chapter 6 (node16) and
 chapter 7 (node48) decisions earn their keep.
 
-| keys | Stage 8 Put µs/k | Stage 8 Get ns | Stage 8 heap B/k | Stage 8 mid1% ns/k | btree Put µs/k | btree Get ns | btree heap B/k | btree mid1% ns/k |
+| keys | Chapter 9 Put µs/k | Chapter 9 Get ns | Chapter 9 heap B/k | Chapter 9 mid1% ns/k | btree Put µs/k | btree Get ns | btree heap B/k | btree mid1% ns/k |
 |------|---:|---:|---:|---:|---:|---:|---:|---:|
 |  1k  | 0.32 |  50 | 116 | 258 | 0.42 |  166 | 46 |  26 |
 | 10k  | 0.16 |  40 | 105 |  77 | 0.33 |  240 | 48 |  13 |
@@ -88,14 +88,14 @@ chapter 7 (node48) decisions earn their keep.
 | 30M  | 1.39 | 558 | 117 | 621 | 3.44 | 3717 | 49 | 130 |
 | 100M | OOM  | OOM | OOM | OOM | (would need ~14 GB free; the test machine had ~11 GB available) |
 
-**Stage 8 Get is 3.3×–6.7× faster than btree.**
+**Chapter 9 Get is 3.3×–6.7× faster than btree.**
 
-**Stage 8 uses ~2.4× the heap.** ~110–120 B/key vs btree's
+**Chapter 9 uses ~2.4× the heap.** ~110–120 B/key vs btree's
 ~48 B/key.
 
-**Stage 8 Put is 1.3×–2.5× faster than btree.**
+**Chapter 9 Put is 1.3×–2.5× faster than btree.**
 
-**Stage 8 mid1% is ~5–14× *slower* than btree** on Sparse. The
+**Chapter 9 mid1% is ~5–14× *slower* than btree** on Sparse. The
 trie's `Range` has to descend through prefix-matching at every
 level on the way to the lo bound, then on every yield walks a
 chain of inner nodes (each one an interface-method call that
@@ -111,7 +111,7 @@ trailing byte or two. This is the workload where path compression
 adaptive node sizes contribute little because the leaf-bearing
 nodes still use node256 to hold 256 sequential leaves.
 
-| keys | Stage 8 Put µs/k | Stage 8 Get ns | Stage 8 heap B/k | Stage 8 mid1% ns/k | btree Put µs/k | btree Get ns | btree heap B/k | btree mid1% ns/k |
+| keys | Chapter 9 Put µs/k | Chapter 9 Get ns | Chapter 9 heap B/k | Chapter 9 mid1% ns/k | btree Put µs/k | btree Get ns | btree heap B/k | btree mid1% ns/k |
 |------|---:|---:|---:|---:|---:|---:|---:|---:|
 |  1k  | 0.17 | 40 | 84 | 397 | 0.15 | 136 | 68 | 26 |
 | 10k  | 0.11 | 36 | 83 |  55 | 0.22 | 164 | 68 | 13 |
@@ -120,19 +120,19 @@ nodes still use node256 to hold 256 sequential leaves.
 | 10M  | 0.11 | 43 | 83 |  35 | 0.31 | 279 | 69 | 12 |
 | 100M | 0.49 | 53 | 83 |  37 | 0.36 | 294 | 69 | 16 |
 
-**Stage 8 Get is essentially flat at 36–53 ns across 5 orders of
+**Chapter 9 Get is essentially flat at 36–53 ns across 5 orders of
 magnitude.** btree's Get scales as expected (136 → 294 ns). At
-100M keys, **Stage 8 is 5.5× faster than btree on Get** with only
+100M keys, **Chapter 9 is 5.5× faster than btree on Get** with only
 1.2× more heap.
 
-**Stage 8 mid1% is essentially flat at 35–55 ns/k from 10k onward**
+**Chapter 9 mid1% is essentially flat at 35–55 ns/k from 10k onward**
 on Dense — prefix sharing means each yielded key crosses few
 inner nodes during Range. **At 100M Dense, ART mid1% is 37 ns/k
 vs btree's 16 ns/k — only ~2.3× slower** despite ART's heavier
 per-yield machinery. The 1k cell's 397 ns is dominated by Range
 setup amortising across only 10 yields.
 
-**Stage 8 Put is faster than btree at every size**, by 1.3× to
+**Chapter 9 Put is faster than btree at every size**, by 1.3× to
 2× depending on N.
 
 ## URL — host + path + 8-byte hex tail
@@ -142,7 +142,7 @@ suffixes at the leaves. Roughly 25–80 bytes per key. This is the
 workload that drove path compression's headline number (chapter
 3, 2× tighter heap) and node16's (chapter 6, 3× tighter heap).
 
-| keys | Stage 8 Put µs/k | Stage 8 Get ns | Stage 8 heap B/k | Stage 8 mid1% ns/k | btree Put µs/k | btree Get ns | btree heap B/k | btree mid1% ns/k |
+| keys | Chapter 9 Put µs/k | Chapter 9 Get ns | Chapter 9 heap B/k | Chapter 9 mid1% ns/k | btree Put µs/k | btree Get ns | btree heap B/k | btree mid1% ns/k |
 |------|---:|---:|---:|---:|---:|---:|---:|---:|
 |  1k  | 0.36 | 141 | 175 | 236 | 0.25 |  187 | 48 | 32 |
 | 10k  | 0.43 | 170 | 173 | 123 | 0.38 |  289 | 47 | 15 |
@@ -151,16 +151,16 @@ workload that drove path compression's headline number (chapter
 | 10M  | 1.29 | 819 | 171 | 493 | 2.89 | 3021 | 48 | 78 |
 | 100M | OOM  | OOM | OOM | OOM | (would need ~24 GB; the test machine has 16 GB) |
 
-**Stage 8 Get is 1.3×–3.9× faster than btree across sizes**, with
+**Chapter 9 Get is 1.3×–3.9× faster than btree across sizes**, with
 the gap widening as N grows.
 
-**Stage 8 uses ~3.6× the heap** of btree on URL — the worst ratio
+**Chapter 9 uses ~3.6× the heap** of btree on URL — the worst ratio
 across the three workloads.
 
-**Stage 8 Put is ~tied with btree at small sizes, 1.3×–2× faster
+**Chapter 9 Put is ~tied with btree at small sizes, 1.3×–2× faster
 at scale.**
 
-**Stage 8 mid1% is 4×–9× slower than btree on URL.** Same cause
+**Chapter 9 mid1% is 4×–9× slower than btree on URL.** Same cause
 as Sparse: each yielded URL key crosses several inner nodes
 (host divergence, path divergence, then leaf), each an interface
 call with closure escape. The scale-with-N pattern is similar.
@@ -175,7 +175,7 @@ Four patterns hold across all three workloads:
    3.9× faster than btree.
 2. **Put is competitive with btree at every size**, faster on the
    shorter-key workloads at scale.
-3. **Heap is the trie's honest cost.** Stage 8 uses 1.2–3.6× the
+3. **Heap is the trie's honest cost.** Chapter 9 uses 1.2–3.6× the
    heap of btree, with the ratio depending mainly on key length.
    Btree wins this column.
 4. **Range over a windowed slice favours btree, but the gap is

@@ -317,9 +317,9 @@ func shrinkToNode4[V any](n *node16[V]) *node4[V] {
 	return shrunk
 }
 
-// node16 is the new chapter-6 inner-node type. It mirrors node4's
+// node16 is this chapter's new inner-node type. It mirrors node4's
 // shape (sorted keys array + parallel children array) at a larger
-// capacity. Stage 5's node4 implementation reads as the template
+// capacity. node4's implementation reads as the template
 // for everything below: the differences are the array sizes (16
 // instead of 4), the capacity constant, and the demote/promote
 // targets in addOrGrowChild and reshape.

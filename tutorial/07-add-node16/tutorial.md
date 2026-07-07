@@ -146,18 +146,18 @@ after node4, and is now within striking distance.
 <!-- bench:optime:start -->
 ```
 Op           Workload      Chapter7     Chapter6        btree
-Put          Dense         130.3 µs     118.1 µs     195.8 µs
-Put          Sparse        208.3 µs     398.1 µs     303.5 µs
-Put          URL           414.0 µs     551.7 µs     341.0 µs
-Get          Dense          41.0 ns      38.0 ns     138.0 ns
-Get          Sparse         47.0 ns      43.0 ns     198.0 ns
-Get          URL           136.0 ns     121.0 ns     204.0 ns
-Range        Dense           9.8 µs      10.0 µs       6.8 µs
-Range        Sparse         26.7 µs      47.7 µs       7.3 µs
-Range        URL            35.9 µs      49.8 µs       7.1 µs
-RangeWindow  Dense          14.5 µs      16.4 µs     406.0 ns
-RangeWindow  Sparse         31.2 µs      53.3 µs     380.0 ns
-RangeWindow  URL            41.5 µs      56.5 µs     464.0 ns
+Put          Dense         114.9 µs     115.3 µs     190.5 µs
+Put          Sparse        189.6 µs     340.9 µs     257.2 µs
+Put          URL           359.2 µs     403.0 µs     308.7 µs
+Get          Dense          37.0 ns      36.0 ns     155.0 ns
+Get          Sparse         47.0 ns      44.0 ns     167.0 ns
+Get          URL           137.0 ns     136.0 ns     196.0 ns
+Range        Dense           9.9 µs       9.6 µs       6.3 µs
+Range        Sparse         25.7 µs      45.4 µs       6.2 µs
+Range        URL            32.2 µs      47.5 µs       6.3 µs
+RangeWindow  Dense          14.5 µs      14.5 µs     368.0 ns
+RangeWindow  Sparse         30.2 µs      52.5 µs     357.0 ns
+RangeWindow  URL            40.3 µs      55.0 µs     452.0 ns
 ```
 <!-- bench:optime:end -->
 
@@ -166,7 +166,7 @@ RangeWindow  URL            41.5 µs      56.5 µs     464.0 ns
 Op     Workload    Chapter7 B   allocs   Chapter6 B   allocs      btree B   allocs
 Put    Dense          61.4 KB    2 016      60.1 KB    2 012     109.6 KB    1 115
 Put    Sparse        112.6 KB    2 329     530.3 KB    2 328      86.3 KB    1 085
-Put    URL           151.8 KB    2 603     438.1 KB    2 603     121.4 KB    1 088
+Put    URL           151.8 KB    2 603     438.0 KB    2 603     121.4 KB    1 088
 Range  Dense            312 B        9        312 B        9         96 B        3
 Range  Sparse          5.8 KB      238       5.8 KB      238         96 B        3
 Range  URL             9.6 KB      397       9.6 KB      397         96 B        3
@@ -211,9 +211,9 @@ deliberately.
 <!-- bench:capacity:start -->
 ```
 Workload    Chapter7 keys     B/key   Chapter6 keys     B/key      btree keys     B/key
-Dense           1 564 099      67.1       1 563 926      67.1       1 239 807      84.6
-Sparse          1 141 606     207.1         514 952     603.7       1 634 046      64.6
-URL               755 034     139.6         214 684     489.1       1 091 012      96.4
+Dense           1 564 103      67.1       1 563 929      67.1       1 239 811      84.6
+Sparse          1 141 608     207.1         514 951     603.7       1 634 046      64.6
+URL               755 036     139.6         214 685     489.1       1 091 012      96.4
 ```
 <!-- bench:capacity:end -->
 
