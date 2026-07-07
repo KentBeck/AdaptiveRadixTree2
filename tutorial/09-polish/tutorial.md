@@ -1,9 +1,10 @@
 # Chapter 9 — Polish + reading guide
 
-The structural work is done. The four-type ladder from chapter 8
-matches the production `art.Tree`'s shape, and the bench numbers
-across Sparse, Dense, and URL workloads are within a small
-multiple of `google/btree` on every operation.
+The structural work is done. The four-type ladder from chapter
+[8](../08-add-node48/tutorial.md) matches the production
+`art.Tree`'s shape, and the bench numbers across Sparse, Dense,
+and URL workloads are within a small multiple of `google/btree`
+on every operation.
 
 Chapter 9 closes the gap with three small polishes — each one a
 focused diff against chapter 8 — and then *upgrades* `Range` to
@@ -45,42 +46,50 @@ func newLeaf[V any](key []byte, value V) *leaf[V] {
 ```
 
 For short keys, `l.key` is a sub-slice of `l.inline`. For long
-keys, the heap-copy path is unchanged. The five `&leaf[V]{...}`
-construction sites in chapters 1–7 become `newLeaf[V](key, value)`
-calls.
-
-**Measured impact** (1 000 keys per workload, chapter 8 → chapter 9):
-
-| Op | Workload | Stage 7 allocs/op | Stage 8 allocs/op | Drop |
-|---|---|---|---|---|
-| Put | Dense (8 B keys) | 2 019 | 1 019 | **1.98×** |
-| Put | Sparse (16 B keys) | 2 329 | 1 329 | **1.75×** |
-| Put | URL (~40 B keys) | 2 602 | 2 602 | **1.00×** |
-
-Dense and Sparse keys are below `inlineKeyMax`, so each Put now
-costs one alloc instead of two. URL keys are 25–80 bytes; most
-miss the inline path and Put still allocates twice.
+keys, the heap-copy path is unchanged. The `&leaf[V]{...}`
+construction sites from chapters 3–8 become `newLeaf[V](key,
+value)` calls.
 
 The trade is bytes-per-leaf vs allocs-per-leaf:
 
-| Stage | leaf size | Heap (Sparse) |
-|---|---|---|
-| Stage 7 | 32 B | 100 B/key |
-| Stage 8 | 56 B | 116 B/key |
+<!-- bench:leafsizes:start -->
+```
+Chapter 8 leaf   32 B   key slice header + value
+Chapter 9 leaf   56 B   + 24-byte inline key buffer
+```
+<!-- bench:leafsizes:end -->
 
-Live heap actually goes *up* by 16% on Sparse because every leaf
-carries the inline buffer whether it uses it or not. The wins
-come elsewhere: Put time on Sparse drops from 148 µs to 113 µs
-(~24% faster) because allocator work is the dominant cost. Put
-time on Dense drops from 100 µs to 74 µs (~26% faster).
+Dense (8 B) and Sparse (16 B) keys fit inline, so each Put costs
+one allocation instead of two — the allocations table at the end
+of the chapter shows Put allocs dropping roughly 2× on those
+workloads. URL keys are 25–80 bytes; most miss the inline path
+and Put still allocates twice.
 
-Reasonable trade. Heap is rarely the bottleneck; allocator latency
-often is.
+Live heap actually goes *up* on Sparse, because every leaf
+carries the inline buffer whether it uses it or not:
+
+<!-- bench:heapfootprint:start -->
+```
+Workload    Chapter8 heap   Chapter9 heap    ratio
+Dense            59 B/key        83 B/key    1.41×
+Sparse          100 B/key       116 B/key    1.16×
+URL             143 B/key       175 B/key    1.22×
+```
+<!-- bench:heapfootprint:end -->
+
+The wins come elsewhere: Put gets meaningfully faster on Dense,
+where allocator work dominates a small tree (see the time table
+below); on Sparse and URL it's roughly flat — half the
+allocations, but more bytes zeroed per leaf. The capacity table
+at the end shows the same trade at 100 MB scale: every workload
+fits somewhat fewer keys. Reasonable trade where allocator
+latency matters more than resident bytes — which is the
+production package's bet.
 
 ## Polish #2 — Embedded `innerHeader`
 
-Chapters 5–7 have four nearly identical method blocks, one per
-inner-node type:
+Chapter 8 ended with four nearly identical accessor blocks, one
+per inner-node type:
 
 ```go
 func (n *node4[V]) getPrefix() []byte  { return n.prefix }
@@ -134,9 +143,10 @@ the type.
 
 ## Polish #3 — `Range` with a reused path buffer
 
-The naive `Range` from chapters 1–7 walks every leaf in order and
-filters at the leaf — every leaf carries its own key (since
-chapter 3), so no path-tracking is needed. That works, but it
+The naive `Range` from chapters 2–8 walks every leaf in order
+and filters at the leaf — every leaf carries its own key (since
+chapter [3](../03-lazy-expansion/tutorial.md)), so no
+path-tracking is needed. That works, but it
 visits 100% of the leaves even when the caller asked for a narrow
 window. Efficient `Range(start, end)` must *prune* whole subtrees
 that lie entirely outside the range, and pruning needs the
@@ -190,27 +200,27 @@ allocation-free predicates that decide whether a child's whole
 subtree falls outside the range based on the path-so-far + the
 edge byte alone.
 
-**Measured impact** (`Range(lo, hi)` over the middle 1% of each
-workload, 1 000 keys, naive walk-and-filter from chapter 8 vs
-the pruning Range above, with `google/btree` for reference):
+**Measured impact**: the `RangeWindow` rows of the time table
+below iterate the middle 1% of each workload — this chapter's
+pruning `Range` against chapter 8's walk-and-filter, with
+`google/btree` for reference. The speedup is an order of
+magnitude or more on Sparse and URL, whose full traversals do far
+more inner-node work; the pruning predicate skips almost all of
+it.
 
-| Workload | Stage 7 naive Range | Stage 8 pruning Range | Speedup | btree Range |
-|---|---|---|---|---|
-| Dense  |  8.76 µs /   8 allocs | 1.72 µs /  6 allocs |  5.1× | 0.13 µs / 0 allocs |
-| Sparse | 16.36 µs / 237 allocs | 1.24 µs /  8 allocs | 13.2× | 0.13 µs / 0 allocs |
-| URL    | 23.43 µs / 396 allocs | 0.97 µs / 15 allocs | 24.2× | 0.18 µs / 0 allocs |
-
-That is the speedup Polish #3 buys: 5–24× wall-clock against the
-naive walk-and-filter, depending on how much of the keyspace the
-window actually overlaps. Sparse and URL win biggest because
-their full traversals do far more inner-node work, and the
-pruning predicate skips almost all of it.
+The flip side is visible in the `Range` rows: a *full* scan now
+runs the pruning machinery (path threading, two predicates per
+child) for no benefit and costs roughly 2× chapter 8's plain
+walk. Narrow windows are the common case for `Range`; full scans
+have `Range(nil, nil)`, which is why the production package
+exposes it as its own `All()` path.
 
 The path-buffer reuse worked too — there are zero per-yield
 allocations, and the single shared buffer is amortised to ~zero
 allocs per call. **The remaining allocations are closure escapes
-on every inner-node visit**, the same chapter-5 interface-dispatch
-cost that the naive `Range` already paid. (One closure per
+on every inner-node visit**, the same interface-dispatch cost
+(chapter [6](../06-introduce-polymorphism/tutorial.md)) that the
+naive `Range` already paid. (One closure per
 `eachAscending` call, captured because the call goes through the
 `innerNode` interface and the compiler cannot prove the closure
 stays on the stack.)
@@ -223,6 +233,54 @@ of being adaptive. We made that trade in chapter 6; it lands at
 For range workloads where this matters, the production code's
 `Range` ships with the same shape and the same residual cost; we
 have not invented a faster version.
+
+## The whole ladder, measured
+
+Same acceptance criteria, same yardsticks, one last time. The
+tables are rendered by `go test -update-bench` from the shared
+harness benchmarks — this chapter's tree alongside chapter
+[8](../08-add-node48/tutorial.md)'s, with `google/btree` for
+context. Reproduce any cell with
+`go test -bench=. -benchmem -benchtime=300ms ./09-polish/`.
+
+<!-- bench:optime:start -->
+```
+Op           Workload      Chapter9     Chapter8        btree
+Put          Dense          95.6 µs     122.3 µs     188.9 µs
+Put          Sparse        183.2 µs     180.8 µs     258.3 µs
+Put          URL           365.4 µs     349.2 µs     300.7 µs
+Get          Dense          38.0 ns      36.0 ns     138.0 ns
+Get          Sparse         48.0 ns      48.0 ns     168.0 ns
+Get          URL           138.0 ns     134.0 ns     200.0 ns
+Range        Dense          19.6 µs       9.5 µs       6.5 µs
+Range        Sparse         43.9 µs      23.9 µs       6.2 µs
+Range        URL            62.2 µs      33.6 µs       6.3 µs
+RangeWindow  Dense           3.8 µs      14.6 µs     368.0 ns
+RangeWindow  Sparse          2.5 µs      29.0 µs     358.0 ns
+RangeWindow  URL             2.0 µs      40.6 µs     459.0 ns
+```
+<!-- bench:optime:end -->
+
+<!-- bench:opspace:start -->
+```
+Op     Workload    Chapter9 B   allocs   Chapter8 B   allocs      btree B   allocs
+Put    Dense          90.0 KB    1 020      66.0 KB    2 020     109.6 KB    1 115
+Put    Sparse        129.8 KB    1 330     113.8 KB    2 330      86.3 KB    1 085
+Put    URL           183.8 KB    2 603     151.8 KB    2 603     121.4 KB    1 088
+Range  Dense            648 B       10        312 B        9         96 B        3
+Range  Sparse         22.6 KB      239       5.8 KB      238         96 B        3
+Range  URL            38.0 KB      399       9.6 KB      397         96 B        3
+```
+<!-- bench:opspace:end -->
+
+<!-- bench:capacity:start -->
+```
+Workload    Chapter9 keys     B/key   Chapter8 keys     B/key      btree keys     B/key
+Dense           1 263 082      83.1       1 564 099      67.1       1 239 811      84.6
+Sparse          1 025 383     108.0       1 215 570      98.6       1 634 042      64.6
+URL               614 009     170.8         755 036     139.6       1 091 008      96.4
+```
+<!-- bench:capacity:end -->
 
 ## What's left out
 
@@ -296,8 +354,10 @@ You started chapter 2 with one node type that allocated 31 KB
 per Sparse key. Eight chapters later you have the same data
 structure as the production package: a four-type adaptive ladder
 with lazy expansion, path compression, polymorphic dispatch,
-inline-key buffers, and a zero-yield-alloc `Range`. The Sparse
-heap is within 1.6× of `google/btree`; `Get` is 4× *faster*.
+inline-key buffers, and a zero-yield-alloc pruning `Range`. The
+Sparse heap is within ~2× of `google/btree`; `Get` is ~3× faster;
+windowed `Range` beats the chapter-8 walk by an order of
+magnitude.
 
 That ladder cost roughly 2 600 lines of code distributed across
 eight self-contained Go packages, and roughly the same number of

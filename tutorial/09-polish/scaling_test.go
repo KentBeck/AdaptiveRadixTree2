@@ -47,8 +47,8 @@ var workloadSpecs = []workloadSpec{
 //
 // Run with:
 //
-//	go test ./08-polish/ -run TestScalingAnnex -v -timeout 5m         # up to 1M
-//	go test ./08-polish/ -run TestScalingAnnex -v -huge -timeout 30m  # full ladder
+//	go test ./09-polish/ -run TestScalingAnnex -v -timeout 5m         # up to 1M
+//	go test ./09-polish/ -run TestScalingAnnex -v -huge -timeout 30m  # full ladder
 func TestScalingAnnex(t *testing.T) {
 	if testing.Short() {
 		t.Skip("scaling annex skipped under -short")

@@ -6,6 +6,8 @@ import (
 	"sort"
 	"testing"
 	"unsafe"
+
+	"github.com/KentBeck/AdaptiveRadixTree2/tutorial/01-test-harness"
 )
 
 func TestPutGetDelete(t *testing.T) {
@@ -135,4 +137,13 @@ func TestRangeAcrossLargeTree(t *testing.T) {
 	if !reflect.DeepEqual(got, expected) {
 		t.Fatalf("Range mismatch (got %d, want %d)", len(got), len(expected))
 	}
+}
+
+// Tree[int] satisfies harness.SortedMap as-is; no adapter needed.
+func factory() harness.Factory {
+	return func() harness.SortedMap { return New[int]() }
+}
+
+func TestAcceptance(t *testing.T) {
+	harness.RunAcceptance(t, factory())
 }
