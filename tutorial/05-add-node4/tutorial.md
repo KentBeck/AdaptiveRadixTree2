@@ -1,8 +1,9 @@
 # Chapter 5 — Adding node4
 
-Chapter 4 ended with one number above all the others:
+Chapter [4](../04-path-compression/tutorial.md) ended with one
+number above all the others:
 
-> Sparse: 234 inner nodes for 1 000 keys → ~468 KB of pointers
+> Sparse: 234 inner nodes for 1 000 keys → ~950 KB of child slots
 > carried just so each node can index the alphabet directly.
 
 That's the cost of `[256]node` per inner node, regardless of the
@@ -12,7 +13,7 @@ footprint dwarfs the leaf footprint. We need a smaller inner node.
 Chapter 5 introduces *node4* — an inner node that stores up to
 four branching children in a sorted four-element array. Same
 prefix slot, same terminal slot, same role in the tree. A node4
-costs about 80 B versus a node256's ~2 080 B.
+costs 112 B versus a node256's 4 136 B.
 
 The cost: we now have *two* inner-node types. Every operation
 must dispatch on which type it has. Chapter 5 uses explicit
@@ -20,11 +21,14 @@ type-switch helpers for that dispatch — `nodePrefix`,
 `nodeFindChild`, `nodeAddOrGrowChild`, etc. Nine of them. With two
 cases each.
 
-If two cases is uncomfortable, four cases (chapters 6 and 7 add
-two more node types) is intolerable. That's exactly why chapter 6
-exists between this chapter and the third addition: refactor the
-dispatch to method polymorphism *first*, then add the rest. **Make
-the change easy, then make the easy change.**
+If two cases is uncomfortable, four cases (chapters
+[7](../07-add-node16/tutorial.md) and
+[8](../08-add-node48/tutorial.md) add two more node types) is
+intolerable. That's exactly why chapter
+[6](../06-introduce-polymorphism/tutorial.md) exists between this
+chapter and the third addition: refactor the dispatch to method
+polymorphism *first*, then add the rest. **Make the change easy,
+then make the easy change.**
 
 This chapter is the "make the change hard" one. Read the type
 switches and remember how many of them there are.
@@ -147,8 +151,12 @@ accessing struct fields directly.
 
 ## What node4 buys, measured
 
-Reproduce with
-`go test -bench=. -benchmem -benchtime=300ms ./tutorial/05-add-node4/`.
+Same acceptance criteria, same yardsticks: the tables below are
+rendered by `go test -update-bench` from the shared harness
+benchmarks — this chapter's tree alongside chapter
+[4](../04-path-compression/tutorial.md)'s, with `google/btree` for
+context. Reproduce any cell with
+`go test -bench=. -benchmem -benchtime=300ms ./05-add-node4/`.
 
 ### Per-node sizes
 
@@ -170,112 +178,130 @@ Every inner-node demotion from node256 to node4 saves ~4 KB.
 
 <!-- bench:innernodemix:start -->
 ```
-Workload    Stage 3 inner   Stage 4 (n4 + n256)
-Dense             5             1 + 4
-Sparse          234           141 + 93
-URL             393           330 + 63
+Workload    Chapter 4 inner   Chapter 5 (n4 + n256)
+Dense               5               1 + 4
+Sparse            234             141 + 93
+URL               393             330 + 63
 ```
 <!-- bench:innernodemix:end -->
 
 Two numbers per workload below: **structural** (sum of
-unsafe.Sizeof contributions) and **heap** (actual
+`unsafe.Sizeof` contributions) and **heap** (actual
 `runtime.HeapAlloc` delta after building, including malloc
-rounding). Heap matches the `B/op` from `Put` benchmarks.
+rounding).
 
+<!-- bench:footprint:start -->
 ```
-Workload    Stage 3                       Stage 4                      heap improvement
-            structural    heap            structural    heap
-Dense           60 B        64 B             56 B        59 B           1.08×
-Sparse       1 015 B    1 186 B            448 B       516 B           2.30×
-URL          1 698 B    1 992 B            370 B       424 B           4.69×
+Workload   Chapter4 struct       heap  Chapter5 struct       heap  improvement
+Dense                 60 B       64 B             56 B       59 B        1.08×
+Sparse             1 013 B    1 186 B            448 B      516 B        2.30×
+URL                1 695 B    1 992 B            370 B      424 B        4.70×
 ```
+<!-- bench:footprint:end -->
 
-Stage 4 is now within **6× of btree's heap footprint on URL**
-(424 B/key vs ~70 B/key) and ~7× on Sparse, down from chapter
-3's 28× and 17×.
+This chapter lands within **~6× of btree's heap footprint on URL**
+and ~7× on Sparse, down from chapter 3's ~28× and ~17×.
 
 The Sparse arithmetic, made concrete: 141 of the 234 inner nodes
 from chapter 4 became node4s. Each demoted node went from 4 136 B
 to 112 B — saved 4 024 B per node. Total inner-node savings:
-141 × 4 024 ≈ 567 KB on a 1 186 KB tree (chapter 4 heap), giving
-the 2.3× heap reduction observed. The 93 inner nodes that stayed
-node256 are the ones with > 4 children — depth-1 buckets that
-collected enough random keys to overflow node4.
+141 × 4 024 ≈ 567 KB, giving the heap reduction in the table. The
+93 inner nodes that stayed node256 are the ones with > 4
+children — depth-1 buckets that collected enough random keys to
+overflow node4.
 
-URL is the headline. 330 of the 393 inner nodes are node4s now.
-Per-node savings: 330 × 4 024 ≈ 1 328 KB on a 1 992 KB tree =
-the 4.69× heap reduction.
+URL is the headline: 330 of the 393 inner nodes are node4s now,
+saving 330 × 4 024 ≈ 1.3 MB of the chapter-4 tree's ~2 MB.
 
-### Time per operation
+### Time and allocations per operation
 
+<!-- bench:optime:start -->
 ```
-Op    Workload     Stage 3          Stage 4           btree
-Put    Dense          79 µs           89 µs (0.9×)    118 µs
-Put    Sparse        455 µs          248 µs (1.8×)    175 µs
-Put    URL           888 µs          343 µs (2.6×)    196 µs
-Get    Dense          13.5 ns         21.6 ns (0.6×)  108 ns
-Get    Sparse         11.0 ns         24.8 ns (0.4×)  127 ns
-Get    URL            65   ns         83   ns (0.8×)  133 ns
-Range  Dense           5.3 µs          6.0 µs (0.9×)    4 µs
-Range  Sparse         54   µs         24   µs (2.2×)    4 µs
-Range  URL            92   µs         21   µs (4.4×)    4 µs
+Op           Workload      Chapter5     Chapter4        btree
+Put          Dense         118.6 µs      95.7 µs     199.9 µs
+Put          Sparse        324.3 µs     589.9 µs     261.0 µs
+Put          URL           436.7 µs      1.15 ms     316.7 µs
+Get          Dense          33.0 ns      27.0 ns     158.0 ns
+Get          Sparse         37.0 ns      24.0 ns     171.0 ns
+Get          URL           103.0 ns      87.0 ns     209.0 ns
+Range        Dense           9.4 µs       9.2 µs       6.6 µs
+Range        Sparse         34.2 µs      64.7 µs       6.8 µs
+Range        URL            31.5 µs     114.7 µs       6.3 µs
+RangeWindow  Dense          14.3 µs      12.9 µs     424.0 ns
+RangeWindow  Sparse         42.1 µs      74.9 µs     363.0 ns
+RangeWindow  URL            38.1 µs     124.4 µs     444.0 ns
 ```
+<!-- bench:optime:end -->
+
+<!-- bench:opspace:start -->
+```
+Op     Workload    Chapter5 B   allocs   Chapter4 B   allocs      btree B   allocs
+Put    Dense          60.1 KB    2 012      64.4 KB    2 008     109.6 KB    1 115
+Put    Sparse        526.6 KB    2 328       1.2 MB    2 235      86.3 KB    1 085
+Put    URL           431.8 KB    2 603       2.0 MB    2 540     121.4 KB    1 088
+Range  Dense            112 B        3        112 B        3         96 B        3
+Range  Sparse           112 B        3        112 B        3         96 B        3
+Range  URL              112 B        3        112 B        3         96 B        3
+```
+<!-- bench:opspace:end -->
 
 Three honest observations:
 
-- **Get got slower across the board** — between 1.3× and 2.3×,
-  worst on Sparse. The cost is the type switch executed at every
-  inner-node visit. On Sparse, where the walk is one or two
-  inner nodes followed by a leaf compare, the type switch is the
-  work. We knew adding a second node type would cost dispatch;
-  the question for chapter 6 is whether a polymorphic interface
-  is faster than the switch. (Spoiler: it isn't, slightly. Not
-  the reason we'll do the refactor.)
-- **Range got dramatically faster on Sparse and URL.** On URL,
-  4.4× faster than chapter 4. Reason: chapter 4's `Range` iterated
-  256 child slots per inner node (mostly nil); chapter 5's `Range`
-  on a node4 iterates only the 4 occupied slots. On URL the
+- **Get got slower across the board**, worst on Sparse. The cost
+  is the type switch executed at every inner-node visit. On
+  Sparse, where the walk is one or two inner nodes followed by a
+  leaf compare, the type switch is a large share of the work. We
+  knew adding a second node type would cost dispatch; the
+  question for chapter [6](../06-introduce-polymorphism/tutorial.md)
+  is whether a polymorphic interface is faster than the switch.
+  (Spoiler: not meaningfully. Not the reason we'll do the
+  refactor.)
+- **Range got dramatically faster on Sparse and URL.** Chapter
+  4's `Range` iterated 256 child slots per inner node (mostly
+  nil); a node4 iterates only the 4 occupied slots. On URL the
   inner-node mix is 330 node4s + 63 node256s — **84 % of inner
-  nodes are node4s**, so 84 % of `Range`'s per-node iteration cost
-  dropped by 64×. On Sparse the mix is 141 node4s + 93 node256s
-  (60 % node4s), giving the smaller 2.2× Range speedup.
-- **Put got faster on Sparse (1.8×) and URL (2.6×) and slightly
-  slower on Dense (1.1×).** Faster because allocating an 80-byte
-  node4 costs less malloc time than a 2 080-byte node256, and
-  Sparse / URL trees do a lot of those allocations. Slower on
-  Dense because the dispatch overhead applies even when Put falls
-  through to the existing-node-256 path.
+  nodes are node4s**, so most of `Range`'s per-node iteration
+  cost dropped by 64×. On Sparse the mix is 141 + 93 (60 %
+  node4s), a smaller but still large win.
+- **Put got faster on Sparse and URL, and a little slower on
+  Dense.** Faster because allocating a 112-byte node4 costs less
+  malloc and zeroing time than a 4 KB node256, and Sparse / URL
+  trees do a lot of those allocations. Dense pays the dispatch
+  overhead without saving allocations — its tree is a handful of
+  nodes either way. Put *bytes* tell the
+  cleaner story: Sparse drops ~2.3×, URL ~4.6× — the allocation
+  *count* is unchanged (one node per branching point) but the
+  per-allocation size collapsed.
 
-### Allocations and bytes allocated
+### Capacity
 
+<!-- bench:capacity:start -->
 ```
-Op       Workload     Stage 3 B/op    Stage 4 B/op    btree B/op
-Put      Dense          64 KB           60 KB            102 KB
-Put      Sparse      1 186 KB          527 KB             70 KB
-Put      URL         1 993 KB          432 KB             73 KB
+Workload    Chapter5 keys     B/key   Chapter4 keys     B/key      btree keys     B/key
+Dense           1 563 929      67.1       1 563 930      67.1       1 239 809      84.6
+Sparse            526 484     597.1         125 000     1 524       1 634 039      64.6
+URL               219 400     478.4          58 317     1 807       1 091 008      96.4
 ```
+<!-- bench:capacity:end -->
 
-Sparse Put now allocates **2.3× fewer bytes** than chapter 4
-(though still ~7.5× more than btree). URL is similar: **4.6×
-fewer bytes** than chapter 4 (~5.9× more than btree). The
-allocation *count* is essentially unchanged — we still allocate
-one node per branching point — but the per-allocation size
-dropped dramatically.
+Sparse and URL capacity both jump — the smaller inner nodes are
+pure win at the 100 MB scale.
 
 ## What's still wrong: the dispatch is starting to hurt
 
-`Get` on Sparse went from 11 ns (chapter 4) to 25 ns (chapter 5).
-Two type switches per loop iteration, fired on every inner-node
-visit. The compiler does what it can with two-case switches but
-can't eliminate the type-tag check.
+`Get` on Sparse roughly doubled from chapter 4. Two type switches
+per loop iteration, fired on every inner-node visit. The compiler
+does what it can with two-case switches but can't eliminate the
+type-tag check.
 
 The dispatch problem will get worse with more node types. Adding
-node16 (chapter 7) means 3 cases × 9 helpers = 27 case branches.
-Adding node48 (chapter 8) means 36. Each addition forces an edit
-to every dispatch helper.
+node16 (chapter [7](../07-add-node16/tutorial.md)) means 3 cases
+× 9 helpers = 27 case branches. Adding node48 (chapter
+[8](../08-add-node48/tutorial.md)) means 36. Each addition forces
+an edit to every dispatch helper.
 
-Chapter 6 introduces an `innerNode` interface with one method per
-operation:
+Chapter [6](../06-introduce-polymorphism/tutorial.md) introduces
+an `innerNode` interface with one method per operation:
 
 ```go {src=../06-introduce-polymorphism/art.go decl=innerNode}
 type innerNode interface {
@@ -296,9 +322,10 @@ type innerNode interface {
 `node4` and `node256` both implement it. Every operation calls
 methods directly. The type switches in the helpers go away. Bench
 numbers should stay roughly the same (or better — the Go compiler
-specializes interface calls in some cases) and the chapter-6
-diff for adding node16 will be **one new struct file**, no edits
-to existing operations.
+specializes interface calls in some cases) and the chapter-7 diff
+for adding node16 will be **one new struct file**, no edits to
+existing operations.
 
 That's the chapter-5 commitment: **same behavior, easier change**.
-Then chapter 7 collects the easy change.
+Then chapter [7](../07-add-node16/tutorial.md) collects the easy
+change.
