@@ -66,6 +66,18 @@ def rewrite_links(body):
     return CROSS_LINK_RE.sub(sub, body)
 
 
+# Go code fences in the per-chapter files carry buildcheck directives
+# in their info string, e.g. ```go {src=sortedmap.go decls=SortedMap}.
+# Standard Markdown renderers don't understand the {...} attribute and
+# fail to open a code block, so strip the attributes for the book —
+# the source files keep them for the prose-sync test.
+FENCE_ATTR_RE = re.compile(r"^(`{3,}go)(?: .*)?$", flags=re.M)
+
+
+def strip_fence_attrs(body):
+    return FENCE_ATTR_RE.sub(r"\1", body)
+
+
 def assemble_md():
     out = []
     out.append("# Adaptive Radix Tree — the literate tutorial\n")
@@ -84,6 +96,7 @@ def assemble_md():
         # two competing H1s and the TOC anchors would collide.
         body = read(path)
         body = re.sub(r"^(#{1,5}) ", lambda m: "#" + m.group(1) + " ", body, flags=re.M)
+        body = strip_fence_attrs(body)
         out.append(rewrite_links(body))
         out.append("\n")
     return "".join(out)
