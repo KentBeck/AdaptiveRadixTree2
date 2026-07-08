@@ -62,17 +62,18 @@ edge:
 └─ h
    ├─ e
    │  └─ l
-   │     └─ l
-   │        ├─ o        "hello" → 1
-   │        └─ p        "help"  → 2
-   └─ i                 "hi"    → 3
+   │     ├─ l
+   │     │  └─ o     "hello" → 1
+   │     └─ p        "help"  → 2
+   └─ i              "hi"    → 3
 ```
 
-The keys `hello` and `help` share the four-byte prefix `hell`. They
-diverge at the fifth byte: `o` vs `p`. So the trie has one chain of
-edges `h → e → l → l` shared between them, and at the node reached
-after consuming `hell` there are two outgoing edges, `o` and `p`,
-each leading to its own value.
+The keys `hello` and `help` share the three-byte prefix `hel`. They
+diverge at the fourth byte: `l` (which continues on to `hello`) vs
+`p`. So the trie has one chain of edges `h → e → l` shared between
+them, and at the node reached after consuming `hel` there are two
+outgoing edges — `l`, which then leads through `o` to `hello`, and
+`p`, which leads to `help`.
 
 Two consequences fall out for free:
 
@@ -80,7 +81,7 @@ Two consequences fall out for free:
    in ascending byte order. The yielded keys appear in byte-wise
    sorted order with no comparisons and no balancing.
 2. **Shared work for shared prefixes.** A lookup of `help` and a
-   lookup of `hello` traverse the same first four edges. The
+   lookup of `hello` traverse the same first three edges. The
    per-byte cost depends on the keys' shape, not on the size of the
    map.
 
